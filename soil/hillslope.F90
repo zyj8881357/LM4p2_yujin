@@ -932,9 +932,10 @@ subroutine hlsp_config_check()
                      FATAL)
 
   ! ZMS fill in this function
-  if ((do_landuse_change .or. do_harvesting) .and. hillslope_horz_subdiv) then
+  ! NWC - Why is was this ever conditional??? Eventually set externally
+  !if ((do_landuse_change .or. do_harvesting) .and. hillslope_horz_subdiv) then
       call transitions_disturbance_length_init()
-  end if
+  !end if
 
   ! Deallocate variables used during init, as this function is called at end of land_model init
   ! sequence.
