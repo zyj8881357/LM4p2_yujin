@@ -3086,6 +3086,9 @@ subroutine advection_tri(soil, flow, dW_l, tflow, d_GW, div, delta_time, t_soil_
    real :: esum1, esum2 ! [W/m^2] heat content of soil before and after solution
    real, parameter :: ethresh = 1.e-4 ! [W/m^2] Allowable error in energy solution for roundoff
 
+  ! Initialize local variables
+  del_t(:) = 0.0
+
 !   if (do_component_balchecks) then
       esum1 = clw*max(flow(1), 0.)*(tflow-tfreeze) ! initialize to incoming surface energy tendency
       do l = 1, num_l
@@ -3154,6 +3157,11 @@ subroutine advection_tri(soil, flow, dW_l, tflow, d_GW, div, delta_time, t_soil_
 
    ! Update temperature
    call tridiag(aaa, bbb, ccc, ddd, del_t)
+   ! NWC If there are NaNs then sen del_t to 0. If not this will crash. Probably
+   ! want to revisit this at some point.
+   do l =1,num_l
+    if (isnan(del_t(l)) .eq. .true.)del_t(l) = 0.0
+   enddo
    t_soil_tridiag(1:num_l) = soil%T(1:num_l) + del_t(1:num_l)
 
    if (use_tridiag_foradvec) then
