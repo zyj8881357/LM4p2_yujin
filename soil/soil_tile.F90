@@ -22,6 +22,7 @@ use land_constants_mod, only : &
      NBANDS
 use land_tile_selectors_mod, only : &
      tile_selector_type, SEL_SOIL, register_tile_selector
+use tiling_input_types_mod, only : tile_parameters_type
 
 implicit none
 private
@@ -31,6 +32,7 @@ public :: soil_pars_type
 public :: soil_tile_type
 
 public :: new_soil_tile, delete_soil_tile
+public :: new_soil_tile_predefined
 public :: soil_tiles_can_be_merged, merge_soil_tiles
 public :: soil_is_selected
 public :: get_soil_tile_tag
@@ -68,6 +70,11 @@ public :: max_lev, psi_wilt
 ! =====end of public interfaces ==============================================
 interface new_soil_tile
    module procedure soil_tile_ctor
+   module procedure soil_tile_copy_ctor
+end interface
+
+interface new_soil_tile_predefined
+   module procedure soil_tile_ctor_predefined
    module procedure soil_tile_copy_ctor
 end interface
 
@@ -676,6 +683,61 @@ function soil_tile_ctor(tag, hidx_j, hidx_k) result(ptr)
   ptr%div_hlsp_heat(:) = initval
   call soil_data_init_0d(ptr)
 end function soil_tile_ctor
+
+! ============================================================================
+function soil_tile_ctor_predefined(tag, hidx_j, hidx_k, tile_parameters, &
+                                   itile) result(ptr)
+  type(soil_tile_type), pointer :: ptr ! return value
+  integer, intent(in)  :: tag ! kind of tile
+  integer, intent(in)  :: hidx_j, hidx_k ! hillslope indices
+  type(tile_parameters_type), intent(in) :: tile_parameters
+  integer, intent(in) :: itile
+  integer :: i
+
+  allocate(ptr)
+  ptr%tag = tag
+  ptr%hidx_j = hidx_j
+  ptr%hidx_k = hidx_k
+  !allocate(ptr%dz(num_l))
+  !ptr%dz = dz(1:num_l)
+  ! allocate storage for tile data
+  ! allocate storage for tile data
+  allocate( ptr%wl                (num_l),  &
+            ptr%ws                (num_l),  &
+            ptr%T                 (num_l),  &
+            ptr%groundwater       (num_l),  &
+            ptr%groundwater_T     (num_l),  &
+            ptr%w_fc              (num_l),  &
+            ptr%w_wilt            (num_l),  &
+            ptr%d_trans           (num_l),  &
+            ptr%alpha             (num_l),  &
+            ptr%k_macro_z         (num_l),  &
+            ptr%k_macro_x         (num_l),  &
+            ptr%vwc_max           (num_l),  &
+            ptr%uptake_frac       (num_l),  &
+            ptr%heat_capacity_dry (num_l),  &
+            ptr%e                 (num_l),  &
+            ptr%f                 (num_l),  &
+            ptr%psi               (num_l),  &
+            ptr%gw_flux_norm      (num_storage_pts),  &
+            ptr%gw_area_norm      (num_storage_pts),  &
+            ptr%hyd_cond_horz     (num_l),  &
+            ptr%div_hlsp          (num_l),  &
+            ptr%div_hlsp_heat     (num_l),  &
+            ptr%fast_soil_C       (num_l),  &
+            ptr%slow_soil_C       (num_l),  &
+            ptr%fsc_in            (num_l),  & 
+            ptr%ssc_in            (num_l),  & 
+            ptr%asoil_in          (num_l)   )
+
+  ! Initialize to catch use before appropriate
+  !ptr%psi(:) = initval
+  ptr%hyd_cond_horz(:) = initval
+  ptr%div_hlsp(:)      = initval
+  ptr%div_hlsp_heat(:) = initval
+  !call soil_data_init_0d_predefined(ptr,tile_parameters,itile)
+
+end function soil_tile_ctor_predefined
 
 
 ! ============================================================================

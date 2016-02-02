@@ -111,6 +111,7 @@ use hillslope_hydrology_mod, only: hlsp_hydrology_1, hlsp_hydro_init
 #ifdef ZMSDEBUG
 use land_debug_mod, only : check_var_range
 #endif
+use predefined_tiles_mod, only: land_cover_cold_start_0d_predefined_tiles
 
 implicit none
 private
@@ -165,6 +166,8 @@ character(16) :: nearest_point_search = 'global' ! specifies where to look for
 logical :: print_remapping = .FALSE. ! if true, full land cover remapping
               ! information is printed on the cold start
 logical :: new_land_io=.true.
+logical :: predefined_tiles= .FALSE. ! If true, the tiles for each grid cell for
+              ! each grid cell are read from an external file
 integer :: layout(2) = (/0,0/)
 integer :: io_layout(2) = (/0,0/)
   ! mask_table contains information for masking domain ( n_mask, layout and mask_list).
@@ -209,7 +212,8 @@ namelist /land_model_nml/ use_old_conservation_equations, &
                           nearest_point_search, print_remapping, &
                           use_coast_rough, coast_rough_mom, coast_rough_heat, &
                           max_coast_frac, use_coast_topo_rough, &
-                          layout, io_layout, new_land_io, mask_table
+                          layout, io_layout, new_land_io, mask_table, &
+                          predefined_tiles
 ! ---- end of namelist -------------------------------------------------------
 
 logical  :: module_is_initialized = .FALSE.
@@ -927,9 +931,19 @@ subroutine land_cover_cold_start(lnd)
   do i = 1,size(land_mask,1)
      if(.not.land_mask(i,j)) cycle ! skip ocean points
      call set_current_point(i+lnd%is-1,j+lnd%js-1,1)
-     call land_cover_cold_start_0d &
+     !Choose the tiling scheme
+     if (predefined_tiles .eq. .False.) then
+      !Original method. Hillslope and soil tiles are defined within the model by
+      !reading from gridded products
+      call land_cover_cold_start_0d &
           (lnd%tile_map(i+lnd%is-1,j+lnd%js-1),glac(i,j,:),lake(i,j,:),soil(i,j,:),soiltags(i,j,:),&
                hlsp_pos(i,j,:), hlsp_par(i,j,:), vegn(i,j,:))
+     else if (predefined_tiles .eq. .True.) then
+      !New method. Hillslope and soil tiles (and their properties) are
+      !predefined and then read into the model
+      call land_cover_cold_start_0d_predefined_tiles(lnd%tile_map(i+lnd%is-1,j+lnd%js-1),&
+          lnd)
+     endif
      if(nitems(lnd%tile_map(i+lnd%is-1,j+lnd%js-1))==0) then
         call error_mesg('land_cover_cold_start',&
              'No tiles were created for a valid land point at i='&
