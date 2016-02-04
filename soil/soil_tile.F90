@@ -735,7 +735,7 @@ function soil_tile_ctor_predefined(tag, hidx_j, hidx_k, tile_parameters, &
   ptr%hyd_cond_horz(:) = initval
   ptr%div_hlsp(:)      = initval
   ptr%div_hlsp_heat(:) = initval
-  !call soil_data_init_0d_predefined(ptr,tile_parameters,itile)
+  call soil_data_init_0d_predefined(ptr,tile_parameters,itile)
 
 end function soil_tile_ctor_predefined
 
@@ -837,6 +837,7 @@ subroutine soil_data_init_0d(soil)
   
   k = soil%tag
 
+  !stop
   soil%pars%vwc_sat           = dat_w_sat            (k)
   soil%pars%awc_lm2           = dat_awc_lm2          (k)
   soil%pars%k_sat_ref         = dat_k_sat_ref        (k)
@@ -934,6 +935,121 @@ subroutine soil_data_init_0d(soil)
 !  soil%pars%transm_bedrock = initval
 
 end subroutine soil_data_init_0d
+
+! ============================================================================
+subroutine soil_data_init_0d_predefined(soil,tile_parameters,itile)
+  type(soil_tile_type), intent(inout) :: soil
+  type(tile_parameters_type), intent(in) :: tile_parameters
+  integer, intent(in) :: itile
+  
+!  real tau_groundwater
+!  real rsa_exp         ! riparian source-area exponent
+  integer :: k, i, l, code, m_zeta, m_tau
+  real    :: alpha_inf_sq, alpha_sfc_sq, comp_local
+  real    :: single_log_zeta_s, single_log_tau, frac_zeta, frac_tau
+  real    :: z ! depth at top of current layer
+  
+  k = soil%tag
+
+  soil%pars%vwc_sat           = tile_parameters%dat_w_sat(itile)
+  soil%pars%awc_lm2           = tile_parameters%dat_awc_lm2(itile)
+  soil%pars%k_sat_ref         = tile_parameters%dat_k_sat_ref(itile)
+  soil%pars%psi_sat_ref       = tile_parameters%dat_psi_sat_ref(itile)
+  soil%pars%chb               = tile_parameters%dat_chb(itile)
+  soil%pars%heat_capacity_dry = tile_parameters%dat_heat_capacity_dry(itile)
+  soil%pars%thermal_cond_dry  = tile_parameters%dat_thermal_cond_dry(itile)
+  soil%pars%thermal_cond_sat  = tile_parameters%dat_thermal_cond_sat(itile)
+  soil%pars%thermal_cond_exp  = tile_parameters%dat_thermal_cond_exp(itile)
+  soil%pars%thermal_cond_scale  = tile_parameters%dat_thermal_cond_scale(itile)
+  soil%pars%thermal_cond_weight  = tile_parameters%dat_thermal_cond_weight(itile)
+  soil%pars%refl_dry_dir      = tile_parameters%dat_refl_dry_dir(itile,:)
+  soil%pars%refl_dry_dif      = tile_parameters%dat_refl_dry_dif(itile,:)
+  soil%pars%refl_sat_dir      = tile_parameters%dat_refl_sat_dir(itile,:)
+  soil%pars%refl_sat_dif      = tile_parameters%dat_refl_sat_dif(itile,:)
+  soil%pars%emis_dry          = tile_parameters%dat_emis_dry(itile)
+  soil%pars%emis_sat          = tile_parameters%dat_emis_sat(itile)
+  soil%pars%z0_momentum       = tile_parameters%dat_z0_momentum(itile)
+  soil%pars%tfreeze           = tfreeze - tile_parameters%dat_tf_depr(itile)
+  soil%pars%rsa_exp           = tile_parameters%rsa_exp_global(itile)
+  soil%pars%tau_groundwater   = tile_parameters%gw_res_time(itile)
+  soil%pars%hillslope_length  = tile_parameters%gw_hillslope_length(itile)&
+                                *tile_parameters%gw_scale_length(itile)
+  soil%pars%hillslope_zeta_bar = tile_parameters%gw_hillslope_zeta_bar(itile)
+  soil%pars%hillslope_relief  = tile_parameters%gw_hillslope_relief(itile)&
+                                *tile_parameters%gw_scale_relief(itile)
+  soil%pars%soil_e_depth      = tile_parameters%gw_soil_e_depth(itile)&
+                                *tile_parameters%gw_scale_soil_depth(itile)
+  soil%pars%hillslope_a       = tile_parameters%gw_hillslope_a(itile)
+  soil%pars%hillslope_n       = tile_parameters%gw_hillslope_n(itile)
+  soil%pars%k_sat_gw          = tile_parameters%gw_perm(itile)&
+                                *tile_parameters%gw_scale_perm(itile)*9.8e9  !m^2 to kg/(m2 s)
+  soil%pars%storage_index     = 1
+  soil%pars%storage_index     = 1
+  soil%alpha                  = 1.0
+  soil%fast_soil_C(:)         = 0.0
+  soil%slow_soil_C(:)         = 0.0
+  soil%asoil_in(:)            = 0.0
+  soil%fsc_in(:)              = 0.0
+  soil%ssc_in(:)              = 0.0
+
+  comp_local = 0.0
+  if (use_comp_for_push) comp_local = comp
+  do l = 1, num_l
+    z=zfull(l)
+    if (k0_macro_bug) z=zhalf(l)-dz(l)*0.5
+    soil%k_macro_z(l) = k0_macro_z &
+                        * exp(-z/soil%pars%soil_e_depth)
+    soil%k_macro_x(l) = k0_macro_x &
+                        * exp(-z/soil%pars%soil_e_depth)
+    soil%vwc_max(l)   = soil%pars%vwc_sat + comp_local*zfull(l)
+  enddo
+
+  select case(gw_option)
+  case(GW_HILL_AR5)
+     if (use_single_geo) then
+        soil%gw_flux_norm = gw_flux_norm_zeta_s_04
+        soil%gw_area_norm = gw_area_norm_zeta_s_04
+     endif
+    soil%pars%zeta = soil%pars%soil_e_depth / soil%pars%hillslope_relief
+  case(GW_HILL, GW_TILED)
+     if (use_single_geo) &
+         call soil_data_init_derive_subsurf_pars ( soil )
+  case default
+     ! do nothing
+  end select
+
+  ! ---- derived constant soil parameters
+  ! w_fc (field capacity) set to w at which hydraulic conductivity equals
+  ! a nominal drainage rate "rate_fc"
+  ! w_wilt set to w at which psi is psi_wilt
+  if (use_lm2_awc) then
+     soil%w_wilt(:) = 0.15
+     soil%w_fc  (:) = 0.15 + soil%pars%awc_lm2
+  else
+     soil%w_wilt(:) = soil%pars%vwc_sat &
+          *(soil%pars%psi_sat_ref/(psi_wilt*soil%alpha(:)))**(1/soil%pars%chb)
+     soil%w_fc  (:) = soil%pars%vwc_sat &
+          *(rate_fc/(soil%pars%k_sat_ref*soil%alpha(:)**2))**(1/(3+2*soil%pars%chb))
+  endif
+
+  soil%pars%vwc_wilt = soil%w_wilt(1)
+  soil%pars%vwc_fc   = soil%w_fc  (1)
+
+  soil%pars%vlc_min = soil%pars%vwc_sat*K_rel_min**(1/(3+2*soil%pars%chb))
+
+  soil%z0_scalar = soil%pars%z0_momentum * exp(-k_over_B)
+
+  soil%geothermal_heat_flux = geothermal_heat_flux_constant
+
+  ! Init hlsp variables to initval to flag use before appropriate initialization
+  soil%pars%microtopo = tile_parameters%microtopo(itile)
+  soil%pars%tile_hlsp_length = tile_parameters%tile_hlsp_length(itile)
+  soil%pars%tile_hlsp_slope = tile_parameters%tile_hlsp_slope(itile)
+  soil%pars%tile_hlsp_elev = tile_parameters%tile_hlsp_elev(itile)
+  soil%pars%tile_hlsp_hpos = tile_parameters%tile_hlsp_hpos(itile)
+  soil%pars%tile_hlsp_width = tile_parameters%tile_hlsp_width(itile)
+
+end subroutine soil_data_init_0d_predefined
 
 ! ============================================================================
 subroutine soil_data_init_derive_subsurf_pars ( soil )

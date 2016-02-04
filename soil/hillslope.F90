@@ -46,6 +46,8 @@ private
 public :: read_hlsp_namelist
 public :: hlsp_init      ! read surface parameters, read restart file, set
                          ! hillslope-position-dependent parameters
+public :: hlsp_init_predefined ! Initialize hillslope using predefined tile
+                               ! parameters
 !public :: get_max_hidx    ! evaluate maximum hillslope indices for the gridcell
 public :: hlsp_coldfracs ! determine # and fractions of tiles within hillslopes for cold start
                           ! and determine hillslope indices
@@ -802,6 +804,193 @@ subroutine hlsp_init ( id_lon, id_lat, new_land_io )
 
 end subroutine hlsp_init
 
+! ============================================================================
+! initialize hillslope model (Predefined tiles)
+subroutine hlsp_init_predefined ( id_lon, id_lat, new_land_io )
+  integer, intent(in)  :: id_lon  ! ID of land longitude (X) axis  
+  integer, intent(in)  :: id_lat  ! ID of land latitude (Y) axis
+  logical, intent(in) :: new_land_io !< This is a transition var and will be removed
+
+  ! ---- local vars
+  integer :: unit         ! unit for various i/o
+  type(land_tile_enum_type)     :: te,ce  ! tail and current tile list elements
+  type(land_tile_type), pointer :: tile   ! pointer to current tile
+  real, allocatable, dimension(:,:,:) :: frac_topo_hlsps
+  integer, allocatable, dimension(:,:) :: num_topo_hlsps
+  real, allocatable, dimension(:,:,:) :: soil_e_depth, microtopo, hlsp_length, &
+                                     hlsp_slope, hlsp_slope_exp, &
+                                     hlsp_top_width, k_sat_gw ! Removed hlsp_stream_width
+  integer :: lis, lie, ljs, lje ! lat, lon bounds
+  integer :: li, lj, lk ! lat, lon, tile indices
+  integer :: hj, hk ! hillslope pos, par indices
+  real    :: rhj, NN ! real hj, num_vertclusters
+  real    :: c, a ! convergence, hlsp_slope
+  character(len=256) :: restart_file_name, mesg
+  logical :: restart_exists
+  real :: tfreeze_diff
+  real :: hpos ! local horizontal position (-)
+  real :: hbdu ! local upstream bdy (-)
+  real :: hbdd ! local downstream bdy (-)
+  logical :: found
+  integer :: siz(4), tsize
+  integer, allocatable :: i0d(:), idx(:)
+
+  module_is_initialized = .TRUE.
+
+  if (.not. do_hillslope_model) then
+     ! Set hillslope indices all to 0 and return
+     te = tail_elmt (lnd%tile_map)
+     ce = first_elmt(lnd%tile_map)
+     do while(ce /= te)
+        tile=>current_tile(ce)  ! get pointer to current tile
+        ce=next_elmt(ce)        ! advance position to the next tile
+        if (associated(tile%soil)) then
+           tile%soil%hidx_j = 0
+           tile%soil%hidx_k = 0
+        end if
+     end do
+     return
+  end if
+
+  ! initialize hillslope-dependent diagnostic fields
+  call hlsp_diag_init ( id_lon, id_lat )
+
+  ! -------- initialize state --------
+  lis = lnd%is
+  lie = lnd%ie
+  ljs = lnd%js
+  lje = lnd%je
+  NN = real(num_vertclusters)
+  
+  allocate(num_topo_hlsps(lis:lie, ljs:lje), frac_topo_hlsps(lis:lie, ljs:lje, max_num_topo_hlsps), &
+            soil_e_depth(lis:lie, ljs:lje, max_num_topo_hlsps), &
+            microtopo(lis:lie, ljs:lje, max_num_topo_hlsps), &
+            hlsp_length(lis:lie, ljs:lje, max_num_topo_hlsps), &
+            hlsp_slope(lis:lie, ljs:lje, max_num_topo_hlsps), &
+            hlsp_slope_exp(lis:lie, ljs:lje, max_num_topo_hlsps), &
+            hlsp_top_width(lis:lie, ljs:lje, max_num_topo_hlsps), &
+            k_sat_gw(lis:lie, ljs:lje, max_num_topo_hlsps) )
+
+  ! Retrieve surface data
+  !call read_hillslope_surfdat ( lis, lie, ljs, lje, num_topo_hlsps, frac_topo_hlsps, &
+  !                              soil_e_depth, microtopo, hlsp_length, hlsp_slope, hlsp_slope_exp, &
+  !                              hlsp_top_width, k_sat_gw)
+
+  call get_input_restart_name(hlsp_rst_ifname,restart_exists,restart_file_name)
+  if (restart_exists) then
+     if (new_land_io) then
+        ! fms read routine expect the "original" restart file name, not the one
+        ! modified with the get_input_restart_name
+        restart_file_name = hlsp_rst_ifname
+        call error_mesg('vegn_init', 'Using new hlsp restart read', NOTE)
+        call get_field_size(restart_file_name, 'tile_index', siz, field_found=found, domain=lnd%domain)
+        if (.not.found) call error_mesg(trim(module_name), 'tile axis not found in '//trim(restart_file_name), FATAL)
+        tsize = siz(1)
+        allocate(idx(tsize), i0d(tsize))
+        call read_compressed(restart_file_name,'tile_index',idx, domain=lnd%domain, timelevel=1)
+        call read_compressed(restart_file_name,'HIDX_J',i0d, domain=lnd%domain, timelevel=1)
+        call assemble_tiles(soil_hidx_j_ptr,idx,i0d)
+        call read_compressed(restart_file_name,'HIDX_K',i0d, domain=lnd%domain, timelevel=1)
+        call assemble_tiles(soil_hidx_k_ptr,idx,i0d)
+     else
+        call error_mesg(module_name, 'hlsp_init, '// &
+             'reading NetCDF restart "'//trim(restart_file_name)//'"', &
+             NOTE)
+        __NF_ASRT__(nf_open(restart_file_name,NF_NOWRITE,unit))
+        call read_tile_data_i0d_fptr(unit, 'HIDX_J'       , soil_hidx_j_ptr  )
+        call read_tile_data_i0d_fptr(unit, 'HIDX_K'       , soil_hidx_k_ptr  )
+        __NF_ASRT__(nf_close(unit))     
+        if (cold_start) &
+           call error_mesg(module_name, 'hlsp_init: coldfracs subroutine called even though restart file '// &
+                                'exists! Inconsistency of "cold_start" in hillslope_mod.', FATAL)
+     endif
+  else
+     call error_mesg(module_name, 'hlsp_init: '// &
+          'cold-starting hillslope model',&
+          NOTE)
+     ! These indices will have been set in land_cover_cold_start_0d
+     if (.not. cold_start) &
+        call error_mesg(module_name, 'hlsp_init: coldfracs subroutine not called even though restart file '// &
+                             'does not exist! Inconsistency of "cold_start" in hillslope_mod.', FATAL)
+        
+  endif
+
+  tfreeze_diff = 0. ! Initialize before tile loop.
+
+  ! Assign hillslope-topographic-position dependent parameters to tiles.
+  te = tail_elmt (lnd%tile_map)
+  ce = first_elmt(lnd%tile_map, is=lis, js=ljs)
+  do while(ce /= te)
+     tile=>current_tile(ce)  ! get pointer to current tile
+     call get_elmt_indices(ce,i=li,j=lj,k=lk)
+     call set_current_point(li, lj, lk)
+     ce=next_elmt(ce)        ! advance position to the next tile
+     
+     if (.not.associated(tile%soil)) cycle
+
+     hj = tile%soil%hidx_j
+     hk = tile%soil%hidx_k
+
+     ! Set elev_loc for later use
+     if (.not. restart_exists) then
+        elev_loc(li,lj,hk,hj) = tile%soil%pars%tile_hlsp_elev
+     end if
+
+     ! Debug
+     if (is_watch_cell()) then
+        write(*,*)'use_geohydrodata = ', use_geohydrodata
+        write(*,*)'hlsp_init: li,lj,hj,hk: ',li,lj,hj,hk
+        write(*,*)'soil_e_depth: ', tile%soil%pars%soil_e_depth
+        write(*,*)'microtopo: ', tile%soil%pars%microtopo
+        write(*,*)'k_sat_gw: ', tile%soil%pars%k_sat_gw
+        write(*,*)'tile_hlsp_length: ', tile%soil%pars%tile_hlsp_length
+        write(*,*)'tile_hlsp_slope: ', tile%soil%pars%tile_hlsp_slope
+        write(*,*)'tile_hlsp_elev: ', tile%soil%pars%tile_hlsp_elev
+        write(*,*)'tile_hlsp_hpos: ', tile%soil%pars%tile_hlsp_hpos
+        write(*,*)'tile_hlsp_width: ', tile%soil%pars%tile_hlsp_width
+     end if
+
+     ! Check for variable freezing point depression, not currently implemented to be consistent
+     ! with energy conservation
+     if (tile%soil%pars%tfreeze /= tfreeze) then
+        if (tfreeze_diff == 0.) then
+           tfreeze_diff = (tile%soil%pars%tfreeze - tfreeze)
+        else if (tfreeze_diff /= tile%soil%pars%tfreeze - tfreeze) then
+           call error_mesg(module_name, 'Freezing point depression appears to be initialized with' // &
+                           ' spatially variable values.  This is not currently implemented to be ' // &
+                           'consistent with energy conservation with the Hillslope Model.', FATAL)
+        end if
+     end if
+
+  end do
+
+  ! ---- static [for now] diagnostic section
+  ! List of fields:
+   !id_soil_e_depth, id_microtopo, id_tile_hlsp_length, id_tile_hlsp_slope, &
+   !id_tile_hlsp_elev, id_tile_hlsp_hpos, id_tile_hlsp_width, id_transm_bedrock, &
+   !id_hidx_j, id_hidx_k
+   ! soil_e_depth and k_sat_gw will be done in soil_init.
+   call send_tile_data_i0d_fptr(id_hidx_j,         lnd%tile_map,     soil_hidx_j_ptr)
+   call send_tile_data_i0d_fptr(id_hidx_k,         lnd%tile_map,     soil_hidx_k_ptr)
+!   call send_tile_data_r0d_fptr(id_soil_e_depth,   lnd%tile_map,     soil_soil_e_depth_ptr)
+   call send_tile_data_r0d_fptr(id_microtopo,      lnd%tile_map,     soil_microtopo_ptr)
+   call send_tile_data_r0d_fptr(id_tile_hlsp_length,lnd%tile_map,    soil_tile_hlsp_length_ptr)
+   call send_tile_data_r0d_fptr(id_tile_hlsp_slope, lnd%tile_map,    soil_tile_hlsp_slope_ptr)
+   call send_tile_data_r0d_fptr(id_tile_hlsp_elev,  lnd%tile_map,    soil_tile_hlsp_elev_ptr)
+   call send_tile_data_r0d_fptr(id_tile_hlsp_hpos,  lnd%tile_map,    soil_tile_hlsp_hpos_ptr)
+   call send_tile_data_r0d_fptr(id_tile_hlsp_width, lnd%tile_map,    soil_tile_hlsp_width_ptr)
+!   call send_tile_data_r0d_fptr(id_transm_bedrock,  lnd%tile_map,    soil_transm_bedrock_ptr)
+
+   deallocate(num_topo_hlsps, frac_topo_hlsps, &
+            soil_e_depth, &
+            microtopo, &
+            hlsp_length, &
+            hlsp_slope, &
+            hlsp_slope_exp, &
+            hlsp_top_width, &
+            k_sat_gw)
+
+end subroutine hlsp_init_predefined
 
 ! ============================================================================
 subroutine hlsp_diag_init ( id_lon, id_lat )

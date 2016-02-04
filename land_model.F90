@@ -107,6 +107,7 @@ use stock_constants_mod, only: ISTOCK_WATER, ISTOCK_HEAT, ISTOCK_SALT
 use hillslope_mod, only: retrieve_hlsp_indices, save_hlsp_restart, hlsp_end, &
                          read_hlsp_namelist, hlsp_init, hlsp_config_check
 use hillslope_mod, only: save_hlsp_restart_new
+use hillslope_mod, only: hlsp_init_predefined
 use hillslope_hydrology_mod, only: hlsp_hydrology_1, hlsp_hydro_init
 #ifdef ZMSDEBUG
 use land_debug_mod, only : check_var_range
@@ -470,7 +471,11 @@ subroutine land_model_init &
   num_species = num_phys + num_c
   if (do_age) num_species = num_species + 1
 
-  call hlsp_init ( id_lon, id_lat, new_land_io ) ! Must be called before soil_init
+  if (predefined_tiles .eq. .False.)then
+   call hlsp_init ( id_lon, id_lat, new_land_io ) ! Must be called before soil_init
+  else if (predefined_tiles .eq. .True.)then
+   call hlsp_init_predefined ( id_lon, id_lat, new_land_io ) ! Must be called before soil_init
+  endif
   call soil_init ( id_lon, id_lat, id_band, id_zfull, new_land_io)
   call hlsp_hydro_init (id_lon, id_lat, id_zfull) ! Must be called after soil_init
   call vegn_init ( id_lon, id_lat, id_band, new_land_io )
@@ -942,7 +947,7 @@ subroutine land_cover_cold_start(lnd)
       !New method. Hillslope and soil tiles (and their properties) are
       !predefined and then read into the model
       call land_cover_cold_start_0d_predefined_tiles(lnd%tile_map(i+lnd%is-1,j+lnd%js-1),&
-          lnd)
+          lnd,i,j)
      endif
      if(nitems(lnd%tile_map(i+lnd%is-1,j+lnd%js-1))==0) then
         call error_mesg('land_cover_cold_start',&
