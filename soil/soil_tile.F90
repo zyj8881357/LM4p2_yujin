@@ -23,6 +23,7 @@ use land_constants_mod, only : &
 use land_tile_selectors_mod, only : &
      tile_selector_type, SEL_SOIL, register_tile_selector
 use tiling_input_types_mod, only : tile_parameters_type
+use land_debug_mod, only : is_watch_point
 
 implicit none
 private
@@ -934,6 +935,38 @@ subroutine soil_data_init_0d(soil)
   soil%pars%tile_hlsp_width = initval
 !  soil%pars%transm_bedrock = initval
 
+  !Print out the parameter values 
+  if (is_watch_point()) then
+   print*,'vwc_sat',soil%pars%vwc_sat
+   print*,'awc_lm2',soil%pars%awc_lm2
+   print*,'k_sat_ref',soil%pars%k_sat_ref         
+   print*,'psi_sat_ref',soil%pars%psi_sat_ref      
+   print*,'chb',soil%pars%chb               
+   print*,'heat_capacity_dry',soil%pars%heat_capacity_dry
+   print*,'thermal_cond_dry',soil%pars%thermal_cond_dry 
+   print*,'thermal_cond_sat',soil%pars%thermal_cond_sat
+   print*,'thermal_cond_exp',soil%pars%thermal_cond_exp
+   print*,'thermal_cond_scale',soil%pars%thermal_cond_scale  
+   print*,'thermal_cond_weight',soil%pars%thermal_cond_weight
+   print*,'refl_dry_dir',soil%pars%refl_dry_dir   
+   print*,'refl_dry_dif',soil%pars%refl_dry_dif    
+   print*,'refl_sat_dir',soil%pars%refl_sat_dir   
+   print*,'refl_sat_dif',soil%pars%refl_sat_dif      
+   print*,'emis_dry',soil%pars%emis_dry      
+   print*,'emis_sat',soil%pars%emis_sat         
+   print*,'z0_momentum',soil%pars%z0_momentum     
+   print*,'tfreeze',soil%pars%tfreeze   
+   print*,'rsa_exp',soil%pars%rsa_exp       
+   print*,'tau_groundwater',soil%pars%tau_groundwater 
+   print*,'hillslope_length',soil%pars%hillslope_length 
+   print*,'hillslope_zeta_bar',soil%pars%hillslope_zeta_bar 
+   print*,'hillslope_relief',soil%pars%hillslope_relief 
+   print*,'soil_e_depth',soil%pars%soil_e_depth    
+   print*,'hillslope_a',soil%pars%hillslope_a 
+   print*,'hillslope_n',soil%pars%hillslope_n
+   print*,'k_sat_gw',soil%pars%k_sat_gw   
+  endif
+
 end subroutine soil_data_init_0d
 
 ! ============================================================================
@@ -983,7 +1016,6 @@ subroutine soil_data_init_0d_predefined(soil,tile_parameters,itile)
   soil%pars%hillslope_n       = tile_parameters%gw_hillslope_n(itile)
   soil%pars%k_sat_gw          = tile_parameters%gw_perm(itile)&
                                 *tile_parameters%gw_scale_perm(itile)*9.8e9  !m^2 to kg/(m2 s)
-  soil%pars%storage_index     = 1
   soil%pars%storage_index     = 1
   soil%alpha                  = 1.0
   soil%fast_soil_C(:)         = 0.0
@@ -1048,6 +1080,38 @@ subroutine soil_data_init_0d_predefined(soil,tile_parameters,itile)
   soil%pars%tile_hlsp_elev = tile_parameters%tile_hlsp_elev(itile)
   soil%pars%tile_hlsp_hpos = tile_parameters%tile_hlsp_hpos(itile)
   soil%pars%tile_hlsp_width = tile_parameters%tile_hlsp_width(itile)
+
+  !Print out the parameter values 
+  if (is_watch_point()) then
+   print*,'vwc_sat',soil%pars%vwc_sat
+   print*,'awc_lm2',soil%pars%awc_lm2
+   print*,'k_sat_ref',soil%pars%k_sat_ref         
+   print*,'psi_sat_ref',soil%pars%psi_sat_ref      
+   print*,'chb',soil%pars%chb               
+   print*,'heat_capacity_dry',soil%pars%heat_capacity_dry
+   print*,'thermal_cond_dry',soil%pars%thermal_cond_dry 
+   print*,'thermal_cond_sat',soil%pars%thermal_cond_sat
+   print*,'thermal_cond_exp',soil%pars%thermal_cond_exp
+   print*,'thermal_cond_scale',soil%pars%thermal_cond_scale  
+   print*,'thermal_cond_weight',soil%pars%thermal_cond_weight
+   print*,'refl_dry_dir',soil%pars%refl_dry_dir   
+   print*,'refl_dry_dif',soil%pars%refl_dry_dif    
+   print*,'refl_sat_dir',soil%pars%refl_sat_dir   
+   print*,'refl_sat_dif',soil%pars%refl_sat_dif      
+   print*,'emis_dry',soil%pars%emis_dry      
+   print*,'emis_sat',soil%pars%emis_sat         
+   print*,'z0_momentum',soil%pars%z0_momentum     
+   print*,'tfreeze',soil%pars%tfreeze   
+   print*,'rsa_exp',soil%pars%rsa_exp       
+   print*,'tau_groundwater',soil%pars%tau_groundwater 
+   print*,'hillslope_length',soil%pars%hillslope_length 
+   print*,'hillslope_zeta_bar',soil%pars%hillslope_zeta_bar 
+   print*,'hillslope_relief',soil%pars%hillslope_relief 
+   print*,'soil_e_depth',soil%pars%soil_e_depth    
+   print*,'hillslope_a',soil%pars%hillslope_a 
+   print*,'hillslope_n',soil%pars%hillslope_n
+   print*,'k_sat_gw',soil%pars%k_sat_gw   
+  endif
 
 end subroutine soil_data_init_0d_predefined
 
