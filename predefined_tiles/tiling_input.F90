@@ -31,14 +31,14 @@ subroutine land_cover_cold_start_0d_predefined_tiles(tiles,lnd,i,j)
   integer :: parent_id = 0
   integer :: ncid,status,varid,grpid,dimid,cell_grpid,cellid
   character(100) :: cellid_string
-  !real :: lat,lon
+  real :: lat,lon
   real,allocatable,dimension(:) :: tmp
   type(tile_parameters_type) :: tile_parameters
   !ncid = lnd%ncid
 
   !Determine the lat/lon of the grid cell (degrees)
-  !lon = 180.0*lnd%lon(i,j)/pi
-  !lat = 180.0*lnd%lat(i,j)/pi
+  lon = 180.0*lnd%lon(i,j)/pi
+  lat = 180.0*lnd%lat(i,j)/pi
 
   !Open access to the model input database
   status = nf90_open('INPUT/land_model_input_database.nc', NF90_NOWRITE, ncid)
@@ -46,7 +46,9 @@ subroutine land_cover_cold_start_0d_predefined_tiles(tiles,lnd,i,j)
   !Determine the cell id
   status = nf90_inq_grp_ncid(ncid,"metadata",grpid)
   status = nf90_inq_varid(grpid,"mapping",varid)
-  status = nf90_get_var(grpid,varid,cellid,start=(/i,j/))
+  status = nf90_get_var(grpid,varid,cellid,start=(/j,i/))
+  print*,i,j,cellid
+  print*,lon,lat
 
   !Open access to the cell's group
   status = nf90_inq_grp_ncid(ncid,"grid_data",grpid)

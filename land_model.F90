@@ -43,6 +43,7 @@ use lake_mod, only : read_lake_namelist, lake_init, lake_end, lake_get_sfc_temp,
 use soil_mod, only : read_soil_namelist, soil_init, soil_end, soil_get_sfc_temp, &
      soil_radiation, soil_diffusion, soil_step_1, soil_step_2, soil_step_3, &
      save_soil_restart, save_soil_restart_new
+use soil_mod, only : soil_init_predefined
 use snow_mod, only : read_snow_namelist, snow_init, snow_end, snow_get_sfc_temp, &
      snow_radiation, snow_diffusion, snow_get_depth_area, snow_step_1, snow_step_2, &
      save_snow_restart, save_snow_restart_new
@@ -476,7 +477,11 @@ subroutine land_model_init &
   else if (predefined_tiles .eq. .True.)then
    call hlsp_init_predefined ( id_lon, id_lat, new_land_io ) ! Must be called before soil_init
   endif
-  call soil_init ( id_lon, id_lat, id_band, id_zfull, new_land_io)
+  if (predefined_tiles .eq. .False.)then
+   call soil_init ( id_lon, id_lat, id_band, id_zfull, new_land_io)
+  else if (predefined_tiles .eq. .True.)then
+   call soil_init_predefined ( id_lon, id_lat, id_band, id_zfull, new_land_io)
+  end if
   call hlsp_hydro_init (id_lon, id_lat, id_zfull) ! Must be called after soil_init
   call vegn_init ( id_lon, id_lat, id_band, new_land_io )
   call lake_init ( id_lon, id_lat, new_land_io )
