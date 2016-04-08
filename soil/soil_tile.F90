@@ -686,17 +686,15 @@ function soil_tile_ctor(tag, hidx_j, hidx_k) result(ptr)
 end function soil_tile_ctor
 
 ! ============================================================================
-function soil_tile_ctor_predefined(tag, hidx_j, hidx_k, tile_parameters, &
+function soil_tile_ctor_predefined(hidx_j, hidx_k, tile_parameters, &
                                    itile) result(ptr)
   type(soil_tile_type), pointer :: ptr ! return value
-  integer, intent(in)  :: tag ! kind of tile
   integer, intent(in)  :: hidx_j, hidx_k ! hillslope indices
   type(tile_parameters_type), intent(in) :: tile_parameters
   integer, intent(in) :: itile
   integer :: i
 
   allocate(ptr)
-  ptr%tag = tag
   ptr%hidx_j = hidx_j
   ptr%hidx_k = hidx_k
   !allocate(ptr%dz(num_l))
@@ -977,12 +975,10 @@ subroutine soil_data_init_0d_predefined(soil,tile_parameters,itile)
   
 !  real tau_groundwater
 !  real rsa_exp         ! riparian source-area exponent
-  integer :: k, i, l, code, m_zeta, m_tau
+  integer :: i, l, code, m_zeta, m_tau
   real    :: alpha_inf_sq, alpha_sfc_sq, comp_local
   real    :: single_log_zeta_s, single_log_tau, frac_zeta, frac_tau
   real    :: z ! depth at top of current layer
-  
-  k = soil%tag
 
   soil%pars%vwc_sat           = tile_parameters%dat_w_sat(itile)
   soil%pars%awc_lm2           = tile_parameters%dat_awc_lm2(itile)
@@ -1016,9 +1012,6 @@ subroutine soil_data_init_0d_predefined(soil,tile_parameters,itile)
   soil%pars%hillslope_n       = tile_parameters%gw_hillslope_n(itile)
   soil%pars%k_sat_gw          = tile_parameters%gw_perm(itile)&
                                 *tile_parameters%gw_scale_perm(itile)*9.8e9  !m^2 to kg/(m2 s)
-  print*,'new',tile_parameters%gw_perm(itile)&
-                                *tile_parameters%gw_scale_perm(itile)*9.8e9,&
-               tile_parameters%gw_perm(itile)
   soil%pars%storage_index     = 1
   soil%alpha                  = 1.0
   soil%fast_soil_C(:)         = 0.0

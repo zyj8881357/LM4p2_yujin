@@ -47,6 +47,8 @@ type :: tile_parameters_type
  !hillslope tiling
  integer,allocatable,dimension(:) :: hidx_k
  integer,allocatable,dimension(:) :: hidx_j
+ !vegetation
+ integer,allocatable,dimension(:) :: vegn
 
 end type
 

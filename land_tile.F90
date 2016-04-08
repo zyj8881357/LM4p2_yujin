@@ -281,9 +281,9 @@ function land_tile_ctor_predefined(frac,glac,lake,soil,vegn,tag,htag_j,htag_k,&
   tile%snow => new_snow_tile()
   if(soil_>=0) then
     if (present(htag_j) .and. present(htag_k)) then
-        tile%soil => new_soil_tile_predefined(soil_,htag_j,htag_k,tile_parameters,itile)
+        tile%soil => new_soil_tile_predefined(htag_j,htag_k,tile_parameters,itile)
     else
-        tile%soil => new_soil_tile_predefined(soil_,0,0,tile_parameters,itile) ! Hillslope model is inactive or
+        tile%soil => new_soil_tile_predefined(0,0,tile_parameters,itile) ! Hillslope model is inactive or
         ! these indices will be set in hlsp_init.
     end if
   end if

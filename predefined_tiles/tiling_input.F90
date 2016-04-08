@@ -80,7 +80,7 @@ subroutine land_cover_cold_start_0d_predefined_tiles(tiles,lnd,i,j)
   !Define the tiles (only soil for now...)
   do itile = 1,tile_parameters%ntile
    tile => new_land_tile_predefined(frac=tile_parameters%frac(itile),&
-           soil=1,vegn=1,htag_j=tile_parameters%hidx_j(itile),&
+           soil=1,vegn=tile_parameters%vegn(itile),htag_j=tile_parameters%hidx_j(itile),&
            htag_k=tile_parameters%hidx_k(itile),&
            tile_parameters=tile_parameters,itile=itile)
    tile%parent_id = itile
@@ -223,6 +223,9 @@ subroutine retrieve_soil_parameters(tile_parameters)
   allocate(tile_parameters%hidx_j(ntile))
   tile_parameters%hidx_j(:) = get_parameter_data(grpid,&
               "hidx_j",ntile)
+  allocate(tile_parameters%vegn(ntile))
+  tile_parameters%vegn(:) = get_parameter_data(grpid,&
+              "vegn",ntile)
 
 end subroutine retrieve_soil_parameters
 
