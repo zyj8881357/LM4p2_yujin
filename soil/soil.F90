@@ -836,39 +836,6 @@ subroutine soil_init_predefined ( id_lon, id_lat, id_band, id_zfull, new_land_io
             end select
         enddo
      case (GW_TILED)
-        if (use_geohydrodata) then
-           allocate(gw_param (lnd%is:lnd%ie,lnd%js:lnd%je))
-           allocate(gw_param2(lnd%is:lnd%ie,lnd%js:lnd%je))
-           call read_field( 'INPUT/geohydrology.nc','hillslope_length',  lnd%lon, lnd%lat, &
-             gw_param, interp='bilinear' )
-           !call put_to_tiles_r0d_fptr( gw_param*gw_scale_length, lnd%tile_map, soil_hillslope_length_ptr )
-           call read_field( 'INPUT/geohydrology.nc','slope', lnd%lon, lnd%lat, &
-             gw_param2, interp='bilinear' )
-           gw_param = gw_param*gw_param2
-           !call put_to_tiles_r0d_fptr( gw_param*gw_scale_relief, lnd%tile_map, soil_hillslope_relief_ptr )
-           call read_field( 'INPUT/geohydrology.nc','hillslope_zeta_bar', &
-             lnd%lon, lnd%lat, gw_param, interp='bilinear' )
-           if (zeta_bar_override.gt.0.) gw_param=zeta_bar_override
-           !call put_to_tiles_r0d_fptr( gw_param, lnd%tile_map, soil_hillslope_zeta_bar_ptr )
-           call read_field( 'INPUT/geohydrology.nc','soil_e_depth', &
-             lnd%lon, lnd%lat, gw_param, interp='bilinear' )
-
-           if (slope_exp.gt.0.01) then
-           ! ZMS It's probably inconsistent to leave in this if statement.
-               call error_mesg(module_name, 'soil_init: "slope_exp" > 0.0 requested even though '// &
-                               'running with tiled hillslope model.  This may be inconsistent.', WARNING)
-               !call put_to_tiles_r0d_fptr( gw_param*gw_scale_soil_depth*(0.08/gw_param2)**slope_exp, &
-               !                                      lnd%tile_map, soil_soil_e_depth_ptr )
-           else
-               !call put_to_tiles_r0d_fptr( gw_param*gw_scale_soil_depth, lnd%tile_map, soil_soil_e_depth_ptr )
-           endif
-           call read_field( 'INPUT/geohydrology.nc','perm', lnd%lon, lnd%lat, &
-                  gw_param, interp='bilinear' )
-           print*,'org',9.8e9*gw_scale_perm*gw_param,gw_param
-           !call put_to_tiles_r0d_fptr(9.8e9*gw_scale_perm*gw_param, lnd%tile_map, &
-           !                               soil_k_sat_gw_ptr )
-           deallocate(gw_param, gw_param2)
-        end if
         te = tail_elmt (lnd%tile_map)
         ce = first_elmt(lnd%tile_map)
         do while(ce /= te)
