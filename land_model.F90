@@ -472,11 +472,11 @@ subroutine land_model_init &
   num_species = num_phys + num_c
   if (do_age) num_species = num_species + 1
 
-  if (predefined_tiles .eq. .False.)then
+  !if (predefined_tiles .eq. .False.)then
    call hlsp_init ( id_lon, id_lat, new_land_io ) ! Must be called before soil_init
-  else if (predefined_tiles .eq. .True.)then
-   call hlsp_init_predefined ( id_lon, id_lat, new_land_io ) ! Must be called before soil_init
-  endif
+  !else if (predefined_tiles .eq. .True.)then
+  ! call hlsp_init_predefined ( id_lon, id_lat, new_land_io ) ! Must be called before soil_init
+  !endif
   if (predefined_tiles .eq. .False.)then
    call soil_init ( id_lon, id_lat, id_band, id_zfull, new_land_io)
   else if (predefined_tiles .eq. .True.)then

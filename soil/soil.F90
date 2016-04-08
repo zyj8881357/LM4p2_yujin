@@ -822,72 +822,11 @@ subroutine soil_init_predefined ( id_lon, id_lat, id_band, id_zfull, new_land_io
         call put_to_tiles_r0d_fptr( gw_param, lnd%tile_map, soil_tau_groundwater_ptr )
         deallocate(gw_param)
      case (GW_HILL, GW_HILL_AR5)
-        allocate(gw_param (lnd%is:lnd%ie,lnd%js:lnd%je))
-        allocate(gw_param2(lnd%is:lnd%ie,lnd%js:lnd%je))
-        allocate(gw_param3(lnd%is:lnd%ie,lnd%js:lnd%je))
-        call read_field( 'INPUT/geohydrology.nc','hillslope_length',  lnd%lon, lnd%lat, &
-          gw_param, interp='bilinear' )
-        !call put_to_tiles_r0d_fptr( gw_param*gw_scale_length, lnd%tile_map, soil_hillslope_length_ptr )
-        print*,'hillslope_length',gw_param*gw_scale_length
-        call read_field( 'INPUT/geohydrology.nc','slope', lnd%lon, lnd%lat, &
-          gw_param2, interp='bilinear' )
-        gw_param = gw_param*gw_param2
-        print*,'slope',gw_param2
-        print*,'hillslope_relief',gw_param*gw_scale_relief
-        !call put_to_tiles_r0d_fptr( gw_param*gw_scale_relief, lnd%tile_map, soil_hillslope_relief_ptr )
-          
-        if (retro_a0n1 .or. gw_option.eq.GW_HILL_AR5) then
-            gw_param = 0.
-        !    call put_to_tiles_r0d_fptr( gw_param, lnd%tile_map, soil_hillslope_a_ptr )
-            print*,'hillslope_a',gw_param
-            gw_param = 1.
-        !    call put_to_tiles_r0d_fptr( gw_param, lnd%tile_map, soil_hillslope_n_ptr )
-            print*,'hillslope_n',gw_param
-!            call read_field( 'INPUT/geohydrology.nc','hillslope_zeta_bar', &
-!              lnd%lon, lnd%lat, gw_param, interp='bilinear' )
-            gw_param = 0.5
-        !    call put_to_tiles_r0d_fptr( gw_param, lnd%tile_map, soil_hillslope_zeta_bar_ptr )
-            print*,'hillslope_zeta_bar',gw_param
-        else
-            call read_field( 'INPUT/geohydrology.nc','hillslope_a', &
-              lnd%lon, lnd%lat, gw_param, interp='bilinear' )
-        !    call put_to_tiles_r0d_fptr( gw_param, lnd%tile_map, soil_hillslope_a_ptr )
-            call read_field( 'INPUT/geohydrology.nc','hillslope_n', &
-              lnd%lon, lnd%lat, gw_param2, interp='bilinear' )
-        !    call put_to_tiles_r0d_fptr( gw_param2, lnd%tile_map, soil_hillslope_n_ptr )
-            gw_param3 = (1./(gw_param2+1.)+gw_param/(gw_param2+2.))/(1.+gw_param/2.)
-        !    call put_to_tiles_r0d_fptr( gw_param3, lnd%tile_map, soil_hillslope_zeta_bar_ptr )
-        endif
-
-        call read_field( 'INPUT/geohydrology.nc','soil_e_depth', &
-          lnd%lon, lnd%lat, gw_param, interp='bilinear' )
-        if (slope_exp.gt.0.01) then
-        !    call put_to_tiles_r0d_fptr( gw_param*gw_scale_soil_depth*(0.08/gw_param2)**slope_exp, &
-        !                                          lnd%tile_map, soil_soil_e_depth_ptr )
-        ! print*,'1:soil_e_depth',gw_param*gw_scale_soil_depth*(0.08/gw_param2)**slope_exp
-        else
-        !    call put_to_tiles_r0d_fptr( gw_param*gw_scale_soil_depth, lnd%tile_map, soil_soil_e_depth_ptr )
-        ! print*,'2:soil_e_depth',gw_param*gw_scale_soil_depth
-        endif
-        if (gw_option /= GW_HILL_AR5) then
-            call read_field( 'INPUT/geohydrology.nc','perm', lnd%lon, lnd%lat, &
-                 gw_param, interp='bilinear' )
-        !    call put_to_tiles_r0d_fptr(9.8e9*gw_scale_perm*gw_param, lnd%tile_map, &
-        !                                    soil_k_sat_gw_ptr )
-        endif
-        deallocate(gw_param, gw_param2, gw_param3)
         te = tail_elmt (lnd%tile_map)
         ce = first_elmt(lnd%tile_map)
         do while(ce /= te)
             tile=>current_tile(ce)  ! get pointer to current tile
             ce=next_elmt(ce)        ! advance position to the next tile
-            print*,'tile soil_e_depth',tile%soil%pars%soil_e_depth
-            print*,'tile soil_k_sat_gw',tile%soil%pars%k_sat_gw
-            print*,'tile soil_hillslope_a',tile%soil%pars%hillslope_a
-            print*,'tile soil_hillslope_n',tile%soil%pars%hillslope_n
-            print*,'tile soil_hillslope_zeta_bar',tile%soil%pars%hillslope_zeta_bar
-            print*,'tile soil_hillslope_length',tile%soil%pars%hillslope_length
-            print*,'tile soil_hillslope_relief',tile%soil%pars%hillslope_relief
             if (.not.associated(tile%soil)) cycle
             select case (gw_option)
             case (GW_HILL)
@@ -896,22 +835,21 @@ subroutine soil_init_predefined ( id_lon, id_lat, id_band, id_zfull, new_land_io
                 call soil_data_init_derive_subsurf_pars_ar5(tile%soil)
             end select
         enddo
-        !stop
      case (GW_TILED)
         if (use_geohydrodata) then
            allocate(gw_param (lnd%is:lnd%ie,lnd%js:lnd%je))
            allocate(gw_param2(lnd%is:lnd%ie,lnd%js:lnd%je))
            call read_field( 'INPUT/geohydrology.nc','hillslope_length',  lnd%lon, lnd%lat, &
              gw_param, interp='bilinear' )
-           call put_to_tiles_r0d_fptr( gw_param*gw_scale_length, lnd%tile_map, soil_hillslope_length_ptr )
+           !call put_to_tiles_r0d_fptr( gw_param*gw_scale_length, lnd%tile_map, soil_hillslope_length_ptr )
            call read_field( 'INPUT/geohydrology.nc','slope', lnd%lon, lnd%lat, &
              gw_param2, interp='bilinear' )
            gw_param = gw_param*gw_param2
-           call put_to_tiles_r0d_fptr( gw_param*gw_scale_relief, lnd%tile_map, soil_hillslope_relief_ptr )
+           !call put_to_tiles_r0d_fptr( gw_param*gw_scale_relief, lnd%tile_map, soil_hillslope_relief_ptr )
            call read_field( 'INPUT/geohydrology.nc','hillslope_zeta_bar', &
              lnd%lon, lnd%lat, gw_param, interp='bilinear' )
            if (zeta_bar_override.gt.0.) gw_param=zeta_bar_override
-           call put_to_tiles_r0d_fptr( gw_param, lnd%tile_map, soil_hillslope_zeta_bar_ptr )
+           !call put_to_tiles_r0d_fptr( gw_param, lnd%tile_map, soil_hillslope_zeta_bar_ptr )
            call read_field( 'INPUT/geohydrology.nc','soil_e_depth', &
              lnd%lon, lnd%lat, gw_param, interp='bilinear' )
 
@@ -919,15 +857,16 @@ subroutine soil_init_predefined ( id_lon, id_lat, id_band, id_zfull, new_land_io
            ! ZMS It's probably inconsistent to leave in this if statement.
                call error_mesg(module_name, 'soil_init: "slope_exp" > 0.0 requested even though '// &
                                'running with tiled hillslope model.  This may be inconsistent.', WARNING)
-               call put_to_tiles_r0d_fptr( gw_param*gw_scale_soil_depth*(0.08/gw_param2)**slope_exp, &
-                                                     lnd%tile_map, soil_soil_e_depth_ptr )
+               !call put_to_tiles_r0d_fptr( gw_param*gw_scale_soil_depth*(0.08/gw_param2)**slope_exp, &
+               !                                      lnd%tile_map, soil_soil_e_depth_ptr )
            else
-               call put_to_tiles_r0d_fptr( gw_param*gw_scale_soil_depth, lnd%tile_map, soil_soil_e_depth_ptr )
+               !call put_to_tiles_r0d_fptr( gw_param*gw_scale_soil_depth, lnd%tile_map, soil_soil_e_depth_ptr )
            endif
            call read_field( 'INPUT/geohydrology.nc','perm', lnd%lon, lnd%lat, &
                   gw_param, interp='bilinear' )
-           call put_to_tiles_r0d_fptr(9.8e9*gw_scale_perm*gw_param, lnd%tile_map, &
-                                          soil_k_sat_gw_ptr )
+           print*,'org',9.8e9*gw_scale_perm*gw_param,gw_param
+           !call put_to_tiles_r0d_fptr(9.8e9*gw_scale_perm*gw_param, lnd%tile_map, &
+           !                               soil_k_sat_gw_ptr )
            deallocate(gw_param, gw_param2)
         end if
         te = tail_elmt (lnd%tile_map)

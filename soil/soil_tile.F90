@@ -1016,6 +1016,9 @@ subroutine soil_data_init_0d_predefined(soil,tile_parameters,itile)
   soil%pars%hillslope_n       = tile_parameters%gw_hillslope_n(itile)
   soil%pars%k_sat_gw          = tile_parameters%gw_perm(itile)&
                                 *tile_parameters%gw_scale_perm(itile)*9.8e9  !m^2 to kg/(m2 s)
+  print*,'new',tile_parameters%gw_perm(itile)&
+                                *tile_parameters%gw_scale_perm(itile)*9.8e9,&
+               tile_parameters%gw_perm(itile)
   soil%pars%storage_index     = 1
   soil%alpha                  = 1.0
   soil%fast_soil_C(:)         = 0.0

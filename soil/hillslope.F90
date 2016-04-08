@@ -682,6 +682,7 @@ subroutine hlsp_init ( id_lon, id_lat, new_land_io )
 
      hj = tile%soil%hidx_j
      hk = tile%soil%hidx_k
+     print*,hj,hk
      ! ZMS Note: To allow multiple instances of each topo hillslope, add check here to see if
      ! hk > max_num_topo_hillslopes.  If so, use mod(hk, max_num_topo_hillslopes), or
      ! max_num_topo_hillslopes if mod == 0.
@@ -930,6 +931,7 @@ subroutine hlsp_init_predefined ( id_lon, id_lat, new_land_io )
 
      hj = tile%soil%hidx_j
      hk = tile%soil%hidx_k
+     print*,hj,hk
 
      ! Set elev_loc for later use
      if (.not. restart_exists) then
