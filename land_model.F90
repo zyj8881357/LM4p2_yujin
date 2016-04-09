@@ -476,16 +476,13 @@ subroutine land_model_init &
   num_species = num_phys + num_c
   if (do_age) num_species = num_species + 1
 
-  !if (predefined_tiles .eq. .False.)then
-   call hlsp_init ( id_lon, id_lat, new_land_io ) ! Must be called before soil_init
-  !else if (predefined_tiles .eq. .True.)then
-  ! call hlsp_init_predefined ( id_lon, id_lat, new_land_io ) ! Must be called before soil_init
-  !endif
   if (predefined_tiles .eq. .False.)then
+   call hlsp_init ( id_lon, id_lat, new_land_io ) ! Must be called before soil_init
    call soil_init ( id_lon, id_lat, id_band, id_zfull, new_land_io)
   else if (predefined_tiles .eq. .True.)then
+   call hlsp_init_predefined ( id_lon, id_lat, new_land_io ) ! Must be called before soil_init
    call soil_init_predefined ( id_lon, id_lat, id_band, id_zfull, new_land_io)
-  end if
+  endif
   call hlsp_hydro_init (id_lon, id_lat, id_zfull) ! Must be called after soil_init
   call vegn_init ( id_lon, id_lat, id_band, new_land_io )
   call lake_init ( id_lon, id_lat, new_land_io )
@@ -965,148 +962,21 @@ subroutine land_cover_cold_start_predefined(lnd)
   type(land_state_type), intent(inout) :: lnd
 
   ! ---- local vars
-  real, dimension(:,:,:), pointer :: &
-       glac, soil, lake, vegn ! arrays of fractions for respective sub-models
-  integer, pointer, dimension(:,:,:) :: soiltags ! array of soil type tags
-  integer, pointer, dimension(:,:,:) :: hlsp_pos ! hillslope position index
-  integer, pointer, dimension(:,:,:) :: hlsp_par ! hillslope parent index
-  real   , pointer, dimension(:,:,:) :: rbuffer ! real buffer for remap
   logical, dimension(lnd%ie-lnd%is+1,lnd%je-lnd%js+1) :: &
-       land_mask, valid_data, invalid_data
-  integer :: iwatch,jwatch,kwatch,face
+       land_mask
   integer :: i,j
-  integer :: ps,pe ! boundaries of PE list for remapping
-  type(horiz_remap_type) :: map
 
   ! calculate the global land mask
   land_mask = lnd%area > 0
 
-  ! get the global maps of fractional covers for each of the sub-models
-  glac=>glac_cover_cold_start(land_mask,lnd%lonb,lnd%latb)
-  lake=>lake_cover_cold_start(land_mask,lnd%lonb,lnd%latb,lnd%domain)
-  soil=>soil_cover_cold_start(land_mask,lnd%lonb,lnd%latb)
-  vegn=>vegn_cover_cold_start(land_mask,lnd%lonb,lnd%latb)
-
-  ! Because of hillslope model, soil tiles may not be returned in order of soil type.
-  allocate(soiltags(size(soil,1), size(soil,2), size(soil,3)))
-  call retrieve_soil_tags(soiltags)
-  ! Tiles will be constructed with hillslope data.
-  allocate(hlsp_pos(size(soil,1), size(soil,2), size(soil,3)))
-  allocate(hlsp_par(size(soil,1), size(soil,2), size(soil,3)))
-  call retrieve_hlsp_indices(hlsp_pos, hlsp_par)
-
-  ! remove any input lake fraction in coastal cells
-  where (frac.lt. 1.-gfrac_tol) lake(:,:,1) = 0.
-  ! NOTE that the lake area in the coastal cells can be set to non-zero
-  ! again by the "ground fraction reconciliation code" below. Strictly
-  ! speaking the above line of code should be replaced with the section
-  ! commented out with "!-zero" below, but we preserve the old way to avoid
-  ! backward incompatibility with older runs. This needs updating in the
-  ! future when the decision about what to do with lakes in coastal cells is
-  ! made.
-
-  ! reconcile ground fractions with the land mask within compute domain
-  valid_data = land_mask.and.(sum(glac,3)+sum(lake,3)+sum(soil,3)>0)
-  invalid_data = land_mask.and..not.valid_data
-
-  call get_watch_point(iwatch,jwatch,kwatch,face)
-  if (face==lnd%face.and.(lnd%is<=iwatch.and.iwatch<=lnd%ie).and.(lnd%js<=jwatch.and.jwatch<=lnd%je)) then
-     write(*,*)'###### land_cover_cold_start: input data #####'
-     write(*,'(99(a,i4.2,x))')'iwatch=',iwatch,'jwatch=',jwatch,'face=',lnd%face
-     write(*,'(99(a,g23.16,x))')'lon=',lnd%lon(iwatch,jwatch)*180/PI,'lat=',lnd%lat(iwatch,jwatch)*180/PI
-     ! calculate local compute domain indices; we assume glac,lake,soil,vegn all
-     ! have the same lbounds
-     i = iwatch-lnd%is+lbound(glac,1); j = jwatch-lnd%js+lbound(glac,2)
-     __DEBUG2__(lnd%is,lnd%js)
-     write(*,'(a,99(a,i4.2,x))')'local indices:','i=',i,'j=',j
-     __DEBUG3__(frac(iwatch,jwatch),land_mask(i,j),valid_data(i,j))
-     __DEBUG1__(glac(i,j,:))
-     __DEBUG1__(lake(i,j,:))
-     __DEBUG1__(soil(i,j,:))
-     __DEBUG1__(vegn(i,j,:))
-  endif
-
-  if (trim(nearest_point_search)=='global') then
-     ps=0 ; pe=size(lnd%pelist)-1
-  else if (trim(nearest_point_search)=='face') then
-     ! this assumes that the number of PEs is divisible by the number of
-     ! mosaic faces. lnd%pelist starts with 0
-     ps = size(lnd%pelist)/lnd%nfaces*(lnd%face-1)
-     pe = size(lnd%pelist)/lnd%nfaces*lnd%face - 1
-  else
-     call error_mesg('land_cover_cold_start',&
-          'option nearest_point_search="'//trim(nearest_point_search)//&
-          '" is illegal, use "global" or "face"',&
-          FATAL)
-  endif
-  call horiz_remap_new(invalid_data,valid_data,lnd%lon,lnd%lat,lnd%domain,&
-          lnd%pelist(ps:pe),map)
-  if (print_remapping) call horiz_remap_print(map,'land cover remap:')
-  call horiz_remap(map,lnd%domain,glac)
-  call horiz_remap(map,lnd%domain,lake)
-  call horiz_remap(map,lnd%domain,soil)
-  allocate(rbuffer(size(soil,1), size(soil,2), size(soil,3)))
-  ! ZMS This is awkward: perhaps horiz_remap should handle integers?
-  rbuffer(:,:,:) = real(soiltags(:,:,:))
-  call horiz_remap(map,lnd%domain,rbuffer)
-  soiltags(:,:,:) = nint(rbuffer(:,:,:))
-  rbuffer(:,:,:) = real(hlsp_pos(:,:,:))
-  call horiz_remap(map,lnd%domain,rbuffer)
-  hlsp_pos(:,:,:) = nint(rbuffer(:,:,:))
-  rbuffer(:,:,:) = real(hlsp_par(:,:,:))
-  call horiz_remap(map,lnd%domain,rbuffer)
-  hlsp_par(:,:,:) = nint(rbuffer(:,:,:))
-  call horiz_remap_del(map)
-
-!-zero  ! remove any input lake fraction in coastal cells
-!-zero  do j = lnd%js,lnd%je
-!-zero  do i = lnd%is,lnd%ie
-!-zero     call set_current_point(i,j,1)
-!-zero     if (frac(i,j) < 1-gfrac_tol) then
-!-zero        lake(i,j,:) = 0.0
-!-zero        if(is_watch_point())then
-!-zero           write(*,*)'###### land_cover_cold_start: lake fraction is set to zero #####'
-!-zero        endif
-!-zero     endif
-!-zero  enddo
-!-zero  enddo
-  
-  ! reconcile vegetation fractions with the land mask within compute domain
-  valid_data = sum(vegn,3) > 0
-  invalid_data = .FALSE.
   do j = 1,size(land_mask,2)
-  do i = 1,size(land_mask,1)
-     if(.not.land_mask(i,j)) cycle ! skip ocean points
-     if(valid_data(i,j)) cycle ! don't need to do anything with valid points
-     if(sum(glac(i,j,:))+sum(lake(i,j,:))>=1) &
-          cycle                ! skip points fully covered by glaciers or lakes
-     invalid_data(i,j)=.TRUE.
+   do i = 1,size(land_mask,1)
+    if(.not.land_mask(i,j)) cycle ! skip ocean points
+    call set_current_point(i+lnd%is-1,j+lnd%js-1,1)
+    call land_cover_cold_start_0d_predefined_tiles(lnd%tile_map(i+lnd%is-1,j+lnd%js-1),&
+         lnd,i,j)
+   enddo
   enddo
-  enddo
-  call horiz_remap_new(invalid_data,valid_data,lnd%lon,lnd%lat,lnd%domain,&
-       lnd%pelist(ps:pe),map)
-  if (print_remapping) call horiz_remap_print(map,'vegetation cover remap:')
-  call horiz_remap(map,lnd%domain,vegn)
-  call horiz_remap_del(map)
-  
-  ! create tiles
-  do j = 1,size(land_mask,2)
-  do i = 1,size(land_mask,1)
-     if(.not.land_mask(i,j)) cycle ! skip ocean points
-     call set_current_point(i+lnd%is-1,j+lnd%js-1,1)
-     !New method. Hillslope and soil tiles (and their properties) are
-     !predefined and then read into the model
-     call land_cover_cold_start_0d_predefined_tiles(lnd%tile_map(i+lnd%is-1,j+lnd%js-1),&
-          lnd,i,j)
-     if(nitems(lnd%tile_map(i+lnd%is-1,j+lnd%js-1))==0) then
-        call error_mesg('land_cover_cold_start',&
-             'No tiles were created for a valid land point at i='&
-             //trim(string(lnd%is+i-1))//' j='//trim(string(lnd%js+j-1))//' face='//trim(string(lnd%face)), FATAL)
-     endif
-  enddo
-  enddo
-
-  deallocate(glac,lake,soil,soiltags,hlsp_pos,hlsp_par,vegn,rbuffer)
   
 end subroutine land_cover_cold_start_predefined
 
