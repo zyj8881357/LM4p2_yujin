@@ -453,7 +453,11 @@ subroutine land_model_init &
      call error_mesg('land_model_init',&
           'cold-starting land cover map',&
           NOTE)
-     call land_cover_cold_start(lnd)
+     if (predefined_tiles .eq. .False.) then
+      call land_cover_cold_start(lnd)
+     else if (predefined_tiles .eq. .True.) then
+      call land_cover_cold_start_predefined(lnd)
+     endif
   endif
 
   ! [6] initialize land model diagnostics -- must be before *_data_init so that
@@ -941,19 +945,9 @@ subroutine land_cover_cold_start(lnd)
   do i = 1,size(land_mask,1)
      if(.not.land_mask(i,j)) cycle ! skip ocean points
      call set_current_point(i+lnd%is-1,j+lnd%js-1,1)
-     !Choose the tiling scheme
-     if (predefined_tiles .eq. .False.) then
-      !Original method. Hillslope and soil tiles are defined within the model by
-      !reading from gridded products
-      call land_cover_cold_start_0d &
+     call land_cover_cold_start_0d &
           (lnd%tile_map(i+lnd%is-1,j+lnd%js-1),glac(i,j,:),lake(i,j,:),soil(i,j,:),soiltags(i,j,:),&
                hlsp_pos(i,j,:), hlsp_par(i,j,:), vegn(i,j,:))
-     else if (predefined_tiles .eq. .True.) then
-      !New method. Hillslope and soil tiles (and their properties) are
-      !predefined and then read into the model
-      call land_cover_cold_start_0d_predefined_tiles(lnd%tile_map(i+lnd%is-1,j+lnd%js-1),&
-          lnd,i,j)
-     endif
      if(nitems(lnd%tile_map(i+lnd%is-1,j+lnd%js-1))==0) then
         call error_mesg('land_cover_cold_start',&
              'No tiles were created for a valid land point at i='&
@@ -1100,19 +1094,10 @@ subroutine land_cover_cold_start_predefined(lnd)
   do i = 1,size(land_mask,1)
      if(.not.land_mask(i,j)) cycle ! skip ocean points
      call set_current_point(i+lnd%is-1,j+lnd%js-1,1)
-     !Choose the tiling scheme
-     if (predefined_tiles .eq. .False.) then
-      !Original method. Hillslope and soil tiles are defined within the model by
-      !reading from gridded products
-      call land_cover_cold_start_0d &
-          (lnd%tile_map(i+lnd%is-1,j+lnd%js-1),glac(i,j,:),lake(i,j,:),soil(i,j,:),soiltags(i,j,:),&
-               hlsp_pos(i,j,:), hlsp_par(i,j,:), vegn(i,j,:))
-     else if (predefined_tiles .eq. .True.) then
-      !New method. Hillslope and soil tiles (and their properties) are
-      !predefined and then read into the model
-      call land_cover_cold_start_0d_predefined_tiles(lnd%tile_map(i+lnd%is-1,j+lnd%js-1),&
+     !New method. Hillslope and soil tiles (and their properties) are
+     !predefined and then read into the model
+     call land_cover_cold_start_0d_predefined_tiles(lnd%tile_map(i+lnd%is-1,j+lnd%js-1),&
           lnd,i,j)
-     endif
      if(nitems(lnd%tile_map(i+lnd%is-1,j+lnd%js-1))==0) then
         call error_mesg('land_cover_cold_start',&
              'No tiles were created for a valid land point at i='&
@@ -1123,7 +1108,7 @@ subroutine land_cover_cold_start_predefined(lnd)
 
   deallocate(glac,lake,soil,soiltags,hlsp_pos,hlsp_par,vegn,rbuffer)
   
-end subroutine land_cover_cold_start
+end subroutine land_cover_cold_start_predefined
 
 ! ============================================================================
 subroutine land_cover_cold_start_0d (set,glac0,lake0,soil0,soiltags0,&
