@@ -937,6 +937,7 @@ subroutine land_cover_cold_start(lnd)
   call horiz_remap(map,lnd%domain,vegn)
   call horiz_remap_del(map)
   
+  print*,lake
   ! create tiles
   do j = 1,size(land_mask,2)
   do i = 1,size(land_mask,1)
@@ -1079,8 +1080,6 @@ subroutine land_cover_cold_start_0d (set,glac0,lake0,soil0,soiltags0,&
   do j = 1,size(vegn)
      frac = soil(i)*vegn(j)*factor
      if(frac>0) then
-        print*,soiltags0
-        print*,frac,soiltags0(i),j
         tile  => new_land_tile(frac=frac,soil=soiltags0(i),vegn=j,&
                                htag_j=hlsp_pos0(i),htag_k=hlsp_par0(i))
         call insert(tile,first_non_vegn)

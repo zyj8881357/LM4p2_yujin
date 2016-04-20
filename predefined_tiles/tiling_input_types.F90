@@ -1,5 +1,10 @@
 module tiling_input_types_mod
 
+type :: lake_type
+ integer :: nc_grpid,nlake
+ real,allocatable,dimension(:) :: frac
+end type lake_type
+
 ! public type -- used to temporarily store all the input data for a cell
 type :: tile_parameters_type
  !miscellanous
@@ -49,6 +54,8 @@ type :: tile_parameters_type
  integer,allocatable,dimension(:) :: hidx_j
  !vegetation
  integer,allocatable,dimension(:) :: vegn
+ !lake
+ type(lake_type) :: lake
 
 end type
 

@@ -66,18 +66,38 @@ subroutine land_cover_cold_start_0d_predefined_tiles(tiles,lnd,i,j)
  
   !Allocate memory for the land container
   status = nf90_inq_grp_ncid(grpid,"parameters",tile_parameters%nc_grpid)
+  status = nf90_inq_grp_ncid(grpid,"lake",tile_parameters%lake%nc_grpid)
 
   !Miscellanous parameters
   allocate(tile_parameters%frac(tile_parameters%ntile))
   tile_parameters%frac(:) = get_parameter_data(tile_parameters%nc_grpid,&
               "grid_cell_fraction",tile_parameters%ntile)
+  !Retrieve the number of lakes
+  status = nf90_inq_dimid(tile_parameters%lake%nc_grpid,"lake",dimid)
+  status = nf90_inquire_dimension(tile_parameters%lake%nc_grpid,dimid,&
+           len=tile_parameters%lake%nlake)
+  allocate(tile_parameters%lake%frac(tile_parameters%lake%nlake))
+  tile_parameters%lake%frac(:) = get_parameter_data(tile_parameters%lake%nc_grpid,&
+              "frac",tile_parameters%lake%nlake)
+
+  !Normalize the fractions (This should not be here)
+  tile_parameters%frac(:) = (1.0-sum(tile_parameters%lake%frac(:)))*tile_parameters%frac(:)
 
   !Soil and hillslope parameters
   call retrieve_soil_parameters(tile_parameters)
 
+  !Lake parameters
+  !call retrieve_lake_parameters(tile_parameters%lake)
+
   !Vegetation parameters
 
-  !Define the tiles (only soil for now...)
+  !Define the lake tiles
+  do itile = 1,tile_parameters%lake%nlake
+   tile => new_land_tile_predefined(frac=tile_parameters%lake%frac(i),lake=itile)
+   call insert(tile,tiles)
+  enddo
+
+  !Define the soil tiles
   do itile = 1,tile_parameters%ntile
    tile => new_land_tile_predefined(frac=tile_parameters%frac(itile),&
            soil=1,vegn=tile_parameters%vegn(itile),htag_j=tile_parameters%hidx_j(itile),&
