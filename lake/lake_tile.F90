@@ -22,6 +22,7 @@ use land_io_mod, only : &
      init_cover_field
 use land_tile_selectors_mod, only : &
      tile_selector_type, SEL_LAKE, register_tile_selector
+use tiling_input_types_mod, only : lake_predefined_type
 
 implicit none
 private
@@ -31,6 +32,7 @@ public :: lake_pars_type
 public :: lake_tile_type
 
 public :: new_lake_tile, delete_lake_tile
+public :: new_lake_tile_predefined
 public :: lake_tiles_can_be_merged, merge_lake_tiles
 public :: lake_is_selected
 public :: get_lake_tile_tag
@@ -52,7 +54,10 @@ interface new_lake_tile
    module procedure lake_tile_ctor
    module procedure lake_tile_copy_ctor
 end interface
-
+interface new_lake_tile_predefined
+   module procedure lake_tile_ctor_predefined
+   module procedure lake_tile_copy_ctor
+end interface
 
 ! ==== module constants ======================================================
 character(len=*), private, parameter   :: &
@@ -283,6 +288,29 @@ subroutine read_lake_data_namelist(lake_n_lev)
   lake_n_lev = num_l
 end subroutine 
 
+! ============================================================================
+function lake_tile_ctor_predefined(tag,lake_predefined,itile) result(ptr)
+  type(lake_tile_type), pointer :: ptr ! return value
+  integer, intent(in)           :: tag ! kind of lake
+  type(lake_predefined_type), intent(in) :: lake_predefined
+  integer, intent(in) :: itile
+
+  allocate(ptr)
+  ptr%tag = tag
+  ! allocate storage for tile data
+  allocate(ptr%dz     (num_l), &
+           ptr%wl     (num_l), &
+           ptr%ws     (num_l), &
+           ptr%T      (num_l), &
+           ptr%K_z    (num_l), &
+           ptr%w_fc   (num_l),  &
+           ptr%w_wilt (num_l),  &
+           ptr%heat_capacity_dry(num_l),  &
+           ptr%e      (num_l),  &
+           ptr%f      (num_l)   )
+  call init_lake_data_0d_predefined(ptr,lake_predefined,itile)
+
+end function lake_tile_ctor_predefined
 
 ! ============================================================================
 function lake_tile_ctor(tag) result(ptr)
@@ -349,6 +377,68 @@ subroutine delete_lake_tile(ptr)
   deallocate(ptr)
 end subroutine delete_lake_tile
 
+subroutine init_lake_data_0d_predefined(lake,lake_predefined,itile)
+  type(lake_tile_type), intent(inout) :: lake
+  type(lake_predefined_type), intent(in) :: lake_predefined
+  integer, intent(in) :: itile
+
+!  real rsa_exp         ! riparian source-area exponent
+
+  integer :: k
+  k = lake%tag
+
+  !Variables previously defined in gridded data
+  lake%pars%connected_to_next = lake_predefined%connected_to_next(itile)
+  lake%pars%whole_area = lake_predefined%whole_area(itile)
+  lake%pars%depth_sill = lake_predefined%depth_sill(itile)
+  lake%pars%backwater = lake_predefined%backwater(itile)
+  lake%pars%backwater_1 = lake_predefined%backwater_1(itile)
+  lake%pars%width_sill= lake_predefined%width_sill(itile)
+
+  !Variables previosuly defined in look-up tables
+  lake%pars%w_sat             = dat_w_sat            (k)
+  lake%pars%awc_lm2           = dat_awc_lm2          (k)
+  lake%pars%k_sat_ref         = dat_k_sat_ref        (k)
+  lake%pars%psi_sat_ref       = dat_psi_sat_ref      (k)
+  lake%pars%chb               = dat_chb              (k)
+  lake%pars%alpha             = 1
+  lake%pars%heat_capacity_ref = dat_heat_capacity_ref(k)
+  lake%pars%thermal_cond_ref  = dat_thermal_cond_ref (k)
+  lake%pars%refl_dry_dir      = dat_refl_dry_dir     (k,:)
+  lake%pars%refl_dry_dif      = dat_refl_dry_dif     (k,:)
+  lake%pars%refl_sat_dir      = dat_refl_sat_dir     (k,:)
+  lake%pars%refl_sat_dif      = dat_refl_sat_dif     (k,:)
+  lake%pars%emis_dry          = dat_emis_dry         (k)
+  lake%pars%emis_sat          = dat_emis_sat         (k)
+  lake%pars%z0_momentum       = dat_z0_momentum      (k)
+  lake%pars%z0_momentum_ice   = dat_z0_momentum_ice  (k)
+
+  lake%pars%rsa_exp           = rsa_exp_global
+
+  ! -------- derived constant lake parameters --------
+  ! w_fc (field capacity) set to w at which hydraulic conductivity equals
+  ! a nominal drainage rate "rate_fc"
+  ! w_wilt set to w at which psi is psi_wilt
+  if (use_lm2_awc) then
+     lake%w_wilt(:) = 0.15
+     lake%w_fc  (:) = 0.15 + lake%pars%awc_lm2
+  else
+     lake%w_wilt(:) = lake%pars%w_sat &
+          *(lake%pars%psi_sat_ref/(psi_wilt*lake%pars%alpha))**(1/lake%pars%chb)
+     lake%w_fc  (:) = lake%pars%w_sat &
+          *(rate_fc/(lake%pars%k_sat_ref*lake%pars%alpha**2))**(1/(3+2*lake%pars%chb))
+  endif
+
+  ! below made use of phi_e from parlange via entekhabi
+  lake%Eg_part_ref = (-4*lake%w_fc(1)**2*lake%pars%k_sat_ref*lake%pars%psi_sat_ref*lake%pars%chb &
+       /(pi*lake%pars%w_sat)) * (lake%w_fc(1)/lake%pars%w_sat)**(2+lake%pars%chb)   &
+       *(2*pi/(3*lake%pars%chb**2*(1+3/lake%pars%chb)*(1+4/lake%pars%chb)))/2
+
+  lake%z0_scalar = lake%pars%z0_momentum * exp(-k_over_B)
+  lake%z0_scalar_ice = lake%pars%z0_momentum_ice * exp(-k_over_B_ice)
+  lake%geothermal_heat_flux = geothermal_heat_flux_constant
+
+end subroutine 
 
 subroutine init_lake_data_0d(lake)
   type(lake_tile_type), intent(inout) :: lake

@@ -6,7 +6,7 @@ module predefined_tiles_mod
  use land_tile_mod, only : first_elmt, insert, new_land_tile_predefined
  use land_tile_mod, only : land_tile_list_type,land_tile_type,&
                            land_tile_enum_type
- use tiling_input_types_mod, only : tile_parameters_type
+ use tiling_input_types_mod, only : tile_parameters_type,lake_predefined_type
  use time_manager_mod, only : time_type
  use time_interp_mod, only : time_interp
 
@@ -87,13 +87,14 @@ subroutine land_cover_cold_start_0d_predefined_tiles(tiles,lnd,i,j)
   call retrieve_soil_parameters(tile_parameters)
 
   !Lake parameters
-  !call retrieve_lake_parameters(tile_parameters%lake)
+  call retrieve_lake_parameters(tile_parameters%lake)
 
   !Vegetation parameters
 
   !Define the lake tiles
   do itile = 1,tile_parameters%lake%nlake
-   tile => new_land_tile_predefined(frac=tile_parameters%lake%frac(i),lake=itile)
+   tile => new_land_tile_predefined(frac=tile_parameters%lake%frac(i),lake=itile,&
+           lake_predefined=tile_parameters%lake,itile=itile)
    call insert(tile,tiles)
   enddo
 
@@ -114,6 +115,34 @@ subroutine land_cover_cold_start_0d_predefined_tiles(tiles,lnd,i,j)
   !lnd%ntile = tile_parameters%ntile
 
 end subroutine
+
+subroutine retrieve_lake_parameters(lake)
+
+  type(lake_predefined_type),intent(inout) :: lake
+  integer :: nlake,grpid
+  nlake = lake%nlake
+  grpid = lake%nc_grpid
+
+  allocate(lake%connected_to_next(nlake))
+  lake%connected_to_next(:) = get_parameter_data(grpid,&
+              "connected_to_next",nlake)
+  allocate(lake%whole_area(nlake))
+  lake%whole_area(:) = get_parameter_data(grpid,&
+              "whole_lake_area",nlake)
+  allocate(lake%depth_sill(nlake))
+  lake%depth_sill(:) = get_parameter_data(grpid,&
+              "lake_depth_sill",nlake)
+  allocate(lake%width_sill(nlake))
+  lake%width_sill(:) = get_parameter_data(grpid,&
+              "lake_width_sill",nlake)
+  allocate(lake%backwater(nlake))
+  lake%backwater(:) = get_parameter_data(grpid,&
+              "lake_backwater",nlake)
+  allocate(lake%backwater_1(nlake))
+  lake%backwater_1(:) = get_parameter_data(grpid,&
+              "lake_backwater_1",nlake)
+
+end subroutine retrieve_lake_parameters
 
 subroutine retrieve_soil_parameters(tile_parameters)
 
@@ -318,20 +347,6 @@ subroutine read_static_vegn_nwc(tile,itime)
  status = nf90_get_var(grpid,varid,cohort%status,start=(/tile%parent_id,itime/))
  status = nf90_inq_varid(grpid,"species",varid)
  status = nf90_get_var(grpid,varid,cohort%species,start=(/tile%parent_id,itime/))
-
- !debug
- !print*,'Wl',cohort%Wl
- !print*,'Ws',cohort%Ws
- !print*,'Tv',cohort%Tv
- !print*,'bl',cohort%bl
- !print*,'blv',cohort%blv
- !print*,'br',cohort%br
- !print*,'bsw',cohort%bsw
- !print*,'bwood',cohort%bwood
- !print*,'bliving',cohort%bliving
- !print*,'status',cohort%status
- !print*,'species',cohort%species
- !print*,'itime',itime
 
 end subroutine
 

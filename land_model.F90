@@ -40,6 +40,7 @@ use glacier_mod, only : read_glac_namelist, glac_init, glac_end, glac_get_sfc_te
      save_glac_restart_new
 use lake_mod, only : read_lake_namelist, lake_init, lake_end, lake_get_sfc_temp, &
      lake_radiation, lake_diffusion, lake_step_1, lake_step_2, save_lake_restart, save_lake_restart_new
+use lake_mod, only : lake_init_predefined
 use soil_mod, only : read_soil_namelist, soil_init, soil_end, soil_get_sfc_temp, &
      soil_radiation, soil_diffusion, soil_step_1, soil_step_2, soil_step_3, &
      save_soil_restart, save_soil_restart_new
@@ -485,7 +486,11 @@ subroutine land_model_init &
   endif
   call hlsp_hydro_init (id_lon, id_lat, id_zfull) ! Must be called after soil_init
   call vegn_init ( id_lon, id_lat, id_band, new_land_io )
-  call lake_init ( id_lon, id_lat, new_land_io )
+  if (predefined_tiles .eq. .False.)then
+   call lake_init ( id_lon, id_lat, new_land_io ) 
+  else if (predefined_tiles .eq. .True.)then
+   call lake_init_predefined ( id_lon, id_lat, new_land_io )
+  endif
   call glac_init ( id_lon, id_lat, new_land_io )
   call snow_init ( id_lon, id_lat, new_land_io )
   call cana_init ( id_lon, id_lat, new_land_io )

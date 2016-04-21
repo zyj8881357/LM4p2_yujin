@@ -10,7 +10,8 @@ use glac_tile_mod, only : &
 use lake_tile_mod, only : &
      lake_tile_type, new_lake_tile, delete_lake_tile, lake_is_selected, &
      lake_tiles_can_be_merged, merge_lake_tiles, get_lake_tile_tag, &
-     lake_tile_stock_pe, lake_tile_heat
+     lake_tile_stock_pe, lake_tile_heat, &
+     new_lake_tile_predefined
 use soil_tile_mod, only : &
      soil_tile_type, new_soil_tile, delete_soil_tile, soil_is_selected, &
      soil_tiles_can_be_merged, merge_soil_tiles, get_soil_tile_tag, &
@@ -33,7 +34,7 @@ use land_tile_selectors_mod, only : tile_selector_type, &
      SEL_SOIL, SEL_VEGN, SEL_LAKE, SEL_GLAC, SEL_SNOW, SEL_CANA, SEL_HLSP
 use tile_diag_buff_mod, only : &
      diag_buff_type, new_diag_buff, delete_diag_buff
-use tiling_input_types_mod, only : tile_parameters_type
+use tiling_input_types_mod, only : tile_parameters_type,lake_predefined_type
 
 implicit none
 private
@@ -249,7 +250,7 @@ end function land_tile_ctor
 ! NWC: The difference with the original land_tile_ctor is that the tiles in this
 ! case are defined externally
 function land_tile_ctor_predefined(frac,glac,lake,soil,vegn,tag,htag_j,htag_k,&
-                        tile_parameters,itile) result(tile)
+                        tile_parameters,lake_predefined,itile) result(tile)
   real   , optional, intent(in) :: frac ! fractional area of tile
   integer, optional, intent(in) :: &
                glac,lake,soil,vegn ! kinds of respective tiles
@@ -257,6 +258,7 @@ function land_tile_ctor_predefined(frac,glac,lake,soil,vegn,tag,htag_j,htag_k,&
   integer, optional, intent(in) :: htag_j  ! optional hillslope position tag
   integer, optional, intent(in) :: htag_k  ! optional hillslope parent tag
   type(tile_parameters_type), optional, intent(in) :: tile_parameters
+  type(lake_predefined_type), optional, intent(in) :: lake_predefined
   integer, optional, intent(in) :: itile
   type(land_tile_type), pointer :: tile ! return value
 
@@ -277,7 +279,7 @@ function land_tile_ctor_predefined(frac,glac,lake,soil,vegn,tag,htag_j,htag_k,&
   ! create sub-model tiles
   tile%cana => new_cana_tile()
   if(glac_>=0) tile%glac => new_glac_tile(glac_)
-  if(lake_>=0) tile%lake => new_lake_tile(lake_)
+  if(lake_>=0) tile%lake => new_lake_tile_predefined(lake_,lake_predefined,itile)
   tile%snow => new_snow_tile()
   if(soil_>=0) then
     if (present(htag_j) .and. present(htag_k)) then

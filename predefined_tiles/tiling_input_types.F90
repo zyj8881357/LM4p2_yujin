@@ -1,9 +1,32 @@
 module tiling_input_types_mod
 
-type :: lake_type
+type :: lake_predefined_type
  integer :: nc_grpid,nlake
  real,allocatable,dimension(:) :: frac
-end type lake_type
+ real,allocatable,dimension(:) :: w_sat
+ real,allocatable,dimension(:) :: awc_lm2
+ real,allocatable,dimension(:) :: k_sat_ref
+ real,allocatable,dimension(:) :: psi_sat_ref
+ real,allocatable,dimension(:) :: chb
+ real,allocatable,dimension(:) :: alpha
+ real,allocatable,dimension(:) :: heat_capacity_ref
+ real,allocatable,dimension(:) :: thermal_cond_ref
+ real,allocatable,dimension(:,:) :: refl_dry_dir
+ real,allocatable,dimension(:,:) :: refl_dry_dif
+ real,allocatable,dimension(:,:) :: refl_sat_dir
+ real,allocatable,dimension(:,:) :: refl_sat_dif
+ real,allocatable,dimension(:) :: emis_dry
+ real,allocatable,dimension(:) :: emis_sat
+ real,allocatable,dimension(:) :: z0_momentum
+ real,allocatable,dimension(:) :: z0_momentum_ice
+ real,allocatable,dimension(:) :: depth_sill
+ real,allocatable,dimension(:) :: width_sill
+ real,allocatable,dimension(:) :: whole_area
+ real,allocatable,dimension(:) :: connected_to_next
+ real,allocatable,dimension(:) :: backwater
+ real,allocatable,dimension(:) :: backwater_1
+ real,allocatable,dimension(:) :: rsa_exp         ! riparian source-area exponent
+end type lake_predefined_type
 
 ! public type -- used to temporarily store all the input data for a cell
 type :: tile_parameters_type
@@ -55,7 +78,7 @@ type :: tile_parameters_type
  !vegetation
  integer,allocatable,dimension(:) :: vegn
  !lake
- type(lake_type) :: lake
+ type(lake_predefined_type) :: lake
 
 end type
 
