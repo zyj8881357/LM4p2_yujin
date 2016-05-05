@@ -280,6 +280,7 @@ function land_tile_ctor_predefined(frac,glac,lake,soil,vegn,tag,htag_j,htag_k,&
   tile%cana => new_cana_tile()
   if(glac_>=0) tile%glac => new_glac_tile(glac_)
   if(lake_>=0) tile%lake => new_lake_tile_predefined(lake_,lake_predefined,itile)
+  !if(lake_>=0) tile%lake => new_lake_tile(lake_)
   tile%snow => new_snow_tile()
   if(soil_>=0) then
     if (present(htag_j) .and. present(htag_k)) then

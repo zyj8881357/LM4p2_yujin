@@ -1,7 +1,7 @@
 module tiling_input_types_mod
 
 type :: lake_predefined_type
- integer :: nc_grpid,nlake
+ integer :: nc_grpid,nlake,nband
  real,allocatable,dimension(:) :: frac
  real,allocatable,dimension(:) :: w_sat
  real,allocatable,dimension(:) :: awc_lm2

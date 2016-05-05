@@ -63,6 +63,7 @@ subroutine land_cover_cold_start_0d_predefined_tiles(tiles,lnd,i,j)
   !Retrieve the number of bands
   status = nf90_inq_dimid(grpid,"band",dimid)
   status = nf90_inquire_dimension(grpid,dimid,len=tile_parameters%nband)
+  tile_parameters%lake%nband = tile_parameters%nband
  
   !Allocate memory for the land container
   status = nf90_inq_grp_ncid(grpid,"parameters",tile_parameters%nc_grpid)
@@ -81,6 +82,7 @@ subroutine land_cover_cold_start_0d_predefined_tiles(tiles,lnd,i,j)
               "frac",tile_parameters%lake%nlake)
 
   !Normalize the fractions (This should not be here)
+  !tile_parameters%lake%frac(:) = 0.0
   tile_parameters%frac(:) = (1.0-sum(tile_parameters%lake%frac(:)))*tile_parameters%frac(:)
 
   !Soil and hillslope parameters
@@ -93,13 +95,15 @@ subroutine land_cover_cold_start_0d_predefined_tiles(tiles,lnd,i,j)
 
   !Define the lake tiles
   do itile = 1,tile_parameters%lake%nlake
-   tile => new_land_tile_predefined(frac=tile_parameters%lake%frac(i),lake=itile,&
+   if (tile_parameters%lake%frac(itile) .eq. 0.0)cycle
+   tile => new_land_tile_predefined(frac=tile_parameters%lake%frac(itile),lake=itile,&
            lake_predefined=tile_parameters%lake,itile=itile)
    call insert(tile,tiles)
   enddo
 
   !Define the soil tiles
   do itile = 1,tile_parameters%ntile
+   print*,tile_parameters%frac(itile)
    tile => new_land_tile_predefined(frac=tile_parameters%frac(itile),&
            soil=1,vegn=tile_parameters%vegn(itile),htag_j=tile_parameters%hidx_j(itile),&
            htag_k=tile_parameters%hidx_k(itile),&
@@ -119,8 +123,9 @@ end subroutine
 subroutine retrieve_lake_parameters(lake)
 
   type(lake_predefined_type),intent(inout) :: lake
-  integer :: nlake,grpid
+  integer :: nlake,grpid,nband
   nlake = lake%nlake
+  nband = lake%nband
   grpid = lake%nc_grpid
 
   allocate(lake%connected_to_next(nlake))
@@ -141,6 +146,54 @@ subroutine retrieve_lake_parameters(lake)
   allocate(lake%backwater_1(nlake))
   lake%backwater_1(:) = get_parameter_data(grpid,&
               "lake_backwater_1",nlake)
+  allocate(lake%refl_dry_dir(nlake,nband))
+  lake%refl_dry_dir(:,:) = get_parameter_data(grpid,&
+              "refl_dry_dir",nlake,nband)
+  allocate(lake%awc_lm2(nlake))
+  lake%awc_lm2(:) = get_parameter_data(grpid,&
+              "awc_lm2",nlake)
+  allocate(lake%w_sat(nlake))
+  lake%w_sat(:) = get_parameter_data(grpid,&
+              "w_sat",nlake)
+  allocate(lake%refl_dry_dif(nlake,nband))
+  lake%refl_dry_dif(:,:) = get_parameter_data(grpid,&
+              "refl_dry_dif",nlake,nband)
+  allocate(lake%chb(nlake))
+  lake%chb(:) = get_parameter_data(grpid,&
+              "chb",nlake)
+  allocate(lake%z0_momentum(nlake))
+  lake%z0_momentum(:) = get_parameter_data(grpid,&
+              "z0_momentum",nlake)
+  allocate(lake%psi_sat_ref(nlake))
+  lake%psi_sat_ref(:) = get_parameter_data(grpid,&
+              "psi_sat_ref",nlake)
+  allocate(lake%refl_sat_dir(nlake,nband))
+  lake%refl_sat_dir(:,:) = get_parameter_data(grpid,&
+              "refl_sat_dir",nlake,nband)
+  allocate(lake%emis_dry(nlake))
+  lake%emis_dry(:) = get_parameter_data(grpid,&
+              "emis_dry",nlake)
+  allocate(lake%z0_momentum_ice(nlake))
+  lake%z0_momentum_ice(:) = get_parameter_data(grpid,&
+              "z0_momentum_ice",nlake)
+  allocate(lake%heat_capacity_ref(nlake))
+  lake%heat_capacity_ref(:) = get_parameter_data(grpid,&
+              "heat_capacity_ref",nlake)
+  allocate(lake%refl_sat_dif(nlake,nband))
+  lake%refl_sat_dif(:,:) = get_parameter_data(grpid,&
+              "refl_sat_dif",nlake,nband)
+  allocate(lake%alpha(nlake))
+  lake%alpha(:) = get_parameter_data(grpid,&
+              "alpha",nlake)
+  allocate(lake%thermal_cond_ref(nlake))
+  lake%thermal_cond_ref(:) = get_parameter_data(grpid,&
+              "thermal_cond_ref",nlake)
+  allocate(lake%emis_sat(nlake))
+  lake%emis_sat(:) = get_parameter_data(grpid,&
+              "emis_sat",nlake)
+  allocate(lake%k_sat_ref(nlake))
+  lake%k_sat_ref(:) = get_parameter_data(grpid,&
+              "k_sat_ref",nlake)
 
 end subroutine retrieve_lake_parameters
 
