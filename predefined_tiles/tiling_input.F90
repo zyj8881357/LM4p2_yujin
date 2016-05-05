@@ -7,6 +7,7 @@ module predefined_tiles_mod
  use land_tile_mod, only : land_tile_list_type,land_tile_type,&
                            land_tile_enum_type
  use tiling_input_types_mod, only : tile_parameters_type,lake_predefined_type
+ use tiling_input_types_mod, only : glacier_predefined_type
  use time_manager_mod, only : time_type
  use time_interp_mod, only : time_interp
 
@@ -68,6 +69,7 @@ subroutine land_cover_cold_start_0d_predefined_tiles(tiles,lnd,i,j)
   !Allocate memory for the land container
   status = nf90_inq_grp_ncid(grpid,"parameters",tile_parameters%nc_grpid)
   status = nf90_inq_grp_ncid(grpid,"lake",tile_parameters%lake%nc_grpid)
+  status = nf90_inq_grp_ncid(grpid,"glacier",tile_parameters%glacier%nc_grpid)
 
   !Miscellanous parameters
   allocate(tile_parameters%frac(tile_parameters%ntile))
@@ -80,10 +82,17 @@ subroutine land_cover_cold_start_0d_predefined_tiles(tiles,lnd,i,j)
   allocate(tile_parameters%lake%frac(tile_parameters%lake%nlake))
   tile_parameters%lake%frac(:) = get_parameter_data(tile_parameters%lake%nc_grpid,&
               "frac",tile_parameters%lake%nlake)
+  !Retrieve the number of glaciers
+  status = nf90_inq_dimid(tile_parameters%glacier%nc_grpid,"glacier",dimid)
+  status = nf90_inquire_dimension(tile_parameters%glacier%nc_grpid,dimid,&
+           len=tile_parameters%glacier%nglacier)
+  allocate(tile_parameters%glacier%frac(tile_parameters%glacier%nglacier))
+  tile_parameters%glacier%frac(:) = get_parameter_data(tile_parameters%glacier%nc_grpid,&
+              "frac",tile_parameters%glacier%nglacier)
 
   !Normalize the fractions (This should not be here)
   !tile_parameters%lake%frac(:) = 0.0
-  tile_parameters%frac(:) = (1.0-sum(tile_parameters%lake%frac(:)))*tile_parameters%frac(:)
+  tile_parameters%frac(:) = (1.0-(sum(tile_parameters%lake%frac(:))+sum(tile_parameters%glacier%frac(:))))*tile_parameters%frac(:)
 
   !Soil and hillslope parameters
   call retrieve_soil_parameters(tile_parameters)
@@ -91,7 +100,18 @@ subroutine land_cover_cold_start_0d_predefined_tiles(tiles,lnd,i,j)
   !Lake parameters
   call retrieve_lake_parameters(tile_parameters%lake)
 
+  !Glacier parameters
+  call retrieve_glacier_parameters(tile_parameters%glacier)
+  !!!HERE!!!
   !Vegetation parameters
+
+  !Define the glacier tiles
+  !do itile = 1,tile_parameters%glacier%nglacier
+  ! if (tile_parameters%glacier%frac(itile) .eq. 0.0)cycle
+  ! tile => new_land_tile_predefined(frac=tile_parameters%glacier%frac(itile),lake=itile,&
+  !         glacier_predefined=tile_parameters%glacier,itile=itile)
+  ! call insert(tile,tiles)
+  !enddo
 
   !Define the lake tiles
   do itile = 1,tile_parameters%lake%nlake
@@ -119,6 +139,65 @@ subroutine land_cover_cold_start_0d_predefined_tiles(tiles,lnd,i,j)
   !lnd%ntile = tile_parameters%ntile
 
 end subroutine
+
+subroutine retrieve_glacier_parameters(glacier)
+
+  type(glacier_predefined_type),intent(inout) :: glacier
+  integer :: nglacier,grpid,nband
+  nglacier = glacier%nglacier
+  nband = glacier%nband
+  grpid = glacier%nc_grpid
+
+  allocate(glacier%w_sat(nglacier))
+  glacier%w_sat(:) = get_parameter_data(grpid,&
+              "w_sat",nglacier)
+  allocate(glacier%awc_lm2(nglacier))
+  glacier%awc_lm2(:) = get_parameter_data(grpid,&
+              "awc_lm2",nglacier)
+  allocate(glacier%k_sat_ref(nglacier))
+  glacier%k_sat_ref(:) = get_parameter_data(grpid,&
+              "k_sat_ref",nglacier)
+  allocate(glacier%psi_sat_ref(nglacier))
+  glacier%psi_sat_ref(:) = get_parameter_data(grpid,&
+              "psi_sat_ref",nglacier)
+  allocate(glacier%chb(nglacier))
+  glacier%chb(:) = get_parameter_data(grpid,&
+              "chb",nglacier)
+  allocate(glacier%alpha(nglacier))
+  glacier%alpha(:) = get_parameter_data(grpid,&
+              "alpha",nglacier)
+  allocate(glacier%heat_capacity_ref(nglacier))
+  glacier%heat_capacity_ref(:) = get_parameter_data(grpid,&
+              "heat_capacity_ref",nglacier)
+  allocate(glacier%thermal_cond_ref(nglacier))
+  glacier%thermal_cond_ref(:) = get_parameter_data(grpid,&
+              "thermal_cond_ref",nglacier)
+  allocate(glacier%emis_dry(nglacier))
+  glacier%emis_dry(:) = get_parameter_data(grpid,&
+              "emis_dry",nglacier)
+  allocate(glacier%emis_sat(nglacier))
+  glacier%emis_sat(:) = get_parameter_data(grpid,&
+              "emis_sat",nglacier)
+  allocate(glacier%z0_momentum(nglacier))
+  glacier%z0_momentum(:) = get_parameter_data(grpid,&
+              "z0_momentum",nglacier)
+  allocate(glacier%tfreeze(nglacier))
+  glacier%tfreeze(:) = get_parameter_data(grpid,&
+              "tfreeze",nglacier)
+  allocate(glacier%refl_max_dir(nglacier,nband))
+  glacier%refl_max_dir(:,:) = get_parameter_data(grpid,&
+              "refl_max_dir",nglacier,nband)
+  allocate(glacier%refl_max_dif(nglacier,nband))
+  glacier%refl_max_dif(:,:) = get_parameter_data(grpid,&
+              "refl_max_dif",nglacier,nband)
+  allocate(glacier%refl_min_dir(nglacier,nband))
+  glacier%refl_min_dir(:,:) = get_parameter_data(grpid,&
+              "refl_min_dir",nglacier,nband)
+  allocate(glacier%refl_min_dif(nglacier,nband))
+  glacier%refl_min_dir(:,:) = get_parameter_data(grpid,&
+              "refl_min_dir",nglacier,nband)
+
+end subroutine retrieve_glacier_parameters
 
 subroutine retrieve_lake_parameters(lake)
 

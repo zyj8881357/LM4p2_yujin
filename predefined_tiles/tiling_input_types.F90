@@ -28,6 +28,29 @@ type :: lake_predefined_type
  real,allocatable,dimension(:) :: rsa_exp         ! riparian source-area exponent
 end type lake_predefined_type
 
+type :: glacier_predefined_type
+
+ integer :: nc_grpid,nglacier,nband
+ real,allocatable,dimension(:) :: frac
+ real,allocatable,dimension(:) :: w_sat
+ real,allocatable,dimension(:) :: awc_lm2
+ real,allocatable,dimension(:) :: k_sat_ref
+ real,allocatable,dimension(:) :: psi_sat_ref
+ real,allocatable,dimension(:) :: chb
+ real,allocatable,dimension(:) :: alpha
+ real,allocatable,dimension(:) :: heat_capacity_ref
+ real,allocatable,dimension(:) :: thermal_cond_ref
+ real,allocatable,dimension(:,:) :: refl_max_dir
+ real,allocatable,dimension(:,:) :: refl_max_dif
+ real,allocatable,dimension(:,:) :: refl_min_dir
+ real,allocatable,dimension(:,:) :: refl_min_dif
+ real,allocatable,dimension(:) :: emis_dry
+ real,allocatable,dimension(:) :: emis_sat
+ real,allocatable,dimension(:) :: z0_momentum
+ real,allocatable,dimension(:) :: tfreeze
+
+end type glacier_predefined_type
+
 ! public type -- used to temporarily store all the input data for a cell
 type :: tile_parameters_type
  !miscellanous
@@ -79,6 +102,8 @@ type :: tile_parameters_type
  integer,allocatable,dimension(:) :: vegn
  !lake
  type(lake_predefined_type) :: lake
+ !glacier
+ type(glacier_predefined_type) :: glacier
 
 end type
 
