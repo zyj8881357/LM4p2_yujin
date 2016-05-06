@@ -836,7 +836,6 @@ subroutine soil_data_init_0d(soil)
   
   k = soil%tag
 
-  !stop
   soil%pars%vwc_sat           = dat_w_sat            (k)
   soil%pars%awc_lm2           = dat_awc_lm2          (k)
   soil%pars%k_sat_ref         = dat_k_sat_ref        (k)
@@ -963,6 +962,18 @@ subroutine soil_data_init_0d(soil)
    print*,'hillslope_a',soil%pars%hillslope_a 
    print*,'hillslope_n',soil%pars%hillslope_n
    print*,'k_sat_gw',soil%pars%k_sat_gw   
+   print*,'storage_index',soil%pars%storage_index
+   print*,'alpha',soil%alpha
+   print*,'fast_soil_C',soil%fast_soil_C
+   print*,'slow_soil_C',soil%slow_soil_C
+   print*,'asoil_in',soil%asoil_in
+   print*,'fsc_in',soil%fsc_in
+   print*,'ssc_in',soil%ssc_in
+   print*,'tile_hlsp_length',soil%pars%tile_hlsp_length 
+   print*,'tile_hlsp_slope',soil%pars%tile_hlsp_slope
+   print*,'tile_hlsp_elev',soil%pars%tile_hlsp_elev
+   print*,'tile_hlsp_hpos',soil%pars%tile_hlsp_hpos
+   print*,'tile_hlsp_width',soil%pars%tile_hlsp_width 
   endif
 
 end subroutine soil_data_init_0d
@@ -1107,6 +1118,19 @@ subroutine soil_data_init_0d_predefined(soil,tile_parameters,itile)
    print*,'hillslope_a',soil%pars%hillslope_a 
    print*,'hillslope_n',soil%pars%hillslope_n
    print*,'k_sat_gw',soil%pars%k_sat_gw   
+   print*,'microtopo',soil%pars%microtopo
+   print*,'storage_index',soil%pars%storage_index
+   print*,'alpha',soil%alpha
+   print*,'fast_soil_C',soil%fast_soil_C
+   print*,'slow_soil_C',soil%slow_soil_C
+   print*,'asoil_in',soil%asoil_in
+   print*,'fsc_in',soil%fsc_in
+   print*,'ssc_in',soil%ssc_in
+   print*,'tile_hlsp_length',soil%pars%tile_hlsp_length 
+   print*,'tile_hlsp_slope',soil%pars%tile_hlsp_slope
+   print*,'tile_hlsp_elev',soil%pars%tile_hlsp_elev
+   print*,'tile_hlsp_hpos',soil%pars%tile_hlsp_hpos
+   print*,'tile_hlsp_width',soil%pars%tile_hlsp_width 
   endif
 
 end subroutine soil_data_init_0d_predefined

@@ -813,6 +813,8 @@ subroutine hlsp_init_predefined ( id_lon, id_lat, new_land_io )
   logical, intent(in) :: new_land_io !< This is a transition var and will be removed
 
   ! ---- local vars
+  type(land_tile_enum_type)     :: te,ce  ! tail and current tile list elements
+  type(land_tile_type), pointer :: tile   ! pointer to current tile
   integer :: unit         ! unit for various i/o
   character(len=256) :: restart_file_name, mesg
   logical :: restart_exists
@@ -874,6 +876,29 @@ subroutine hlsp_init_predefined ( id_lon, id_lat, new_land_io )
    call send_tile_data_r0d_fptr(id_tile_hlsp_elev,  lnd%tile_map,    soil_tile_hlsp_elev_ptr)
    call send_tile_data_r0d_fptr(id_tile_hlsp_hpos,  lnd%tile_map,    soil_tile_hlsp_hpos_ptr)
    call send_tile_data_r0d_fptr(id_tile_hlsp_width, lnd%tile_map,    soil_tile_hlsp_width_ptr)
+ 
+ !Print out parameters
+ if (is_watch_point()) then
+   te = tail_elmt(lnd%tile_map)
+   ce = first_elmt(lnd%tile_map)
+   do while(ce /= te)
+
+      tile=>current_tile(ce)  ! get pointer to current tile
+      ce=next_elmt(ce)        ! advance position to the next tile
+      if ((associated(tile%soil)) .eqv. .False.)cycle
+      print*,'soil_e_depth',tile%soil%pars%soil_e_depth
+      print*,'microtopo',tile%soil%pars%microtopo
+      print*,'k_sat_gw',tile%soil%pars%k_sat_gw
+      print*,'hlsp_elev',tile%soil%pars%tile_hlsp_elev
+      print*,'hlsp_hpos',tile%soil%pars%tile_hlsp_hpos
+      print*,'hlsp_width',tile%soil%pars%tile_hlsp_width
+      print*,'hlsp_slope',tile%soil%pars%tile_hlsp_slope
+      print*,'hlsp_length',tile%soil%pars%tile_hlsp_length
+      print*,'microtopo',tile%soil%pars%microtopo
+      print*,'hidx_j',tile%soil%hidx_j
+      print*,'hidx_k',tile%soil%hidx_k
+   end do
+ endif
 
 end subroutine hlsp_init_predefined
 

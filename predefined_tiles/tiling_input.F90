@@ -65,6 +65,7 @@ subroutine land_cover_cold_start_0d_predefined_tiles(tiles,lnd,i,j)
   status = nf90_inq_dimid(grpid,"band",dimid)
   status = nf90_inquire_dimension(grpid,dimid,len=tile_parameters%nband)
   tile_parameters%lake%nband = tile_parameters%nband
+  tile_parameters%glacier%nband = tile_parameters%nband
  
   !Allocate memory for the land container
   status = nf90_inq_grp_ncid(grpid,"parameters",tile_parameters%nc_grpid)
@@ -102,20 +103,22 @@ subroutine land_cover_cold_start_0d_predefined_tiles(tiles,lnd,i,j)
 
   !Glacier parameters
   call retrieve_glacier_parameters(tile_parameters%glacier)
-  !!!HERE!!!
+
   !Vegetation parameters
 
   !Define the glacier tiles
-  !do itile = 1,tile_parameters%glacier%nglacier
-  ! if (tile_parameters%glacier%frac(itile) .eq. 0.0)cycle
-  ! tile => new_land_tile_predefined(frac=tile_parameters%glacier%frac(itile),lake=itile,&
-  !         glacier_predefined=tile_parameters%glacier,itile=itile)
-  ! call insert(tile,tiles)
-  !enddo
+  do itile = 1,tile_parameters%glacier%nglacier
+   if (tile_parameters%glacier%frac(itile) .eq. 0.0)cycle
+   print*,'glac',tile_parameters%glacier%frac(itile)
+   tile => new_land_tile_predefined(frac=tile_parameters%glacier%frac(itile),glac=itile,&
+           glacier_predefined=tile_parameters%glacier,itile=itile)
+   call insert(tile,tiles)
+  enddo
 
   !Define the lake tiles
   do itile = 1,tile_parameters%lake%nlake
    if (tile_parameters%lake%frac(itile) .eq. 0.0)cycle
+   print*,'lake',tile_parameters%lake%frac(itile)
    tile => new_land_tile_predefined(frac=tile_parameters%lake%frac(itile),lake=itile,&
            lake_predefined=tile_parameters%lake,itile=itile)
    call insert(tile,tiles)
@@ -124,6 +127,7 @@ subroutine land_cover_cold_start_0d_predefined_tiles(tiles,lnd,i,j)
   !Define the soil tiles
   do itile = 1,tile_parameters%ntile
    print*,tile_parameters%frac(itile)
+   print*,'soil',tile_parameters%frac(itile)
    tile => new_land_tile_predefined(frac=tile_parameters%frac(itile),&
            soil=1,vegn=tile_parameters%vegn(itile),htag_j=tile_parameters%hidx_j(itile),&
            htag_k=tile_parameters%hidx_k(itile),&
@@ -194,8 +198,8 @@ subroutine retrieve_glacier_parameters(glacier)
   glacier%refl_min_dir(:,:) = get_parameter_data(grpid,&
               "refl_min_dir",nglacier,nband)
   allocate(glacier%refl_min_dif(nglacier,nband))
-  glacier%refl_min_dir(:,:) = get_parameter_data(grpid,&
-              "refl_min_dir",nglacier,nband)
+  glacier%refl_min_dif(:,:) = get_parameter_data(grpid,&
+              "refl_min_dif",nglacier,nband)
 
 end subroutine retrieve_glacier_parameters
 

@@ -481,7 +481,9 @@ subroutine land_model_init &
    call hlsp_init ( id_lon, id_lat, new_land_io ) ! Must be called before soil_init
    call soil_init ( id_lon, id_lat, id_band, id_zfull, new_land_io)
   else if (predefined_tiles .eq. .True.)then
+   !call hlsp_init ( id_lon, id_lat, new_land_io ) ! Must be called before soil_init
    call hlsp_init_predefined ( id_lon, id_lat, new_land_io ) ! Must be called before soil_init
+   !call soil_init ( id_lon, id_lat, id_band, id_zfull, new_land_io)
    call soil_init_predefined ( id_lon, id_lat, id_band, id_zfull, new_land_io)
   endif
   call hlsp_hydro_init (id_lon, id_lat, id_zfull) ! Must be called after soil_init
@@ -942,7 +944,6 @@ subroutine land_cover_cold_start(lnd)
   call horiz_remap(map,lnd%domain,vegn)
   call horiz_remap_del(map)
   
-  print*,lake
   ! create tiles
   do j = 1,size(land_mask,2)
   do i = 1,size(land_mask,1)
@@ -971,9 +972,11 @@ subroutine land_cover_cold_start_predefined(lnd)
   logical, dimension(lnd%ie-lnd%is+1,lnd%je-lnd%js+1) :: &
        land_mask
   integer :: i,j
+  real, dimension(:,:,:), pointer :: soil
 
   ! calculate the global land mask
   land_mask = lnd%area > 0
+  soil => soil_cover_cold_start(land_mask,lnd%lonb,lnd%latb)
 
   do j = 1,size(land_mask,2)
    do i = 1,size(land_mask,1)
@@ -1097,7 +1100,6 @@ subroutine land_cover_cold_start_0d (set,glac0,lake0,soil0,soiltags0,&
      endif
   enddo
   enddo
-  stop
 
   ! Check that fractions are set correctly.
   ce = first_elmt(set)

@@ -382,8 +382,6 @@ subroutine lake_init ( id_lon, id_lat, new_land_io )
   module_is_initialized = .TRUE.
   time       = lnd%time
   delta_time = time_type_to_real(lnd%dt_fast)
-  print*,'lon',180.0*lnd%lon(lnd%is:lnd%ie,lnd%js:lnd%je)/pi
-  print*,'lat',180.0*lnd%lat(lnd%is:lnd%ie,lnd%js:lnd%je)/pi
 
   allocate(buffer (lnd%is:lnd%ie,lnd%js:lnd%je))
   allocate(bufferc(lnd%is:lnd%ie,lnd%js:lnd%je))
@@ -402,17 +400,14 @@ subroutine lake_init ( id_lon, id_lat, new_land_io )
 
      if(river_data_exist) call read_data('INPUT/river_data.nc', 'connected_to_next', bufferc(:,:), lnd%domain)
      call put_to_tiles_r0d_fptr(bufferc, lnd%tile_map, lake_connected_to_next_ptr)
-     print*,'connected_to_next',bufferc
 
      if(river_data_exist) call read_data('INPUT/river_data.nc', 'whole_lake_area', buffer(:,:), lnd%domain)
      call put_to_tiles_r0d_fptr(buffer, lnd%tile_map, lake_whole_area_ptr)
-     print*,'whole_lake_area',buffer
 
      if(river_data_exist) call read_data('INPUT/river_data.nc', 'lake_depth_sill', buffer(:,:),  lnd%domain)
      buffer = min(buffer, lake_depth_max)
      buffer = max(buffer, lake_depth_min)
      call put_to_tiles_r0d_fptr(buffer,  lnd%tile_map, lake_depth_sill_ptr)
-     print*,'lake_depth_sill',buffer
 
      ! lake_tau is just used here as a flag for 'large lakes'
      ! sill width of -1 is a flag saying not to allow transient storage
@@ -428,7 +423,6 @@ subroutine lake_init ( id_lon, id_lat, new_land_io )
         enddo
      endif
      call put_to_tiles_r0d_fptr(buffer, lnd%tile_map, lake_width_sill_ptr)
-     print*,'lake_width_sill',buffer
 
      buffer = 1.e8
      if (max_plain_slope.gt.0. .and. river_data_exist) &
@@ -437,11 +431,9 @@ subroutine lake_init ( id_lon, id_lat, new_land_io )
      bufferc = 0.
      where (buffer.lt.max_plain_slope .and. buffert.gt.1.5) bufferc = 1.
      call put_to_tiles_r0d_fptr(bufferc, lnd%tile_map, lake_backwater_ptr)
-     print*,'backwater',bufferc
      bufferc = 0
      where (buffer.lt.max_plain_slope .and. buffert.lt.1.5) bufferc = 1.
      call put_to_tiles_r0d_fptr(bufferc, lnd%tile_map, lake_backwater_1_ptr)
-     print*,'backwater_1',bufferc
 
   ELSE
      if(river_data_exist) call read_data('INPUT/river_data.nc', 'whole_lake_area', bufferc(:,:), lnd%domain)
