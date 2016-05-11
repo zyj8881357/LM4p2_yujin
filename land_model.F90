@@ -976,7 +976,6 @@ subroutine land_cover_cold_start_predefined(lnd)
 
   ! calculate the global land mask
   land_mask = lnd%area > 0
-  soil => soil_cover_cold_start(land_mask,lnd%lonb,lnd%latb)
 
   do j = 1,size(land_mask,2)
    do i = 1,size(land_mask,1)
