@@ -117,13 +117,13 @@ end type metadata_predefined_type
 type :: tile_parameters_type
 
  !metadata
- type(metadata_predefined_type),pointer :: metadata => NULL()
+ type(metadata_predefined_type),pointer :: metadata
  !soil
- type(soil_predefined_type),pointer :: soil => NULL()
+ type(soil_predefined_type),pointer :: soil
  !lake
- type(lake_predefined_type),pointer :: lake => NULL()
+ type(lake_predefined_type),pointer :: lake
  !glacier
- type(glacier_predefined_type),pointer :: glacier => NULL()
+ type(glacier_predefined_type),pointer :: glacier
 
 end type tile_parameters_type
 
