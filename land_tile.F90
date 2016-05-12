@@ -35,7 +35,7 @@ use land_tile_selectors_mod, only : tile_selector_type, &
      SEL_SOIL, SEL_VEGN, SEL_LAKE, SEL_GLAC, SEL_SNOW, SEL_CANA, SEL_HLSP
 use tile_diag_buff_mod, only : &
      diag_buff_type, new_diag_buff, delete_diag_buff
-use tiling_input_types_mod, only : tile_parameters_type,lake_predefined_type, &
+use tiling_input_types_mod, only : soil_predefined_type,lake_predefined_type, &
      glacier_predefined_type
 
 implicit none
@@ -252,7 +252,7 @@ end function land_tile_ctor
 ! NWC: The difference with the original land_tile_ctor is that the tiles in this
 ! case are defined externally
 function land_tile_ctor_predefined(frac,glac,lake,soil,vegn,tag,htag_j,htag_k,&
-                        tile_parameters,lake_predefined,glacier_predefined,&
+                        soil_predefined,lake_predefined,glacier_predefined,&
                         itile) result(tile)
   real   , optional, intent(in) :: frac ! fractional area of tile
   integer, optional, intent(in) :: &
@@ -260,7 +260,7 @@ function land_tile_ctor_predefined(frac,glac,lake,soil,vegn,tag,htag_j,htag_k,&
   integer, optional, intent(in) :: tag  ! general tile tag
   integer, optional, intent(in) :: htag_j  ! optional hillslope position tag
   integer, optional, intent(in) :: htag_k  ! optional hillslope parent tag
-  type(tile_parameters_type), optional, intent(in) :: tile_parameters
+  type(soil_predefined_type), optional, intent(in) :: soil_predefined
   type(lake_predefined_type), optional, intent(in) :: lake_predefined
   type(glacier_predefined_type), optional, intent(in) :: glacier_predefined
   integer, optional, intent(in) :: itile
@@ -288,9 +288,9 @@ function land_tile_ctor_predefined(frac,glac,lake,soil,vegn,tag,htag_j,htag_k,&
   tile%snow => new_snow_tile()
   if(soil_>=0) then
     if (present(htag_j) .and. present(htag_k)) then
-        tile%soil => new_soil_tile_predefined(htag_j,htag_k,tile_parameters,itile)
+        tile%soil => new_soil_tile_predefined(htag_j,htag_k,soil_predefined,itile)
     else
-        tile%soil => new_soil_tile_predefined(0,0,tile_parameters,itile) ! Hillslope model is inactive or
+        tile%soil => new_soil_tile_predefined(0,0,soil_predefined,itile) ! Hillslope model is inactive or
         ! these indices will be set in hlsp_init.
     end if
   end if

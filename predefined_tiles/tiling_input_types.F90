@@ -2,59 +2,59 @@ module tiling_input_types_mod
 
 type :: lake_predefined_type
  integer :: nc_grpid,nlake,nband
- real,allocatable,dimension(:) :: frac
- real,allocatable,dimension(:) :: w_sat
- real,allocatable,dimension(:) :: awc_lm2
- real,allocatable,dimension(:) :: k_sat_ref
- real,allocatable,dimension(:) :: psi_sat_ref
- real,allocatable,dimension(:) :: chb
- real,allocatable,dimension(:) :: alpha
- real,allocatable,dimension(:) :: heat_capacity_ref
- real,allocatable,dimension(:) :: thermal_cond_ref
- real,allocatable,dimension(:,:) :: refl_dry_dir
- real,allocatable,dimension(:,:) :: refl_dry_dif
- real,allocatable,dimension(:,:) :: refl_sat_dir
- real,allocatable,dimension(:,:) :: refl_sat_dif
- real,allocatable,dimension(:) :: emis_dry
- real,allocatable,dimension(:) :: emis_sat
- real,allocatable,dimension(:) :: z0_momentum
- real,allocatable,dimension(:) :: z0_momentum_ice
- real,allocatable,dimension(:) :: depth_sill
- real,allocatable,dimension(:) :: width_sill
- real,allocatable,dimension(:) :: whole_area
- real,allocatable,dimension(:) :: connected_to_next
- real,allocatable,dimension(:) :: backwater
- real,allocatable,dimension(:) :: backwater_1
- real,allocatable,dimension(:) :: rsa_exp         ! riparian source-area exponent
+ real,pointer,dimension(:) :: frac
+ real,pointer,dimension(:) :: w_sat
+ real,pointer,dimension(:) :: awc_lm2
+ real,pointer,dimension(:) :: k_sat_ref
+ real,pointer,dimension(:) :: psi_sat_ref
+ real,pointer,dimension(:) :: chb
+ real,pointer,dimension(:) :: alpha
+ real,pointer,dimension(:) :: heat_capacity_ref
+ real,pointer,dimension(:) :: thermal_cond_ref
+ real,pointer,dimension(:,:) :: refl_dry_dir
+ real,pointer,dimension(:,:) :: refl_dry_dif
+ real,pointer,dimension(:,:) :: refl_sat_dir
+ real,pointer,dimension(:,:) :: refl_sat_dif
+ real,pointer,dimension(:) :: emis_dry
+ real,pointer,dimension(:) :: emis_sat
+ real,pointer,dimension(:) :: z0_momentum
+ real,pointer,dimension(:) :: z0_momentum_ice
+ real,pointer,dimension(:) :: depth_sill
+ real,pointer,dimension(:) :: width_sill
+ real,pointer,dimension(:) :: whole_area
+ real,pointer,dimension(:) :: connected_to_next
+ real,pointer,dimension(:) :: backwater
+ real,pointer,dimension(:) :: backwater_1
+ real,pointer,dimension(:) :: rsa_exp         ! riparian source-area exponent
 end type lake_predefined_type
 
 type :: glacier_predefined_type
 
  integer :: nc_grpid,nglacier,nband
- real,allocatable,dimension(:) :: frac
- real,allocatable,dimension(:) :: w_sat
- real,allocatable,dimension(:) :: awc_lm2
- real,allocatable,dimension(:) :: k_sat_ref
- real,allocatable,dimension(:) :: psi_sat_ref
- real,allocatable,dimension(:) :: chb
- real,allocatable,dimension(:) :: alpha
- real,allocatable,dimension(:) :: heat_capacity_ref
- real,allocatable,dimension(:) :: thermal_cond_ref
- real,allocatable,dimension(:,:) :: refl_max_dir
- real,allocatable,dimension(:,:) :: refl_max_dif
- real,allocatable,dimension(:,:) :: refl_min_dir
- real,allocatable,dimension(:,:) :: refl_min_dif
- real,allocatable,dimension(:) :: emis_dry
- real,allocatable,dimension(:) :: emis_sat
- real,allocatable,dimension(:) :: z0_momentum
- real,allocatable,dimension(:) :: tfreeze
+ real,pointer,dimension(:) :: frac
+ real,pointer,dimension(:) :: w_sat
+ real,pointer,dimension(:) :: awc_lm2
+ real,pointer,dimension(:) :: k_sat_ref
+ real,pointer,dimension(:) :: psi_sat_ref
+ real,pointer,dimension(:) :: chb
+ real,pointer,dimension(:) :: alpha
+ real,pointer,dimension(:) :: heat_capacity_ref
+ real,pointer,dimension(:) :: thermal_cond_ref
+ real,pointer,dimension(:,:) :: refl_max_dir
+ real,pointer,dimension(:,:) :: refl_max_dif
+ real,pointer,dimension(:,:) :: refl_min_dir
+ real,pointer,dimension(:,:) :: refl_min_dif
+ real,pointer,dimension(:) :: emis_dry
+ real,pointer,dimension(:) :: emis_sat
+ real,pointer,dimension(:) :: z0_momentum
+ real,pointer,dimension(:) :: tfreeze
 
 end type glacier_predefined_type
 
-! public type -- used to temporarily store all the input data for a cell
-type :: tile_parameters_type
+type :: soil_predefined_type
+
  !miscellanous
- integer :: ntile,nc_grpid,nband
+ integer :: nsoil,nc_grpid,nband
  real,allocatable,dimension(:) :: frac
  !soil
  real,allocatable,dimension(:) :: dat_w_sat
@@ -89,22 +89,41 @@ type :: tile_parameters_type
  real,allocatable,dimension(:) :: gw_hillslope_n
  real,allocatable,dimension(:) :: gw_perm
  real,allocatable,dimension(:) :: gw_scale_perm
+ !hillslope tiling
  real,allocatable,dimension(:) :: microtopo
  real,allocatable,dimension(:) :: tile_hlsp_length
  real,allocatable,dimension(:) :: tile_hlsp_slope
  real,allocatable,dimension(:) :: tile_hlsp_elev
  real,allocatable,dimension(:) :: tile_hlsp_hpos
  real,allocatable,dimension(:) :: tile_hlsp_width
- !hillslope tiling
  integer,allocatable,dimension(:) :: hidx_k
  integer,allocatable,dimension(:) :: hidx_j
  !vegetation
  integer,allocatable,dimension(:) :: vegn
- !lake
- type(lake_predefined_type) :: lake
- !glacier
- type(glacier_predefined_type) :: glacier
 
-end type
+end type soil_predefined_type
+
+type :: metadata_predefined_type
+
+ integer :: ntile,nband
+ integer,pointer,dimension(:) :: tile
+ integer,pointer,dimension(:) :: ttype
+ real,pointer,dimension(:) :: frac
+
+end type metadata_predefined_type
+
+! public type -- used to temporarily store all the input data for a cell
+type :: tile_parameters_type
+
+ !metadata
+ type(metadata_predefined_type),pointer :: metadata => NULL()
+ !soil
+ type(soil_predefined_type),pointer :: soil => NULL()
+ !lake
+ type(lake_predefined_type),pointer :: lake => NULL()
+ !glacier
+ type(glacier_predefined_type),pointer :: glacier => NULL()
+
+end type tile_parameters_type
 
 end module

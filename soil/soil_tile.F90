@@ -22,7 +22,7 @@ use land_constants_mod, only : &
      NBANDS
 use land_tile_selectors_mod, only : &
      tile_selector_type, SEL_SOIL, register_tile_selector
-use tiling_input_types_mod, only : tile_parameters_type
+use tiling_input_types_mod, only : soil_predefined_type
 use land_debug_mod, only : is_watch_point
 
 implicit none
@@ -690,7 +690,7 @@ function soil_tile_ctor_predefined(hidx_j, hidx_k, tile_parameters, &
                                    itile) result(ptr)
   type(soil_tile_type), pointer :: ptr ! return value
   integer, intent(in)  :: hidx_j, hidx_k ! hillslope indices
-  type(tile_parameters_type), intent(in) :: tile_parameters
+  type(soil_predefined_type), intent(in) :: tile_parameters
   integer, intent(in) :: itile
   integer :: i
 
@@ -981,7 +981,7 @@ end subroutine soil_data_init_0d
 ! ============================================================================
 subroutine soil_data_init_0d_predefined(soil,tile_parameters,itile)
   type(soil_tile_type), intent(inout) :: soil
-  type(tile_parameters_type), intent(in) :: tile_parameters
+  type(soil_predefined_type), intent(in) :: tile_parameters
   integer, intent(in) :: itile
   
 !  real tau_groundwater
