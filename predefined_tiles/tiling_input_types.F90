@@ -55,57 +55,58 @@ type :: soil_predefined_type
 
  !miscellanous
  integer :: nsoil,nc_grpid,nband
- real,allocatable,dimension(:) :: frac
+ real,pointer,dimension(:) :: frac
  !soil
- real,allocatable,dimension(:) :: dat_w_sat
- real,allocatable,dimension(:) :: dat_awc_lm2
- real,allocatable,dimension(:) :: dat_k_sat_ref
- real,allocatable,dimension(:) :: dat_psi_sat_ref
- real,allocatable,dimension(:) :: dat_chb
- real,allocatable,dimension(:) :: dat_heat_capacity_dry
- real,allocatable,dimension(:) :: dat_thermal_cond_dry
- real,allocatable,dimension(:) :: dat_thermal_cond_sat
- real,allocatable,dimension(:) :: dat_thermal_cond_exp
- real,allocatable,dimension(:) :: dat_thermal_cond_scale
- real,allocatable,dimension(:) :: dat_thermal_cond_weight
- real,allocatable,dimension(:,:) :: dat_refl_dry_dir 
- real,allocatable,dimension(:,:) :: dat_refl_dry_dif
- real,allocatable,dimension(:,:) :: dat_refl_sat_dir 
- real,allocatable,dimension(:,:) :: dat_refl_sat_dif 
- real,allocatable,dimension(:) :: dat_emis_dry
- real,allocatable,dimension(:) :: dat_emis_sat
- real,allocatable,dimension(:) :: dat_z0_momentum
- real,allocatable,dimension(:) :: dat_tf_depr
- real,allocatable,dimension(:) :: rsa_exp_global
- real,allocatable,dimension(:) :: gw_res_time
- real,allocatable,dimension(:) :: gw_hillslope_length
- real,allocatable,dimension(:) :: gw_scale_length
- real,allocatable,dimension(:) :: gw_hillslope_zeta_bar
- real,allocatable,dimension(:) :: gw_hillslope_relief
- real,allocatable,dimension(:) :: gw_scale_relief
- real,allocatable,dimension(:) :: gw_soil_e_depth
- real,allocatable,dimension(:) :: gw_scale_soil_depth
- real,allocatable,dimension(:) :: gw_hillslope_a
- real,allocatable,dimension(:) :: gw_hillslope_n
- real,allocatable,dimension(:) :: gw_perm
- real,allocatable,dimension(:) :: gw_scale_perm
+ real,pointer,dimension(:) :: dat_w_sat
+ real,pointer,dimension(:) :: dat_awc_lm2
+ real,pointer,dimension(:) :: dat_k_sat_ref
+ real,pointer,dimension(:) :: dat_psi_sat_ref
+ real,pointer,dimension(:) :: dat_chb
+ real,pointer,dimension(:) :: dat_heat_capacity_dry
+ real,pointer,dimension(:) :: dat_thermal_cond_dry
+ real,pointer,dimension(:) :: dat_thermal_cond_sat
+ real,pointer,dimension(:) :: dat_thermal_cond_exp
+ real,pointer,dimension(:) :: dat_thermal_cond_scale
+ real,pointer,dimension(:) :: dat_thermal_cond_weight
+ real,pointer,dimension(:,:) :: dat_refl_dry_dir 
+ real,pointer,dimension(:,:) :: dat_refl_dry_dif
+ real,pointer,dimension(:,:) :: dat_refl_sat_dir 
+ real,pointer,dimension(:,:) :: dat_refl_sat_dif 
+ real,pointer,dimension(:) :: dat_emis_dry
+ real,pointer,dimension(:) :: dat_emis_sat
+ real,pointer,dimension(:) :: dat_z0_momentum
+ real,pointer,dimension(:) :: dat_tf_depr
+ real,pointer,dimension(:) :: rsa_exp_global
+ real,pointer,dimension(:) :: gw_res_time
+ real,pointer,dimension(:) :: gw_hillslope_length
+ real,pointer,dimension(:) :: gw_scale_length
+ real,pointer,dimension(:) :: gw_hillslope_zeta_bar
+ real,pointer,dimension(:) :: gw_hillslope_relief
+ real,pointer,dimension(:) :: gw_scale_relief
+ real,pointer,dimension(:) :: gw_soil_e_depth
+ real,pointer,dimension(:) :: gw_scale_soil_depth
+ real,pointer,dimension(:) :: gw_hillslope_a
+ real,pointer,dimension(:) :: gw_hillslope_n
+ real,pointer,dimension(:) :: gw_perm
+ real,pointer,dimension(:) :: gw_scale_perm
  !hillslope tiling
- real,allocatable,dimension(:) :: microtopo
- real,allocatable,dimension(:) :: tile_hlsp_length
- real,allocatable,dimension(:) :: tile_hlsp_slope
- real,allocatable,dimension(:) :: tile_hlsp_elev
- real,allocatable,dimension(:) :: tile_hlsp_hpos
- real,allocatable,dimension(:) :: tile_hlsp_width
- integer,allocatable,dimension(:) :: hidx_k
- integer,allocatable,dimension(:) :: hidx_j
+ real,pointer,dimension(:) :: microtopo
+ real,pointer,dimension(:) :: tile_hlsp_length
+ real,pointer,dimension(:) :: tile_hlsp_slope
+ real,pointer,dimension(:) :: tile_hlsp_elev
+ real,pointer,dimension(:) :: tile_hlsp_hpos
+ real,pointer,dimension(:) :: tile_hlsp_width
+ integer,pointer,dimension(:) :: hidx_k
+ integer,pointer,dimension(:) :: hidx_j
  !vegetation
- integer,allocatable,dimension(:) :: vegn
+ integer,pointer,dimension(:) :: vegn
 
 end type soil_predefined_type
 
 type :: metadata_predefined_type
 
  integer :: ntile,nband
+ integer,pointer,dimension(:) :: tid
  integer,pointer,dimension(:) :: tile
  integer,pointer,dimension(:) :: ttype
  real,pointer,dimension(:) :: frac
