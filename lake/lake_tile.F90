@@ -23,6 +23,7 @@ use land_io_mod, only : &
 use land_tile_selectors_mod, only : &
      tile_selector_type, SEL_LAKE, register_tile_selector
 use tiling_input_types_mod, only : lake_predefined_type
+use land_debug_mod, only : is_watch_point
 
 implicit none
 private
@@ -413,31 +414,31 @@ subroutine init_lake_data_0d_predefined(lake,lake_predefined,itile)
   lake%pars%z0_momentum       = lake_predefined%z0_momentum(itile)
   lake%pars%z0_momentum_ice   = lake_predefined%z0_momentum_ice(itile)
 
-  !!!
-  print*,'lake parameters'
-  print*,'connected_to_next: ',lake%pars%connected_to_next
-  print*,'whole_area: ',lake%pars%whole_area
-  print*,'depth_sill: ',lake%pars%depth_sill
-  print*,'backwater: ',lake%pars%backwater
-  print*,'backwater_1: ',lake%pars%backwater_1
-  print*,'width_sill: ',lake%pars%width_sill
-  print*,'w_sat o:',dat_w_sat(k),' n:',lake%pars%w_sat
-  print*,'awc_lm2 o:',dat_awc_lm2(k),' n:',lake%pars%awc_lm2
-  print*,'k_sat_ref o:',dat_k_sat_ref(k),' n:',lake%pars%k_sat_ref
-  print*,'psi_sat_ref o:',dat_psi_sat_ref(k),' n:',lake%pars%psi_sat_ref
-  print*,'chb o:',dat_chb(k),' n:',lake%pars%chb
-  print*,'alpha o:',1.0,' n:',lake%pars%alpha
-  print*,'heat_capacity_ref o:',dat_heat_capacity_ref(k),' n:',lake%pars%heat_capacity_ref
-  print*,'thermal_cond_ref o:',dat_thermal_cond_ref(k),' n:',lake%pars%thermal_cond_ref
-  print*,'refl_dry_dir o:',dat_refl_dry_dir(k,:),' n:',lake%pars%refl_dry_dir
-  print*,'refl_dry_dif o:',dat_refl_dry_dif(k,:),' n:',lake%pars%refl_dry_dif
-  print*,'refl_sat_dir o:',dat_refl_sat_dir(k,:),' n:',lake%pars%refl_sat_dir
-  print*,'refl_sat_dif o:',dat_refl_sat_dif(k,:),' n:',lake%pars%refl_sat_dif
-  print*,'emis_dry o:',dat_emis_dry(k),' n:',lake%pars%emis_dry 
-  print*,'emis_sat o:',dat_emis_sat(k),' n:',lake%pars%emis_sat
-  print*,'z0_momentum o:',dat_z0_momentum(k),' n:',lake%pars%z0_momentum
-  print*,'z0_momentum_ice o:',dat_z0_momentum_ice(k),'n:',lake%pars%z0_momentum_ice
-  !!!
+  if (is_watch_point()) then
+   print*,'lake parameters'
+   print*,'connected_to_next: ',lake%pars%connected_to_next
+   print*,'whole_area: ',lake%pars%whole_area
+   print*,'depth_sill: ',lake%pars%depth_sill
+   print*,'backwater: ',lake%pars%backwater
+   print*,'backwater_1: ',lake%pars%backwater_1
+   print*,'width_sill: ',lake%pars%width_sill
+   print*,'w_sat o:',dat_w_sat(k),' n:',lake%pars%w_sat
+   print*,'awc_lm2 o:',dat_awc_lm2(k),' n:',lake%pars%awc_lm2
+   print*,'k_sat_ref o:',dat_k_sat_ref(k),' n:',lake%pars%k_sat_ref
+   print*,'psi_sat_ref o:',dat_psi_sat_ref(k),' n:',lake%pars%psi_sat_ref
+   print*,'chb o:',dat_chb(k),' n:',lake%pars%chb
+   print*,'alpha o:',1.0,' n:',lake%pars%alpha
+   print*,'heat_capacity_ref o:',dat_heat_capacity_ref(k),' n:',lake%pars%heat_capacity_ref
+   print*,'thermal_cond_ref o:',dat_thermal_cond_ref(k),' n:',lake%pars%thermal_cond_ref
+   print*,'refl_dry_dir o:',dat_refl_dry_dir(k,:),' n:',lake%pars%refl_dry_dir
+   print*,'refl_dry_dif o:',dat_refl_dry_dif(k,:),' n:',lake%pars%refl_dry_dif
+   print*,'refl_sat_dir o:',dat_refl_sat_dir(k,:),' n:',lake%pars%refl_sat_dir
+   print*,'refl_sat_dif o:',dat_refl_sat_dif(k,:),' n:',lake%pars%refl_sat_dif
+   print*,'emis_dry o:',dat_emis_dry(k),' n:',lake%pars%emis_dry 
+   print*,'emis_sat o:',dat_emis_sat(k),' n:',lake%pars%emis_sat
+   print*,'z0_momentum o:',dat_z0_momentum(k),' n:',lake%pars%z0_momentum
+   print*,'z0_momentum_ice o:',dat_z0_momentum_ice(k),'n:',lake%pars%z0_momentum_ice
+  endif
 
   lake%pars%rsa_exp           = rsa_exp_global
 

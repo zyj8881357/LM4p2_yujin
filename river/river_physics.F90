@@ -1287,6 +1287,8 @@ contains
      integer                            :: p, n, i, j, count, l, k
      real                               :: wrk_c(isc:iec,jsc:jec,num_species, 8)
      real                               :: wrk  (isc:iec,jsc:jec, 8)
+     wrk = 0.0
+     wrk_c = 0.0
 
      !--- pre-post recv data
      pos = 0
