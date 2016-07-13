@@ -30,7 +30,7 @@ subroutine land_cover_cold_start_0d_predefined_tiles(tiles,lnd,i,j)
   type(land_state_type),intent(in) :: lnd
   integer,intent(in) :: i,j
   type(land_tile_type), pointer :: tile
-  integer :: itile,tid
+  integer :: itile,tid,is,js
   integer :: parent_id = 0
   integer :: ncid,status,varid,grpid,dimid,cell_grpid,cellid
   character(100) :: cellid_string
@@ -39,8 +39,10 @@ subroutine land_cover_cold_start_0d_predefined_tiles(tiles,lnd,i,j)
   type(tile_parameters_type) :: tile_parameters
 
   !Determine the lat/lon of the grid cell (degrees)
-  lon = 180.0*lnd%lon(i,j)/pi
-  lat = 180.0*lnd%lat(i,j)/pi
+  is = i+lnd%is-1
+  js = j+lnd%js-1
+  lon = 180.0*lnd%lon(is,js)/pi
+  lat = 180.0*lnd%lat(is,js)/pi
 
   !Open access to the model input database
   status = nf90_open('INPUT/land_model_input_database.nc', NF90_NOWRITE, ncid)
@@ -48,8 +50,10 @@ subroutine land_cover_cold_start_0d_predefined_tiles(tiles,lnd,i,j)
   !Determine the cell id
   status = nf90_inq_grp_ncid(ncid,"metadata",grpid)
   status = nf90_inq_varid(grpid,"mapping",varid)
-  status = nf90_get_var(grpid,varid,cellid,start=(/j,i/))
-  print*,i,j,cellid
+  !status = nf90_get_var(grpid,varid,cellid,start=(/j,i/))
+  status = nf90_get_var(grpid,varid,cellid,start=(/js,is/))
+  !print*,i,j,cellid
+  print*,is,js,cellid
   print*,lon,lat
 
   !Open access to the cell's group
@@ -146,7 +150,7 @@ subroutine retrieve_glacier_parameters(tile_parameters,cid)
   glacier%nglacier = nglacier
 
   !Retrieve the parameters
-  call get_parameter_data(grpid,"wsat",nglacier,glacier%w_sat)
+  call get_parameter_data(grpid,"w_sat",nglacier,glacier%w_sat)
   call get_parameter_data(grpid,"awc_lm2",nglacier,glacier%awc_lm2)
   call get_parameter_data(grpid,"k_sat_ref",nglacier,glacier%k_sat_ref)
   call get_parameter_data(grpid,"psi_sat_ref",nglacier,glacier%psi_sat_ref)
@@ -256,8 +260,8 @@ subroutine retrieve_soil_parameters(tile_parameters,cid)
   call get_parameter_data(grpid,"gw_scale_relief",nsoil,soil%gw_scale_relief)
   call get_parameter_data(grpid,"gw_soil_e_depth",nsoil,soil%gw_soil_e_depth)
   call get_parameter_data(grpid,"gw_scale_soil_depth",nsoil,soil%gw_scale_soil_depth)
-  call get_parameter_data(grpid,"gw_hillslope_a",nsoil,soil%gw_hillslope_a)
-  call get_parameter_data(grpid,"gw_hillslope_n",nsoil,soil%gw_hillslope_n)
+  !call get_parameter_data(grpid,"gw_hillslope_a",nsoil,soil%gw_hillslope_a)
+  !call get_parameter_data(grpid,"gw_hillslope_n",nsoil,soil%gw_hillslope_n)
   call get_parameter_data(grpid,"gw_perm",nsoil,soil%gw_perm)
   call get_parameter_data(grpid,"gw_scale_perm",nsoil,soil%gw_scale_perm)
   call get_parameter_data(grpid,"gw_res_time",nsoil,soil%gw_res_time)
