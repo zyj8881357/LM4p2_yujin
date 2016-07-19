@@ -114,7 +114,9 @@ use hillslope_hydrology_mod, only: hlsp_hydrology_1, hlsp_hydro_init
 #ifdef ZMSDEBUG
 use land_debug_mod, only : check_var_range
 #endif
-use predefined_tiles_mod, only: land_cover_cold_start_0d_predefined_tiles
+use predefined_tiles_mod, only: land_cover_cold_start_0d_predefined_tiles,&
+                                open_database_predefined_tiles,&
+                                close_database_predefined_tiles
 
 implicit none
 private
@@ -947,6 +949,7 @@ subroutine land_cover_cold_start(lnd)
   ! create tiles
   do j = 1,size(land_mask,2)
   do i = 1,size(land_mask,1)
+     print*,i,j
      if(.not.land_mask(i,j)) cycle ! skip ocean points
      call set_current_point(i+lnd%is-1,j+lnd%js-1,1)
      call land_cover_cold_start_0d &
@@ -971,20 +974,30 @@ subroutine land_cover_cold_start_predefined(lnd)
   ! ---- local vars
   logical, dimension(lnd%ie-lnd%is+1,lnd%je-lnd%js+1) :: &
        land_mask
-  integer :: i,j
+  integer :: i,j,ncid
   real, dimension(:,:,:), pointer :: soil
+  real :: t0,t1
 
   ! calculate the global land mask
   land_mask = lnd%area > 0
 
+  ! Open access to model input database
+  call open_database_predefined_tiles(ncid)
+  
   do j = 1,size(land_mask,2)
    do i = 1,size(land_mask,1)
     if(.not.land_mask(i,j)) cycle ! skip ocean points
     call set_current_point(i+lnd%is-1,j+lnd%js-1,1)
+    call cpu_time(t0)
     call land_cover_cold_start_0d_predefined_tiles(lnd%tile_map(i+lnd%is-1,j+lnd%js-1),&
-         lnd,i,j)
+         lnd,i,j,ncid)
+    call cpu_time(t1)
+    print*,i,j,t1-t0
    enddo
   enddo
+
+  ! Close access to model input database
+  call close_database_predefined_tiles(ncid)
   
 end subroutine land_cover_cold_start_predefined
 

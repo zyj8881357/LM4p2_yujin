@@ -24,17 +24,33 @@ module predefined_tiles_mod
 
 contains
 
-subroutine land_cover_cold_start_0d_predefined_tiles(tiles,lnd,i,j)
+subroutine open_database_predefined_tiles(ncid)
+
+  integer :: status,ncid
+  !Open access to the model input database
+  status = nf90_open('INPUT/land_model_input_database.nc', NF90_NOWRITE, ncid)
+
+end subroutine open_database_predefined_tiles
+
+subroutine close_database_predefined_tiles(ncid)
+
+  integer :: status,ncid
+  !Close access to the model input database
+  status = nf90_close(ncid)
+
+end subroutine close_database_predefined_tiles
+
+subroutine land_cover_cold_start_0d_predefined_tiles(tiles,lnd,i,j,ncid)
   
   type(land_tile_list_type),intent(inout) :: tiles
   type(land_state_type),intent(in) :: lnd
-  integer,intent(in) :: i,j
+  integer,intent(in) :: i,j,ncid
   type(land_tile_type), pointer :: tile
   integer :: itile,tid,is,js
   integer :: parent_id = 0
-  integer :: ncid,status,varid,grpid,dimid,cell_grpid,cellid
+  integer :: status,varid,grpid,dimid,cell_grpid,cellid
   character(100) :: cellid_string
-  real :: lat,lon
+  real :: lat,lon,t0,t1
   real,allocatable,dimension(:) :: tmp
   type(tile_parameters_type) :: tile_parameters
 
@@ -44,16 +60,20 @@ subroutine land_cover_cold_start_0d_predefined_tiles(tiles,lnd,i,j)
   lon = 180.0*lnd%lon(is,js)/pi
   lat = 180.0*lnd%lat(is,js)/pi
 
+  !call cpu_time(t0)
   !Open access to the model input database
-  status = nf90_open('INPUT/land_model_input_database.nc', NF90_NOWRITE, ncid)
+  !status = nf90_open('INPUT/land_model_input_database.nc', NF90_NOWRITE, ncid)
+  !call cpu_time(t1)
+  !print*,'opening the file',t1-t0
 
+  !call cpu_time(t0)
   !Determine the cell id
   status = nf90_inq_grp_ncid(ncid,"metadata",grpid)
   status = nf90_inq_varid(grpid,"mapping",varid)
   !status = nf90_get_var(grpid,varid,cellid,start=(/j,i/))
   status = nf90_get_var(grpid,varid,cellid,start=(/js,is/))
   !print*,i,j,cellid
-  print*,is,js,cellid
+  !print*,is,js,cellid
   print*,lon,lat
 
   !Open access to the cell's group
@@ -61,7 +81,10 @@ subroutine land_cover_cold_start_0d_predefined_tiles(tiles,lnd,i,j)
   write(cellid_string,'(I10)') cellid
   cellid_string = trim('g' // trim(adjustl(cellid_string)))
   status = nf90_inq_grp_ncid(grpid,cellid_string,grpid)
+  !call cpu_time(t1)
+  !print*,'retrieving metadata',t1-t0 
 
+  !call cpu_time(t0)
   !Metadata
   call retrieve_metadata(tile_parameters,grpid)
 
@@ -73,6 +96,8 @@ subroutine land_cover_cold_start_0d_predefined_tiles(tiles,lnd,i,j)
 
   !Glacier parameters
   call retrieve_glacier_parameters(tile_parameters,grpid)
+  !call cpu_time(t1)
+  !print*,'retrieving parameters',t1-t0
 
   !Vegetation parameters
 
@@ -98,6 +123,9 @@ subroutine land_cover_cold_start_0d_predefined_tiles(tiles,lnd,i,j)
    end select
    call insert(tile,tiles)
   enddo
+
+  !Close the netcdf file
+  !status = nf90_close(ncid)
   
 end subroutine
 
@@ -128,6 +156,10 @@ subroutine retrieve_metadata(tile_parameters,cid)
   call get_parameter_data(grpid,'tile',ntile,metadata%tile)
   call get_parameter_data(grpid,'type',ntile,metadata%ttype)
   call get_parameter_data(grpid,'tid',ntile,metadata%tid)
+
+  !Clean up (This should go in the database creation)
+  where ((metadata%frac .lt. 1.e-8) .and. (metadata%ttype .eq. 2))metadata%frac = 0.0
+  metadata%frac = metadata%frac/sum(metadata%frac)
 
 end subroutine retrieve_metadata
 

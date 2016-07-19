@@ -833,6 +833,8 @@ subroutine lake_step_1 ( u_star_a, p_surf, latitude, lake, &
      write(*,*) 'ice     ', lake_ice
      write(*,*) 'subl    ', lake_subl
      write(*,*) 'G0      ', lake_G0
+     write(*,*) 'dz_alt   ', dz_alt
+     write(*,*) 'dz_mid   ', dz_mid
      write(*,*) 'DGDT    ', lake_DGDT
     do l = 1, num_l
       write(*,'(a,i2.2,100(2x,a,g23.16))') ' level=', l,&

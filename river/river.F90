@@ -953,6 +953,7 @@ call mpp_update_domains (lake_conn,   domain)
 
        ! check that the rivers do not discarge in the middle of the continents
        if ((River%tocell(i,j)==0).and.(land_frac(i,j)>1.0-epsln)) then
+          print*,i,j,River%tocell(i,j),land_frac(i,j)
           call mpp_error(WARNING, &
                'get_river_data: river discharges into a land point '&
                //trim(coordinates(i,j))//' where there is no ocean')
@@ -961,8 +962,8 @@ call mpp_update_domains (lake_conn,   domain)
     end do
     end do
     
-    if (nerrors>0.and.stop_on_mask_mismatch) call mpp_error(FATAL,& 
-        'get_river_data: river/land mask-related mismatch detected during river data initialization')
+    !if (nerrors>0.and.stop_on_mask_mismatch) call mpp_error(FATAL,& 
+    !    'get_river_data: river/land mask-related mismatch detected during river data initialization')
 
     call read_data(river_src_file, 'basin', River%basinid, domain)
     where (River%basinid >0)
