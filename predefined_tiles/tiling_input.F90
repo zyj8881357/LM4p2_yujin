@@ -1,6 +1,5 @@
 module predefined_tiles_mod
 
- use netcdf
  use hdf5
  use constants_mod     , only : pi
  use land_data_mod, only: land_state_type
@@ -25,15 +24,7 @@ module predefined_tiles_mod
 
 contains
 
-subroutine open_database_predefined_tiles(ncid)
-
-  integer :: status,ncid
-  !Open access to the model input database
-  status = nf90_open('INPUT/land_model_input_database.nc', NF90_NOWRITE, ncid)
-
-end subroutine open_database_predefined_tiles
-
-subroutine open_database_predefined_tiles_hdf5(h5id)
+subroutine open_database_predefined_tiles(h5id)
 
   integer :: status,h5id
   !Initialize the fortran library
@@ -42,17 +33,9 @@ subroutine open_database_predefined_tiles_hdf5(h5id)
   !Open access to the model input database
   CALL h5fopen_f('INPUT/land_model_input_database.nc',H5F_ACC_RDONLY_F,h5id, status)
 
-end subroutine open_database_predefined_tiles_hdf5
+end subroutine open_database_predefined_tiles
 
-subroutine close_database_predefined_tiles(ncid)
-
-  integer :: status,ncid
-  !Close access to the model input database
-  status = nf90_close(ncid)
-
-end subroutine close_database_predefined_tiles
-
-subroutine close_database_predefined_tiles_hdf5(h5id)
+subroutine close_database_predefined_tiles(h5id)
 
   integer :: status,h5id
   !Close access to the model input database
@@ -61,25 +44,20 @@ subroutine close_database_predefined_tiles_hdf5(h5id)
   !Close the hdf5 library
   call h5close_f(status)
 
-end subroutine close_database_predefined_tiles_hdf5
+end subroutine close_database_predefined_tiles
 
-subroutine land_cover_cold_start_0d_predefined_tiles(tiles,lnd,i,j,ncid,h5id)
+subroutine land_cover_cold_start_0d_predefined_tiles(tiles,lnd,i,j,h5id)
   
   type(land_tile_list_type),intent(inout) :: tiles
   type(land_state_type),intent(in) :: lnd
-  integer,intent(in) :: i,j,ncid,h5id
+  integer,intent(in) :: i,j,h5id
   type(land_tile_type), pointer :: tile
   integer :: itile,tid,is,js
   integer :: parent_id = 0
   integer :: status,varid,grpid,dimid,cell_grpid,cellid
   integer :: dsid,cid
-  !integer(hsize_T) :: count(2),offset(2),count_out(1),offset_out(1)
-  !integer :: memrank
-  !integer(HSIZE_T) :: dimsm(2)
-  !integer(HID_T) :: memspace
-  !real*8 :: h5tmp(28,62),h5tmp2(1,1)
   real*8,allocatable :: h5tmp(:,:)
-  integer(HSIZE_T) :: dims(2),maxdims(2)
+  integer(hsize_t) :: dims(2),maxdims(2)
   character(100) :: cellid_string
   real :: lat,lon,t0,t1
   real,allocatable,dimension(:) :: tmp
@@ -91,15 +69,16 @@ subroutine land_cover_cold_start_0d_predefined_tiles(tiles,lnd,i,j,ncid,h5id)
   lon = 180.0*lnd%lon(is,js)/pi
   lat = 180.0*lnd%lat(is,js)/pi
 
+  !Print out the current lat and lon
+  print*,lat,lon
+
   !call cpu_time(t0)
   !Determine the cell id
-  !status = nf90_inq_grp_ncid(ncid,"metadata",grpid)
   call h5gopen_f(h5id,"metadata",grpid,status)
-  !status = nf90_inq_varid(grpid,"mapping",varid)
   call h5dopen_f(grpid,"mapping",varid,status)
-  ! Get dataset's dataspace identifier.
+  !Get dataset's dataspace identifier.
   call h5dget_space_f(varid,dsid,status)
-  ! Get the data dimensions
+  !Get the data dimensions
   call h5sget_simple_extent_dims_f(dsid,dims,maxdims,status)
   ! status is dataspace rank!
   ! Select hyperslab in the dataset
@@ -127,28 +106,21 @@ subroutine land_cover_cold_start_0d_predefined_tiles(tiles,lnd,i,j,ncid,h5id)
   !Allocate memory for the data
   allocate(h5tmp(dims(1),dims(2)))
   call h5dread_f(varid,H5T_IEEE_F64LE,h5tmp,dims,status)
-  !status = nf90_get_var(grpid,varid,cellid,start=(/j,i/))
-  !status = nf90_get_var(grpid,varid,cellid,start=(/js,is/))
   cellid = int(h5tmp(js,is))
-  !print*,i,j,cellid
-  print*,is,js,cellid
+  deallocate(h5tmp)
   call h5dclose_f(varid,status)
   call h5gclose_f(grpid,status)
 
   !Open access to the cell's group
-  !status = nf90_inq_grp_ncid(ncid,"grid_data",grpid)
   call h5gopen_f(h5id,"grid_data",grpid,status)
-  !call h5gopen
   write(cellid_string,'(I10)') cellid
   cellid_string = trim('g' // trim(adjustl(cellid_string)))
-  !status = nf90_inq_grp_ncid(grpid,cellid_string,grpid)
   call h5gopen_f(grpid,cellid_string,cid,status)
-  !call cpu_time(t1)
-  !print*,'retrieving metadata',t1-t0 
+  print*,cellid
 
   !call cpu_time(t0)
   !Metadata
-  call retrieve_metadata(tile_parameters,grpid,cid)
+  call retrieve_metadata(tile_parameters,cid)
 
   !Soil and hillslope parameters
   call retrieve_soil_parameters(tile_parameters,cid)
@@ -158,8 +130,6 @@ subroutine land_cover_cold_start_0d_predefined_tiles(tiles,lnd,i,j,ncid,h5id)
 
   !Glacier parameters
   call retrieve_glacier_parameters(tile_parameters,cid)
-  !call cpu_time(t1)
-  !print*,'retrieving parameters',t1-t0
 
   !Vegetation parameters
 
@@ -192,51 +162,45 @@ subroutine land_cover_cold_start_0d_predefined_tiles(tiles,lnd,i,j,ncid,h5id)
   
 end subroutine
 
-subroutine retrieve_metadata(tile_parameters,cid,h5cid)
+subroutine retrieve_metadata(tile_parameters,cid)
 
   type(tile_parameters_type),intent(inout) :: tile_parameters
-  integer,intent(inout) :: cid,h5cid
+  integer,intent(inout) :: cid
   type(metadata_predefined_type),pointer :: metadata
-  integer :: dimid,grpid,ntile,nband,status
-  integer :: h5varid,h5dspaceid,h5grpid
+  integer :: dimid,grpid,ntile,nband,status,dsid,varid
   integer(hsize_t) :: dims(1),maxdims(1)
   allocate(tile_parameters%metadata)
   metadata => tile_parameters%metadata
 
   !Retrieve the number of tiles
-  !status = nf90_inq_dimid(cid,"tile",dimid)
-  !status = nf90_inquire_dimension(cid,dimid,len=ntile)
-  call h5dopen_f(h5cid,"tile",h5varid,status)
-  call h5dget_space_f(h5varid,h5dspaceid,status)
-  call h5sget_simple_extent_dims_f(h5dspaceid,dims,maxdims,status)
+  call h5dopen_f(cid,"tile",varid,status)
+  call h5dget_space_f(varid,dsid,status)
+  call h5sget_simple_extent_dims_f(dsid,dims,maxdims,status)
   metadata%ntile = dims(1)
-  call h5dclose_f(h5varid,status)
+  call h5dclose_f(varid,status)
 
   !Retrieve the number of bands
-  !status = nf90_inq_dimid(cid,"band",dimid)
-  !status = nf90_inquire_dimension(cid,dimid,len=nband)
-  call h5dopen_f(h5cid,"band",h5varid,status)
-  call h5dget_space_f(h5varid,h5dspaceid,status)
-  call h5sget_simple_extent_dims_f(h5dspaceid,dims,maxdims,status)
+  call h5dopen_f(cid,"band",varid,status)
+  call h5dget_space_f(varid,dsid,status)
+  call h5sget_simple_extent_dims_f(dsid,dims,maxdims,status)
   metadata%nband = dims(1)
-  call h5dclose_f(h5varid,status)
+  call h5dclose_f(varid,status)
 
   !Retrieve the group id
-  !status = nf90_inq_grp_ncid(cid,"metadata",grpid)
-  call h5gopen_f(h5cid,"metadata",h5grpid,status)
+  call h5gopen_f(cid,"metadata",grpid,status)
 
   !Retrieve the info
-  call get_parameter_data(h5grpid,'frac',metadata%ntile,metadata%frac)
-  call get_parameter_data(h5grpid,'tile',metadata%ntile,metadata%tile)
-  call get_parameter_data(h5grpid,'type',metadata%ntile,metadata%ttype)
-  call get_parameter_data(h5grpid,'tid',metadata%ntile,metadata%tid)
+  call get_parameter_data(grpid,'frac',metadata%ntile,metadata%frac)
+  call get_parameter_data(grpid,'tile',metadata%ntile,metadata%tile)
+  call get_parameter_data(grpid,'type',metadata%ntile,metadata%ttype)
+  call get_parameter_data(grpid,'tid',metadata%ntile,metadata%tid)
 
   !Clean up (This should go in the database creation)
   where ((metadata%frac .lt. 1.e-8) .and. (metadata%ttype .eq. 2))metadata%frac = 0.0
   metadata%frac = metadata%frac/sum(metadata%frac)
 
   !Close access to the group
-  call h5gclose_f(h5grpid,status)
+  call h5gclose_f(grpid,status)
 
 end subroutine retrieve_metadata
 
@@ -261,14 +225,6 @@ subroutine retrieve_glacier_parameters(tile_parameters,cid)
   nglacier = dims(1)
   glacier%nglacier = nglacier
   call h5dclose_f(dimid,status)
-
-  !Retrieve the group id
-  !status = nf90_inq_grp_ncid(cid,"glacier",grpid)
-
-  !Retrieve the number of glaciers
-  !status = nf90_inq_dimid(grpid,"glacier",dimid)
-  !status = nf90_inquire_dimension(grpid,dimid,len=nglacier)
-  !glacier%nglacier = nglacier
 
   !Retrieve the parameters
   call get_parameter_data(grpid,"w_sat",nglacier,glacier%w_sat)
@@ -315,14 +271,6 @@ subroutine retrieve_lake_parameters(tile_parameters,cid)
   lake%nlake = nlake
   call h5dclose_f(dimid,status)
 
-  !Retrieve the group id
-  !status = nf90_inq_grp_ncid(cid,"lake",grpid)
-
-  !Retrieve the number of lakes
-  !status = nf90_inq_dimid(grpid,"lake",dimid)
-  !status = nf90_inquire_dimension(grpid,dimid,len=nlake)
-  !lake%nlake = nlake
-
   !Retrieve the parameters
   call get_parameter_data(grpid,"connected_to_next",nlake,lake%connected_to_next)
   call get_parameter_data(grpid,"whole_lake_area",nlake,lake%whole_area)
@@ -367,10 +315,6 @@ subroutine retrieve_soil_parameters(tile_parameters,cid)
   call h5gopen_f(cid,"soil",grpid,status)
 
   !Retrieve the number of soil tiles
-  !status = nf90_inq_dimid(grpid,"soil",dimid)
-  !status = nf90_inquire_dimension(grpid,dimid,len=nsoil)
-  !soil%nsoil = nsoil
-
   call h5dopen_f(grpid,"soil",varid,status)
   call h5dget_space_f(varid,dsid,status)
   call h5sget_simple_extent_dims_f(dsid,dims,maxdims,status)
@@ -436,8 +380,6 @@ subroutine get_parameter_data_1d_integer(grpid,var,nx,tmp)
  integer(hsize_t) :: dims(1)
  allocate(tmp(nx))
 
- !status = nf90_inq_varid(grpid,var,varid)
- !status = nf90_get_var(grpid,varid,tmp)
  dims(1) = nx
  call h5dopen_f(grpid,var,varid,status)
  call h5dread_f(varid,H5T_STD_I32LE,tmp,dims,status)
@@ -470,8 +412,6 @@ subroutine get_parameter_data_2d_integer(grpid,var,nx,ny,tmp)
  integer(hsize_t) :: dims(2)
  allocate(tmp(nx,ny))
 
- !status = nf90_inq_varid(grpid,var,varid)
- !status = nf90_get_var(grpid,varid,tmp)
  dims(1) = nx
  dims(2) = ny
  call h5dopen_f(grpid,var,varid,status)
@@ -489,8 +429,6 @@ subroutine get_parameter_data_2d_real(grpid,var,nx,ny,tmp)
  integer(hsize_t) :: dims(2)
  allocate(tmp(nx,ny))
 
- !status = nf90_inq_varid(grpid,var,varid)
- !status = nf90_get_var(grpid,varid,tmp)
  dims(1) = nx
  dims(2) = ny
  call h5dopen_f(grpid,var,varid,status)

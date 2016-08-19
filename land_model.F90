@@ -116,9 +116,7 @@ use land_debug_mod, only : check_var_range
 #endif
 use predefined_tiles_mod, only: land_cover_cold_start_0d_predefined_tiles,&
                                 open_database_predefined_tiles,&
-                                close_database_predefined_tiles,&
-                                open_database_predefined_tiles_hdf5,&
-                                close_database_predefined_tiles_hdf5
+                                close_database_predefined_tiles
 
 implicit none
 private
@@ -976,7 +974,7 @@ subroutine land_cover_cold_start_predefined(lnd)
   ! ---- local vars
   logical, dimension(lnd%ie-lnd%is+1,lnd%je-lnd%js+1) :: &
        land_mask
-  integer :: i,j,ncid,h5id
+  integer :: i,j,h5id
   real, dimension(:,:,:), pointer :: soil
   real :: t0,t1
 
@@ -984,10 +982,7 @@ subroutine land_cover_cold_start_predefined(lnd)
   land_mask = lnd%area > 0
 
   ! Open access to model input database
-  !call open_database_predefined_tiles(ncid)
-
-  ! Open access to hdf5 model input database
-  call open_database_predefined_tiles_hdf5(h5id)
+  call open_database_predefined_tiles(h5id)
   
   do j = 1,size(land_mask,2)
    do i = 1,size(land_mask,1)
@@ -995,15 +990,13 @@ subroutine land_cover_cold_start_predefined(lnd)
     call set_current_point(i+lnd%is-1,j+lnd%js-1,1)
     call cpu_time(t0)
     call land_cover_cold_start_0d_predefined_tiles(lnd%tile_map(i+lnd%is-1,j+lnd%js-1),&
-         lnd,i,j,ncid,h5id)
+         lnd,i,j,h5id)
     call cpu_time(t1)
-    print*,i,j,t1-t0
    enddo
   enddo
 
   ! Close access to model input database
-  !call close_database_predefined_tiles(ncid)
-  call close_database_predefined_tiles_hdf5(h5id)
+  call close_database_predefined_tiles(h5id)
   
 end subroutine land_cover_cold_start_predefined
 
