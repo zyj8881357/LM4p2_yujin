@@ -56,12 +56,15 @@ subroutine land_cover_cold_start_0d_predefined_tiles(tiles,lnd,i,j,h5id)
   integer :: parent_id = 0
   integer :: status,varid,grpid,dimid,cell_grpid,cellid
   integer :: dsid,cid
-  real*8,allocatable :: h5tmp(:,:)
+  real*8 :: h5tmp(1,1)
   integer(hsize_t) :: dims(2),maxdims(2)
   character(100) :: cellid_string
   real :: lat,lon,t0,t1
   real,allocatable,dimension(:) :: tmp
   type(tile_parameters_type) :: tile_parameters
+  integer :: memrank 
+  integer(hsize_t) :: dimsm(2),count(2),offset(2)
+  integer(hid_t) :: memid
 
   !Determine the lat/lon of the grid cell (degrees)
   is = i+lnd%is-1
@@ -72,42 +75,28 @@ subroutine land_cover_cold_start_0d_predefined_tiles(tiles,lnd,i,j,h5id)
   !Print out the current lat and lon
   print*,lat,lon
 
-  !call cpu_time(t0)
   !Determine the cell id
   call h5gopen_f(h5id,"metadata",grpid,status)
   call h5dopen_f(grpid,"mapping",varid,status)
   !Get dataset's dataspace identifier.
   call h5dget_space_f(varid,dsid,status)
-  !Get the data dimensions
-  call h5sget_simple_extent_dims_f(dsid,dims,maxdims,status)
-  ! status is dataspace rank!
   ! Select hyperslab in the dataset
-  !offset = (/js,is/)
-  !offset = (/1,1/)
-  !count = (/1,1/)
-  !call h5sselect_hyperslab_f(h5dspaceid,H5S_SELECT_SET_F,offset,count,status,stride,block)
-  !print*,status
+  offset = (/js-1,is-1/)
+  count = (/1,1/)
+  call h5sselect_hyperslab_f(dsid,H5S_SELECT_SET_F,offset,count,status)
   ! Create memory dataspace.
-  !memrank = 2
-  !dimsm = (/1,1/)
-  !call h5screate_simple_f(memrank,dimsm,memspace,status)
+  memrank = 0
+  dimsm = (/1,1/)
+  call h5screate_simple_f(memrank,dimsm,memid,status)
   ! Select hyperslab in memory
-  !offset_out = (/1,1/)
-  !count_out = (/1,1/)
-  !call h5sselect_hyperslab_f(memspace,H5S_SELECT_SET_F,offset,count,status)
-  !print*,status
-  ! Read data from hyperslabe to memeory
-  !data_dims = (/1,1/)
-  !h5tmp2 = 0.0
-  !print*,memspace,h5dspaceid
-  !call h5dread_f(h5varid,H5T_IEEE_F64LE,h5tmp2,data_dims,status,memspace,h5dspaceid)
-  !print*,status
-  !print*,memrank,dimsm,memspace,status
-  !Allocate memory for the data
-  allocate(h5tmp(dims(1),dims(2)))
-  call h5dread_f(varid,H5T_IEEE_F64LE,h5tmp,dims,status)
-  cellid = int(h5tmp(js,is))
-  deallocate(h5tmp)
+  call h5sselect_hyperslab_f(memid,H5S_SELECT_SET_F,offset,count,status)
+  ! Read data from hyperslab to memory
+  dims = (/1,1/)
+  call h5dread_f(varid,H5T_IEEE_F64LE,h5tmp,dims,status,memid,dsid)
+  cellid = int(h5tmp(1,1))
+
+  !Close the memory space, dataset, and group
+  call h5sclose_f(memid,status)
   call h5dclose_f(varid,status)
   call h5gclose_f(grpid,status)
 
@@ -116,9 +105,7 @@ subroutine land_cover_cold_start_0d_predefined_tiles(tiles,lnd,i,j,h5id)
   write(cellid_string,'(I10)') cellid
   cellid_string = trim('g' // trim(adjustl(cellid_string)))
   call h5gopen_f(grpid,cellid_string,cid,status)
-  print*,cellid
 
-  !call cpu_time(t0)
   !Metadata
   call retrieve_metadata(tile_parameters,cid)
 
