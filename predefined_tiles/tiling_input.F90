@@ -1,6 +1,7 @@
 module predefined_tiles_mod
 
  use hdf5
+ use,intrinsic :: iso_c_binding
  use constants_mod     , only : pi
  use land_data_mod, only: land_state_type
  use vegn_cohort_mod, only : vegn_cohort_type
@@ -54,7 +55,7 @@ subroutine land_cover_cold_start_0d_predefined_tiles(tiles,lnd,i,j,h5id)
   type(land_tile_type), pointer :: tile
   integer :: itile,tid,is,js
   integer :: parent_id = 0
-  integer :: status,varid,grpid,dimid,cell_grpid,cellid
+  integer :: status,varid,grpid,dimid,cell_grpid,cellid,dstid
   integer :: dsid,cid
   real*8 :: h5tmp(1,1)
   integer(hsize_t) :: dims(2),maxdims(2)
@@ -64,7 +65,12 @@ subroutine land_cover_cold_start_0d_predefined_tiles(tiles,lnd,i,j,h5id)
   type(tile_parameters_type) :: tile_parameters
   integer :: memrank 
   integer(hsize_t) :: dimsm(2),count(2),offset(2)
-  integer(hid_t) :: memid
+  integer(hid_t) :: memid,fapl
+  type(c_ptr) :: buf_ptr
+  integer(size_t) :: buf_len,buf_size
+  character(kind=c_char),allocatable,dimension(:),target :: image_ptr
+  CHARACTER(kind=c_char), ALLOCATABLE, DIMENSION(:), TARGET :: file_image_ptr ! Image from file
+  integer :: k
 
   !Determine the lat/lon of the grid cell (degrees)
   is = i+lnd%is-1
@@ -78,6 +84,16 @@ subroutine land_cover_cold_start_0d_predefined_tiles(tiles,lnd,i,j,h5id)
   !Determine the cell id
   call h5gopen_f(h5id,"metadata",grpid,status)
   call h5dopen_f(grpid,"mapping",varid,status)
+  !Get file image for group
+  !Create a property list instance
+  !call h5pcreate_f(H5P_FILE_ACCESS_F,fapl,status)
+  !
+  !fapl=H5Pcreate(H5P_FILE_ACCESS);
+  !ret = H5Pset_fapl_core(fapl,...
+  !file = H5Fopen(copied_filename, H5F_ACC_RDONLY, fapl);
+  !stop
+  !TEST
+  !call h5fget_file_image_f(varid,buf_ptr,buf_len,status,buf_size)
   !Get dataset's dataspace identifier.
   call h5dget_space_f(varid,dsid,status)
   ! Select hyperslab in the dataset
@@ -104,7 +120,41 @@ subroutine land_cover_cold_start_0d_predefined_tiles(tiles,lnd,i,j,h5id)
   call h5gopen_f(h5id,"grid_data",grpid,status)
   write(cellid_string,'(I10)') cellid
   cellid_string = trim('g' // trim(adjustl(cellid_string)))
-  call h5gopen_f(grpid,cellid_string,cid,status)
+
+  !All the fun stuff happens here
+  !Copy group to new file (in memory)
+  call h5pcreate_f(H5P_FILE_ACCESS_F,fapl,status)
+  !Set fapl
+  call h5pset_fapl_core_f(fapl,1000000,.False.,status)
+  call h5fcreate_f("buffer.hdf5",H5F_ACC_TRUNC_F,dstid,status,access_prp=fapl)
+  !Close access to the property list
+  call h5pclose_f(fapl,status)
+  !Copy the group to the new file
+  call h5ocopy_f(grpid,cellid_string,dstid,'data',status)
+  ! Flush the file
+  call h5fflush_f(dstid,H5F_SCOPE_GLOBAL_F,status)
+  !Copy the file image
+  buf_len = 0
+  buf_ptr = C_NULL_PTR
+  call h5fget_file_image_f(dstid,buf_ptr,int(0,size_t),status,buf_len)
+  allocate(image_ptr(1:buf_len))
+  buf_ptr = c_loc(image_ptr(1)(1:1))
+  call h5fget_file_image_f(dstid,buf_ptr,buf_len,status)
+  !Close the copied file (release memory)
+  call h5fclose_f(dstid,status)
+  !Open a new fapl
+  call h5pcreate_f(H5P_FILE_ACCESS_F,fapl,status)
+  call h5pset_fapl_core_f(fapl,buf_len,.False.,status)
+  !Assign the buffer to memory
+  call h5pset_file_image_f(fapl,buf_ptr,buf_len,status)
+  !Discard the buffer
+  deallocate(image_ptr)
+  buf_ptr = C_NULL_PTR
+  !Open the file from memory
+  dstid = 0
+  call h5fopen_f("test_image",H5F_ACC_RDONLY_F,dstid,status,fapl)
+  !Retrieve the group
+  call h5gopen_f(dstid,'data',cid,status)
 
   !Metadata
   call retrieve_metadata(tile_parameters,cid)
@@ -146,6 +196,7 @@ subroutine land_cover_cold_start_0d_predefined_tiles(tiles,lnd,i,j,h5id)
   !Close access to the grid cell's group
   call h5gclose_f(cid,status)
   call h5gclose_f(grpid,status)
+  call h5fclose_f(dstid,status)
   
 end subroutine
 
