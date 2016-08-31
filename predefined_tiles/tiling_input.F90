@@ -32,7 +32,7 @@ subroutine open_database_predefined_tiles(h5id)
   call h5open_f(status)
 
   !Open access to the model input database
-  CALL h5fopen_f('INPUT/land_model_input_database.nc',H5F_ACC_RDONLY_F,h5id, status)
+  CALL h5fopen_f('INPUT/land_model_input_database.h5',H5F_ACC_RDONLY_F,h5id, status)
 
 end subroutine open_database_predefined_tiles
 
@@ -79,6 +79,7 @@ subroutine determine_cell_id(is,js,h5id,cellid)
  dims = (/1,1/)
  call h5dread_f(varid,H5T_IEEE_F64LE,h5tmp,dims,status,memid,dsid)
  cellid = int(h5tmp(1,1))
+ !print*,cellid
 
  !Close the memory space, dataset, and group
  call h5sclose_f(memid,status)
@@ -257,22 +258,15 @@ subroutine retrieve_metadata(tile_parameters,cid)
   allocate(tile_parameters%metadata)
   metadata => tile_parameters%metadata
 
-  !Retrieve the number of tiles
-  call h5dopen_f(cid,"tile",varid,status)
-  call h5dget_space_f(varid,dsid,status)
-  call h5sget_simple_extent_dims_f(dsid,dims,maxdims,status)
-  metadata%ntile = dims(1)
-  call h5dclose_f(varid,status)
-
-  !Retrieve the number of bands
-  call h5dopen_f(cid,"band",varid,status)
-  call h5dget_space_f(varid,dsid,status)
-  call h5sget_simple_extent_dims_f(dsid,dims,maxdims,status)
-  metadata%nband = dims(1)
-  call h5dclose_f(varid,status)
-
   !Retrieve the group id
   call h5gopen_f(cid,"metadata",grpid,status)
+
+  !Retrieve the number of tiles
+  call h5dopen_f(grpid,"tile",varid,status)
+  call h5dget_space_f(varid,dsid,status)
+  call h5sget_simple_extent_dims_f(dsid,dims,maxdims,status)
+  call h5dclose_f(varid,status)
+  metadata%ntile = dims(1)
 
   !Retrieve the info
   call get_parameter_data(grpid,'frac',metadata%ntile,metadata%frac)
@@ -294,22 +288,22 @@ subroutine retrieve_glacier_parameters(tile_parameters,cid)
   type(tile_parameters_type),intent(inout) :: tile_parameters
   integer,intent(inout) :: cid
   type(glacier_predefined_type),pointer :: glacier
-  integer :: dimid,grpid,nglacier,nband,status,dsid
+  integer :: dimid,grpid,nglacier,nband,status,dsid,varid
   integer(hsize_t) :: dims(1),maxdims(1)
   allocate(tile_parameters%glacier)
   glacier => tile_parameters%glacier
-  nband = tile_parameters%metadata%nband
 
   !Retrieve the group id
   call h5gopen_f(cid,"glacier",grpid,status)
 
-  !Retrieve the number of lakes
-  call h5dopen_f(grpid,"glacier",dimid,status)
-  call h5dget_space_f(dimid,dsid,status)
+  !Retrieve the number of lake tiles and bands
+  call h5dopen_f(grpid,"refl_min_dir",varid,status)
+  call h5dget_space_f(varid,dsid,status)
   call h5sget_simple_extent_dims_f(dsid,dims,maxdims,status)
   nglacier = dims(1)
+  nband = dims(2)
   glacier%nglacier = nglacier
-  call h5dclose_f(dimid,status)
+  call h5dclose_f(varid,status)
 
   !Retrieve the parameters
   call get_parameter_data(grpid,"w_sat",nglacier,glacier%w_sat)
@@ -339,7 +333,7 @@ subroutine retrieve_lake_parameters(tile_parameters,cid)
   type(tile_parameters_type),intent(inout) :: tile_parameters
   integer,intent(inout) :: cid
   type(lake_predefined_type),pointer :: lake
-  integer :: dimid,grpid,nlake,nband,status,dsid
+  integer :: dimid,grpid,nlake,nband,status,dsid,varid
   integer(hsize_t) :: dims(1),maxdims(1)
   allocate(tile_parameters%lake)
   lake => tile_parameters%lake
@@ -348,13 +342,14 @@ subroutine retrieve_lake_parameters(tile_parameters,cid)
   !Retrieve the group id
   call h5gopen_f(cid,"lake",grpid,status)
 
-  !Retrieve the number of lakes
-  call h5dopen_f(grpid,"lake",dimid,status)
-  call h5dget_space_f(dimid,dsid,status)
+  !Retrieve the number of lake tiles and bands
+  call h5dopen_f(grpid,"refl_dry_dir",varid,status)
+  call h5dget_space_f(varid,dsid,status)
   call h5sget_simple_extent_dims_f(dsid,dims,maxdims,status)
   nlake = dims(1)
+  nband = dims(2)
   lake%nlake = nlake
-  call h5dclose_f(dimid,status)
+  call h5dclose_f(varid,status)
 
   !Retrieve the parameters
   call get_parameter_data(grpid,"connected_to_next",nlake,lake%connected_to_next)
@@ -391,19 +386,19 @@ subroutine retrieve_soil_parameters(tile_parameters,cid)
   integer,intent(inout) :: cid
   type(soil_predefined_type),pointer :: soil
   integer :: varid,grpid,nsoil,nband,status,dsid
-  integer(hsize_t) :: dims(1),maxdims(1)
+  integer(hsize_t) :: dims(2),maxdims(2)
   allocate(tile_parameters%soil)
   soil => tile_parameters%soil
-  nband = tile_parameters%metadata%nband
 
   !Retrieve the group id
   call h5gopen_f(cid,"soil",grpid,status)
 
-  !Retrieve the number of soil tiles
-  call h5dopen_f(grpid,"soil",varid,status)
+  !Retrieve the number of soil tiles and bands
+  call h5dopen_f(grpid,"dat_refl_dry_dir",varid,status)
   call h5dget_space_f(varid,dsid,status)
   call h5sget_simple_extent_dims_f(dsid,dims,maxdims,status)
   nsoil = dims(1)
+  nband = dims(2)
   soil%nsoil = nsoil
   call h5dclose_f(varid,status)
 
