@@ -33,6 +33,7 @@ subroutine open_database_predefined_tiles(h5id)
 
   !Open access to the model input database
   CALL h5fopen_f('INPUT/land_model_input_database.h5',H5F_ACC_RDONLY_F,h5id, status)
+  !CALL h5fopen_f('INPUT/land_model_input_database.nc',H5F_ACC_RDONLY_F,h5id, status)
 
 end subroutine open_database_predefined_tiles
 
@@ -303,6 +304,7 @@ subroutine retrieve_glacier_parameters(tile_parameters,cid)
   nglacier = dims(1)
   nband = dims(2)
   glacier%nglacier = nglacier
+  call h5sclose_f(dsid,status)
   call h5dclose_f(varid,status)
 
   !Retrieve the parameters
@@ -337,7 +339,6 @@ subroutine retrieve_lake_parameters(tile_parameters,cid)
   integer(hsize_t) :: dims(1),maxdims(1)
   allocate(tile_parameters%lake)
   lake => tile_parameters%lake
-  nband = tile_parameters%metadata%nband
 
   !Retrieve the group id
   call h5gopen_f(cid,"lake",grpid,status)
@@ -349,6 +350,7 @@ subroutine retrieve_lake_parameters(tile_parameters,cid)
   nlake = dims(1)
   nband = dims(2)
   lake%nlake = nlake
+  call h5sclose_f(dsid,status)
   call h5dclose_f(varid,status)
 
   !Retrieve the parameters
@@ -400,6 +402,7 @@ subroutine retrieve_soil_parameters(tile_parameters,cid)
   nsoil = dims(1)
   nband = dims(2)
   soil%nsoil = nsoil
+  call h5sclose_f(dsid,status)
   call h5dclose_f(varid,status)
 
   !Retrieve the parameters
@@ -474,11 +477,14 @@ subroutine get_parameter_data_1d_real(grpid,var,nx,tmp)
  real,dimension(:),pointer :: tmp
  integer :: itile,varid,status
  integer(hsize_t) :: dims(1)
+ real*8 :: tmp2(nx)
  allocate(tmp(nx))
  
  dims(1) = nx
  call h5dopen_f(grpid,var,varid,status)
- call h5dread_f(varid,H5T_IEEE_F64LE,tmp,dims,status)
+ !call h5dread_f(varid,H5T_IEEE_F64LE,tmp,dims,status)
+ call h5dread_f(varid,H5T_IEEE_F64LE,tmp2,dims,status)
+ tmp = real(tmp2)
  call h5dclose_f(varid,status) 
 
 end subroutine 
@@ -507,12 +513,15 @@ subroutine get_parameter_data_2d_real(grpid,var,nx,ny,tmp)
  real,dimension(:,:),pointer :: tmp
  integer :: itile,varid,status
  integer(hsize_t) :: dims(2)
+ real*8 :: tmp2(nx,ny)
  allocate(tmp(nx,ny))
 
  dims(1) = nx
  dims(2) = ny
  call h5dopen_f(grpid,var,varid,status)
- call h5dread_f(varid,H5T_IEEE_F64LE,tmp,dims,status)
+ !call h5dread_f(varid,H5T_IEEE_F64LE,tmp,dims,status)
+ call h5dread_f(varid,H5T_IEEE_F64LE,tmp2,dims,status)
+ tmp = real(tmp2)
  call h5dclose_f(varid,status)
 
 end subroutine
