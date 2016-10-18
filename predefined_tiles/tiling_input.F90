@@ -89,21 +89,27 @@ subroutine determine_cell_id(is,js,h5id,cellid)
 
 end subroutine determine_cell_id
 
-subroutine load_group_into_memory(cellid,h5id,buf_ptr,buf_len,image_ptr)
+subroutine load_group_into_memory(tile,is,js,h5id,buf_ptr,buf_len,image_ptr)
 
-  integer,intent(in) :: cellid,h5id
+  integer,intent(in) :: tile,is,js,h5id
   type(c_ptr),intent(inout) :: buf_ptr
   integer(size_t),intent(inout) :: buf_len
   character(kind=c_char),intent(inout),allocatable,dimension(:),target :: image_ptr
   integer :: status,grpid,cell_grpid,dstid
-  character(100) :: cellid_string
+  !character(100) :: cellid_string
+  character(100) :: tile_string,is_string,js_string,cellid_string
   integer(hid_t) :: fapl
 
  !Open access to the group in the database that contains all the group information
  call h5gopen_f(h5id,"grid_data",grpid,status)
  !Write the cell id to string
- write(cellid_string,'(I10)') cellid
- cellid_string = trim('g' // trim(adjustl(cellid_string)))
+ !write(cellid_string,'(I10)') cellid
+ !cellid_string = trim('g' // trim(adjustl(cellid_string)))
+ write(tile_string,'(I10)') tile 
+ write(is_string,'(I10)') is 
+ write(js_string,'(I10)') js
+ cellid_string = trim('tile:' // trim(adjustl(tile_string)) // ',is:' // &
+                 trim(adjustl(js_string)) // ',js:' // trim(adjustl(is_string)))
  !The goal here is to load the desired group of the cellid into memory. This buffer 
  !will then be sent to the land model core. However, there is no direct way to do this
  !with a group instead we have to:
@@ -120,6 +126,11 @@ subroutine load_group_into_memory(cellid,h5id,buf_ptr,buf_len,image_ptr)
  call h5pclose_f(fapl,status)
  !Copy the group from the original database to the new file
  call h5ocopy_f(grpid,cellid_string,dstid,'data',status)
+ print*,status,cellid_string
+ if (status .eq. -1)then
+  print*,'This group does not exist in the database'
+  stop
+ endif
  !Flush the file
  call h5fflush_f(dstid,H5F_SCOPE_GLOBAL_F,status)
  !Determine the size of the desired group (which is now a file in memory...)
@@ -193,12 +204,16 @@ subroutine land_cover_cold_start_0d_predefined_tiles(tiles,lnd,i,j,h5id)
 
   !Print out the current lat and lon
   print*,"Initializing: ",lat,lon
+  print*,'face',lnd%face ! the current mosaic face
+  print*,'is',is
+  print*,'js',js
 
   !Determine the cell id (I/O core)
-  call determine_cell_id(is,js,h5id,cellid)
+  !call determine_cell_id(is,js,h5id,cellid)
 
   !Retrieve buffer and buffer length of desired group (I/O core)
-  call load_group_into_memory(cellid,h5id,buf_ptr,buf_len,image_ptr)
+  !call load_group_into_memory(cellid,h5id,buf_ptr,buf_len,image_ptr)
+  call load_group_into_memory(lnd%face,is,js,h5id,buf_ptr,buf_len,image_ptr)
 
   !Use buffer and buffer length to open new image file (Land model core)
   call open_image_file(buf_ptr,buf_len,image_ptr,dstid)
@@ -209,7 +224,7 @@ subroutine land_cover_cold_start_0d_predefined_tiles(tiles,lnd,i,j,h5id)
   !Metadata
   call retrieve_metadata(tile_parameters,cid)
 
-  !Soil and hillslope parameters
+  !Soil parameters
   call retrieve_soil_parameters(tile_parameters,cid)
 
   !Lake parameters
@@ -222,7 +237,7 @@ subroutine land_cover_cold_start_0d_predefined_tiles(tiles,lnd,i,j,h5id)
 
   !Create the tiles
   do itile = 1,tile_parameters%metadata%ntile
-   if (tile_parameters%metadata%frac(itile) .eq. 0.0)cycle
+   !if (tile_parameters%metadata%frac(itile) .eq. 0.0)cycle
    tid = tile_parameters%metadata%tid(itile)
    select case (tile_parameters%metadata%ttype(itile))
     case(1)
@@ -290,12 +305,15 @@ subroutine retrieve_glacier_parameters(tile_parameters,cid)
   integer,intent(inout) :: cid
   type(glacier_predefined_type),pointer :: glacier
   integer :: dimid,grpid,nglacier,nband,status,dsid,varid
-  integer(hsize_t) :: dims(1),maxdims(1)
+  integer(hsize_t) :: dims(2),maxdims(2)
   allocate(tile_parameters%glacier)
   glacier => tile_parameters%glacier
 
   !Retrieve the group id
   call h5gopen_f(cid,"glacier",grpid,status)
+
+  !If it does not exist then exit
+  if (status .eq. -1)return
 
   !Retrieve the number of lake tiles and bands
   call h5dopen_f(grpid,"refl_min_dir",varid,status)
@@ -336,12 +354,15 @@ subroutine retrieve_lake_parameters(tile_parameters,cid)
   integer,intent(inout) :: cid
   type(lake_predefined_type),pointer :: lake
   integer :: dimid,grpid,nlake,nband,status,dsid,varid
-  integer(hsize_t) :: dims(1),maxdims(1)
+  integer(hsize_t) :: dims(2),maxdims(2)
   allocate(tile_parameters%lake)
   lake => tile_parameters%lake
 
   !Retrieve the group id
   call h5gopen_f(cid,"lake",grpid,status)
+
+  !If it does not exist then exit
+  if (status .eq. -1)return
 
   !Retrieve the number of lake tiles and bands
   call h5dopen_f(grpid,"refl_dry_dir",varid,status)
@@ -394,6 +415,9 @@ subroutine retrieve_soil_parameters(tile_parameters,cid)
 
   !Retrieve the group id
   call h5gopen_f(cid,"soil",grpid,status)
+
+  !If it does not exist then exit
+  if (status .eq. -1)return
 
   !Retrieve the number of soil tiles and bands
   call h5dopen_f(grpid,"dat_refl_dry_dir",varid,status)
@@ -466,6 +490,7 @@ subroutine get_parameter_data_1d_integer(grpid,var,nx,tmp)
  dims(1) = nx
  call h5dopen_f(grpid,var,varid,status)
  call h5dread_f(varid,H5T_STD_I32LE,tmp,dims,status)
+ print*,status,var,tmp
  call h5dclose_f(varid,status)
 
 end subroutine
@@ -484,7 +509,9 @@ subroutine get_parameter_data_1d_real(grpid,var,nx,tmp)
  call h5dopen_f(grpid,var,varid,status)
  !call h5dread_f(varid,H5T_IEEE_F64LE,tmp,dims,status)
  call h5dread_f(varid,H5T_IEEE_F64LE,tmp2,dims,status)
+ !call h5dread_f(varid,H5T_IEEE_F64LE,tmp2,dims,status)
  tmp = real(tmp2)
+ print*,status,var,tmp
  call h5dclose_f(varid,status) 
 
 end subroutine 
@@ -502,6 +529,7 @@ subroutine get_parameter_data_2d_integer(grpid,var,nx,ny,tmp)
  dims(2) = ny
  call h5dopen_f(grpid,var,varid,status)
  call h5dread_f(varid,H5T_STD_I32LE,tmp,dims,status)
+ print*,status,var,tmp
  call h5dclose_f(varid,status)
 
 end subroutine
@@ -522,6 +550,7 @@ subroutine get_parameter_data_2d_real(grpid,var,nx,ny,tmp)
  !call h5dread_f(varid,H5T_IEEE_F64LE,tmp,dims,status)
  call h5dread_f(varid,H5T_IEEE_F64LE,tmp2,dims,status)
  tmp = real(tmp2)
+ print*,status,var,tmp
  call h5dclose_f(varid,status)
 
 end subroutine

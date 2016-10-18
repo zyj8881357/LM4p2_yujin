@@ -2397,6 +2397,7 @@ end subroutine soil_step_1
 
   div = div_bf + div_if + div_al + div_it ! div includes inter-tile flow
   lrunf_bf = sum(div_bf + div_it) ! baseflow runoff includes inter-tile flow
+  !stop
   lrunf_if = sum(div_if)
   lrunf_al = sum(div_al)
 
@@ -3284,6 +3285,7 @@ end subroutine soil_push_down_excess
 
 ! In rare situations where lrunf_ie is large and negative, clip any liquid supersaturation
 ! layer by layer and recompute lrunf_ie (this is not good, since it ignores 'comp'):
+
   IF (lrunf_ie < lrunf_ie_min) THEN
      call get_current_point(ipt,jpt,kpt,fpt)
      write(*,*) 'note: at point ',ipt,jpt,kpt,fpt,' clip triggered by lrunf_ie=',lrunf_ie

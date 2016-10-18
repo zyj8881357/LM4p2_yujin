@@ -113,7 +113,6 @@ subroutine hlsp_hydrology_2(soil, psi, vlc, vsc, div_it, hdiv_it, &
    div_it(1:num_l) = soil%div_hlsp(1:num_l)
    hdiv_it(1:num_l) = soil%div_hlsp_heat(1:num_l)
 
-
    ! Diagnostics
    ! Trivial for now
    surface_water = max(0., (vlc(1) + vsc(1) - soil%pars%vwc_sat)*dz(1))
@@ -354,6 +353,12 @@ subroutine hlsp_hydrology_1(ground_to_stream, ground_to_stream_heat, ground_to_s
                      L2 = soil2%pars%tile_hlsp_length
                      w1 = soil%pars%tile_hlsp_width
                      w2 = soil2%pars%tile_hlsp_width
+                     !print*,'tile_hlsp_length',soil%pars%tile_hlsp_length
+                     !print*,'tile_hlsp_width',soil%pars%tile_hlsp_width
+                     !print*,'tile_hlsp_slope',soil%pars%tile_hlsp_slope
+                     !print*,'tile_hlsp_elev',soil%pars%tile_hlsp_elev
+                     !print*,'tile_hlsp_hpos',soil%pars%tile_hlsp_hpos
+                     !stop
                      L_hat = (L1 + L2)/2.
                      w_hat = (L2*w1 + L1*w2)/(L1 + L2)
                      delta_h = soil%pars%tile_hlsp_elev - soil2%pars%tile_hlsp_elev
@@ -492,6 +497,7 @@ subroutine hlsp_hydrology_1(ground_to_stream, ground_to_stream_heat, ground_to_s
             soil%div_hlsp(:) = 0.
             soil%div_hlsp_heat(:) = 0.
 
+            !print*,'area_above',area_above,sum(div_above)
             ! Add to outputs
             if (area_above > 0.) then
                soil%div_hlsp(:) = soil%div_hlsp(:) + div_above(:) / area_above
@@ -499,6 +505,7 @@ subroutine hlsp_hydrology_1(ground_to_stream, ground_to_stream_heat, ground_to_s
                ! Add tracer code
             end if
             
+            !print*,'area_level',area_level,sum(div_level)
             if (area_level > 0.) then
                ! Add current tile to area_level
                area_level = area_level + tile%frac
@@ -507,6 +514,7 @@ subroutine hlsp_hydrology_1(ground_to_stream, ground_to_stream_heat, ground_to_s
                ! Add tracer code
             end if
             
+            !print*,'area_below',area_above,sum(div_below)
             if (area_below > 0.) then
                soil%div_hlsp(:) = soil%div_hlsp(:) + div_below(:) / area_below
                soil%div_hlsp_heat(:) = soil%div_hlsp_heat(:) + hdiv_below(:) / area_below

@@ -553,6 +553,9 @@ subroutine land_model_init &
   ! mask error checking
   do j=lnd%js,lnd%je
   do i=lnd%is,lnd%ie
+     print*,i,j,frac(i,j),land2cplr%mask(i,j,:)
+     print*,'lat',180.0*lnd%lat(i,j)/pi
+     print*,'lon',180.0*lnd%lon(i,j)/pi
      if(frac(i,j)>0.neqv.ANY(land2cplr%mask(i,j,:))) then
         call error_mesg('land_model_init','masks are not equal',FATAL)
      endif
