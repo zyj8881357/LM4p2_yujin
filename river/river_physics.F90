@@ -286,6 +286,11 @@ contains
                      lake_ws(i,j,1) = lake_ws(i,j,1) +         influx_c(1) /lake_area
                      lake_T (i,j,1) = tfreeze + &
                         (h+influx_c(2)/lake_area)/(clw*lake_wl(i,j,1)+csw*lake_ws(i,j,1))
+                     !Adjust lake_T (This does not conserve energy...) 
+                     if (lake_T (i,j,1) .gt. 372.0)then
+                      print*,'WARNING: Lake temperature was too high. Adjusted.'
+                      !lake_T (i,j,1) = 372.0
+                     endif
                      if (is_watch_cell()) then
                           write(*,*) 'lake_wl(1):', lake_wl(i,j,1)
                           write(*,*) 'lake_ws(1):', lake_ws(i,j,1)
@@ -1326,6 +1331,8 @@ contains
      integer                            :: p, n, i, j, count, l, k
      real                               :: wrk_c(isc:iec,jsc:jec,num_species, 8)
      real                               :: wrk  (isc:iec,jsc:jec, 8)
+     wrk = 0.0
+     wrk_c = 0.0
 
      !--- pre-post recv data
      pos = 0

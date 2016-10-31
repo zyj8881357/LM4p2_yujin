@@ -44,6 +44,7 @@ private
 ! ==== public interfaces =====================================================
 public :: read_lake_namelist
 public :: lake_init
+public :: lake_init_predefined
 public :: lake_end
 public :: save_lake_restart
 public :: lake_get_sfc_temp
@@ -162,6 +163,182 @@ subroutine read_lake_namelist()
   endif
 
 end subroutine read_lake_namelist
+
+! ============================================================================
+! initialize lake model
+subroutine lake_init_predefined ( id_lon, id_lat, new_land_io )
+  integer, intent(in) :: id_lon  ! ID of land longitude (X) axis  
+  integer, intent(in) :: id_lat  ! ID of land latitude (Y) axis
+  logical, intent(in)  :: new_land_io  ! This is a transition var and will be removed
+
+  ! ---- local vars 
+  integer :: unit         ! unit for various i/o
+  integer :: isize,nz     ! Len of io domain vector and number of levels
+  type(land_tile_enum_type)     :: te,ce ! last and current tile list elements
+  type(land_tile_type), pointer :: tile  ! pointer to current tile
+  character(len=256) :: restart_file_name
+  character(len=17) :: restart_base_name='INPUT/lake.res.nc'
+  integer :: siz(4)
+  integer, allocatable :: idx(:)         ! I/O domain vector of compressed indices
+  real,    allocatable :: r1d(:,:)       ! I/O domain level dependent vector of real data
+  logical :: restart_exists, found
+  real, allocatable :: buffer(:,:),bufferc(:,:),buffert(:,:)
+  integer i
+  logical :: river_data_exist
+
+  module_is_initialized = .TRUE.
+  time       = lnd%time
+  delta_time = time_type_to_real(lnd%dt_fast)
+
+  allocate(buffer (lnd%is:lnd%ie,lnd%js:lnd%je))
+  allocate(bufferc(lnd%is:lnd%ie,lnd%js:lnd%je))
+  allocate(buffert(lnd%is:lnd%ie,lnd%js:lnd%je))
+  buffer (:,:) = 0
+  bufferc(:,:) = 0
+  buffert(:,:) = 0
+  river_data_exist = file_exist('INPUT/river_data.nc', lnd%domain)
+  if (river_data_exist) then
+     call error_mesg('lake_init', 'reading lake information from river data file', NOTE)
+  else
+     call error_mesg('lake_init', 'river data file not present: lake fraction is set to zero', NOTE)
+  endif
+
+  IF (LARGE_DYN_SMALL_STAT) THEN
+
+     if(river_data_exist) call read_data('INPUT/river_data.nc', 'connected_to_next', bufferc(:,:), lnd%domain)
+     !call put_to_tiles_r0d_fptr(bufferc, lnd%tile_map, lake_connected_to_next_ptr)
+
+     if(river_data_exist) call read_data('INPUT/river_data.nc', 'whole_lake_area', buffer(:,:), lnd%domain)
+     !call put_to_tiles_r0d_fptr(buffer, lnd%tile_map, lake_whole_area_ptr)
+
+     if(river_data_exist) call read_data('INPUT/river_data.nc', 'lake_depth_sill', buffer(:,:),  lnd%domain)
+     buffer = min(buffer, lake_depth_max)
+     buffer = max(buffer, lake_depth_min)
+     !call put_to_tiles_r0d_fptr(buffer,  lnd%tile_map, lake_depth_sill_ptr)
+
+     ! lake_tau is just used here as a flag for 'large lakes'
+     ! sill width of -1 is a flag saying not to allow transient storage
+     if(river_data_exist) call read_data('INPUT/river_data.nc', 'lake_tau', buffert(:,:),  lnd%domain)
+     buffer = -1.
+     !where (bufferc.gt.0.5) buffer = lake_width_inside_lake
+     where (bufferc.lt.0.5 .and. buffert.gt.1.) buffer = large_lake_sill_width
+     if (lake_specific_width) then
+        do i = 1, n_outlet
+           if(lnd%face.eq.outlet_face(i).and.lnd%is.le.outlet_i(i).and.lnd%ie.ge.outlet_i(i) &
+                .and.lnd%js.le.outlet_j(i).and.lnd%je.ge.outlet_j(i)) &
+                buffer(outlet_i(i),outlet_j(i)) = outlet_width(i)
+        enddo
+     endif
+     !call put_to_tiles_r0d_fptr(buffer, lnd%tile_map, lake_width_sill_ptr)
+
+     buffer = 1.e8
+     if (max_plain_slope.gt.0. .and. river_data_exist) &
+          call read_data('INPUT/river_data.nc', 'max_slope_to_next', buffer(:,:), lnd%domain)
+     if(river_data_exist) call read_data('INPUT/river_data.nc', 'travel', buffert(:,:), lnd%domain)
+     bufferc = 0.
+     where (buffer.lt.max_plain_slope .and. buffert.gt.1.5) bufferc = 1.
+     !call put_to_tiles_r0d_fptr(bufferc, lnd%tile_map, lake_backwater_ptr)
+     bufferc = 0
+     where (buffer.lt.max_plain_slope .and. buffert.lt.1.5) bufferc = 1.
+     !call put_to_tiles_r0d_fptr(bufferc, lnd%tile_map, lake_backwater_1_ptr)
+
+  ELSE
+     if(river_data_exist) call read_data('INPUT/river_data.nc', 'whole_lake_area', bufferc(:,:), lnd%domain)
+
+     if(river_data_exist) call read_data('INPUT/river_data.nc', 'lake_depth_sill', buffer(:,:), lnd%domain)
+     where (bufferc.eq.0.)                      buffer = 0.
+     where (bufferc.gt.0..and.bufferc.lt.2.e10) buffer = max(2., 2.5e-4*sqrt(bufferc))
+     call put_to_tiles_r0d_fptr(buffer,  lnd%tile_map, lake_depth_sill_ptr)
+     call put_to_tiles_r0d_fptr(bufferc, lnd%tile_map, lake_whole_area_ptr)
+
+     buffer = 4. * buffer
+     where (bufferc.gt.2.e10) buffer = min(buffer, 60.)
+     if(river_data_exist) call read_data('INPUT/river_data.nc', 'connected_to_next', bufferc(:,:), lnd%domain)
+     call put_to_tiles_r0d_fptr(bufferc, lnd%tile_map, lake_connected_to_next_ptr)
+
+     where (bufferc.gt.0.5) buffer=lake_width_inside_lake
+     if (make_all_lakes_wide) buffer = lake_width_inside_lake
+     call put_to_tiles_r0d_fptr(buffer, lnd%tile_map, lake_width_sill_ptr)
+  ENDIF
+
+deallocate (buffer, bufferc, buffert)
+
+  ! -------- initialize lake state --------
+  te = tail_elmt (lnd%tile_map)
+  ce = first_elmt(lnd%tile_map)
+  do while(ce /= te)
+     tile=>current_tile(ce)  ! get pointer to current tile
+     ce=next_elmt(ce)        ! advance position to the next tile
+     
+     if (.not.associated(tile%lake)) cycle
+     
+     tile%lake%dz = tile%lake%pars%depth_sill/num_l
+     if (init_temp.ge.tfreeze) then
+        tile%lake%wl = init_w*tile%lake%dz
+        tile%lake%ws = 0
+     else
+        tile%lake%wl = 0
+        tile%lake%ws = init_w*tile%lake%dz
+     endif
+     tile%lake%T             = init_temp
+  enddo
+
+  call get_input_restart_name(restart_base_name,restart_exists,restart_file_name)
+  if (restart_exists) then
+     call error_mesg('lake_init', 'reading NetCDF restart "'//trim(restart_file_name)//'"', NOTE)
+     if(new_land_io)then
+         call error_mesg('lake_init', 'Using new lake restart read', NOTE)
+ 
+         restart_file_name = restart_base_name
+
+         call get_field_size(restart_file_name, 'tile_index', siz, field_found=found, domain=lnd%domain)
+         if ( .not.found ) call error_mesg(trim(module_name), &
+              'tile_index axis not found in '//trim(restart_file_name), FATAL)
+         isize = siz(1)
+
+         call get_field_size(restart_file_name, 'zfull', siz, field_found=found, domain=lnd%domain)
+         if ( .not.found ) call error_mesg(trim(module_name), &
+              'Z axis not found in '//trim(restart_file_name), FATAL)
+         nz = siz(1)
+
+         allocate(idx(isize),r1d(isize,nz))
+
+         call read_compressed(restart_file_name,'tile_index',idx, domain=lnd%domain, timelevel=1)
+         
+         if (field_exist(restart_file_name, 'dz', domain=lnd%domain)) then
+            call read_compressed(restart_file_name,'dz',r1d,domain=lnd%domain, timelevel=1)
+            call assemble_tiles(lake_dz_ptr,idx,r1d)
+         endif
+
+         call read_compressed(restart_file_name,'temp',r1d, domain=lnd%domain, timelevel=1)
+         call assemble_tiles(lake_temp_ptr,idx,r1d)
+ 
+         call read_compressed(restart_file_name,'wl',r1d, domain=lnd%domain, timelevel=1)
+         call assemble_tiles(lake_wl_ptr,idx,r1d)
+ 
+         call read_compressed(restart_file_name,'ws',r1d, domain=lnd%domain, timelevel=1)
+         call assemble_tiles(lake_ws_ptr,idx,r1d)
+ 
+         deallocate(idx,r1d)
+     else
+         __NF_ASRT__(nf_open(restart_file_name,NF_NOWRITE,unit))
+         if(nfu_inq_var(unit, 'dz')==NF_NOERR) call read_tile_data_r1d_fptr(unit, 'dz', lake_dz_ptr )
+         call read_tile_data_r1d_fptr(unit, 'temp'         , lake_temp_ptr )
+         call read_tile_data_r1d_fptr(unit, 'wl'           , lake_wl_ptr )
+         call read_tile_data_r1d_fptr(unit, 'ws'           , lake_ws_ptr )
+         __NF_ASRT__(nf_close(unit))     
+     endif
+  else
+     call error_mesg('lake_init', 'cold-starting lake', NOTE)
+  endif
+
+  call lake_diag_init ( id_lon, id_lat )
+  ! ---- static diagnostic section
+  call send_tile_data_r0d_fptr(id_sillw, lnd%tile_map, lake_width_sill_ptr)
+  call send_tile_data_r0d_fptr(id_silld, lnd%tile_map, lake_depth_sill_ptr)
+  call send_tile_data_r0d_fptr(id_backw, lnd%tile_map, lake_backwater_ptr)
+  call send_tile_data_r0d_fptr(id_back1, lnd%tile_map, lake_backwater_1_ptr)
+end subroutine lake_init_predefined
 
 
 ! ============================================================================
@@ -525,6 +702,8 @@ subroutine lake_step_1 ( u_star_a, p_surf, latitude, lake, &
      write(*,*) 'ice     ', lake_ice
      write(*,*) 'subl    ', lake_subl
      write(*,*) 'G0      ', lake_G0
+     write(*,*) 'dz_alt   ', dz_alt
+     write(*,*) 'dz_mid   ', dz_mid
      write(*,*) 'DGDT    ', lake_DGDT
     do l = 1, num_l
       write(*,'(a,i2.2,100(2x,a,g23.16))') ' level=', l,&

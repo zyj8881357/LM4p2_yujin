@@ -47,6 +47,8 @@ private
 public :: read_hlsp_namelist
 public :: hlsp_init      ! read surface parameters, read restart file, set
                          ! hillslope-position-dependent parameters
+public :: hlsp_init_predefined ! Initialize hillslope using predefined tile
+                               ! parameters
 !public :: get_max_hidx    ! evaluate maximum hillslope indices for the gridcell
 public :: hlsp_coldfracs ! determine # and fractions of tiles within hillslopes for cold start
                           ! and determine hillslope indices
@@ -784,6 +786,103 @@ subroutine hlsp_init ( id_lon, id_lat )
 
 end subroutine hlsp_init
 
+! ============================================================================
+! initialize hillslope model (Predefined tiles)
+subroutine hlsp_init_predefined ( id_lon, id_lat, new_land_io )
+
+  integer, intent(in)  :: id_lon  ! ID of land longitude (X) axis  
+  integer, intent(in)  :: id_lat  ! ID of land latitude (Y) axis
+  logical, intent(in) :: new_land_io !< This is a transition var and will be removed
+
+  ! ---- local vars
+  type(land_tile_enum_type)     :: te,ce  ! tail and current tile list elements
+  type(land_tile_type), pointer :: tile   ! pointer to current tile
+  integer :: unit         ! unit for various i/o
+  character(len=256) :: restart_file_name, mesg
+  logical :: restart_exists
+  logical :: found
+  integer :: siz(4), tsize
+  integer, allocatable :: i0d(:), idx(:)
+
+  ! change the initialization flag to true
+  module_is_initialized = .TRUE.
+
+  ! initialize hillslope-dependent diagnostic fields
+  call hlsp_diag_init ( id_lon, id_lat )
+
+  call get_input_restart_name(hlsp_rst_ifname,restart_exists,restart_file_name)
+  if (restart_exists) then
+     if (new_land_io) then
+        ! fms read routine expect the "original" restart file name, not the one
+        ! modified with the get_input_restart_name
+        restart_file_name = hlsp_rst_ifname
+        call error_mesg('vegn_init', 'Using new hlsp restart read', NOTE)
+        call get_field_size(restart_file_name, 'tile_index', siz, field_found=found, domain=lnd%domain)
+        if (.not.found) call error_mesg(trim(module_name), 'tile axis not found in '//trim(restart_file_name), FATAL)
+        tsize = siz(1)
+        allocate(idx(tsize), i0d(tsize))
+        call read_compressed(restart_file_name,'tile_index',idx, domain=lnd%domain, timelevel=1)
+        call read_compressed(restart_file_name,'HIDX_J',i0d, domain=lnd%domain, timelevel=1)
+        call assemble_tiles(soil_hidx_j_ptr,idx,i0d)
+        call read_compressed(restart_file_name,'HIDX_K',i0d, domain=lnd%domain, timelevel=1)
+        call assemble_tiles(soil_hidx_k_ptr,idx,i0d)
+     else
+        call error_mesg(module_name, 'hlsp_init, '// &
+             'reading NetCDF restart "'//trim(restart_file_name)//'"', &
+             NOTE)
+        __NF_ASRT__(nf_open(restart_file_name,NF_NOWRITE,unit))
+        call read_tile_data_i0d_fptr(unit, 'HIDX_J'       , soil_hidx_j_ptr  )
+        call read_tile_data_i0d_fptr(unit, 'HIDX_K'       , soil_hidx_k_ptr  )
+        __NF_ASRT__(nf_close(unit))     
+        if (cold_start) &
+           call error_mesg(module_name, 'hlsp_init: coldfracs subroutine called even though restart file '// &
+                                'exists! Inconsistency of "cold_start" in hillslope_mod.', FATAL)
+     endif
+  else
+     call error_mesg(module_name, 'hlsp_init: '// &
+          'cold-starting hillslope model',&
+          NOTE)
+  endif
+
+  ! ---- static [for now] diagnostic section
+  ! List of fields:
+   !id_soil_e_depth, id_microtopo, id_tile_hlsp_length, id_tile_hlsp_slope, &
+   !id_tile_hlsp_elev, id_tile_hlsp_hpos, id_tile_hlsp_width, id_transm_bedrock, &
+   !id_hidx_j, id_hidx_k
+   ! soil_e_depth and k_sat_gw will be done in soil_init.
+   call send_tile_data_i0d_fptr(id_hidx_j,         lnd%tile_map,     soil_hidx_j_ptr)
+   call send_tile_data_i0d_fptr(id_hidx_k,         lnd%tile_map,     soil_hidx_k_ptr)
+   call send_tile_data_r0d_fptr(id_microtopo,      lnd%tile_map,     soil_microtopo_ptr)
+   call send_tile_data_r0d_fptr(id_tile_hlsp_length,lnd%tile_map,    soil_tile_hlsp_length_ptr)
+   call send_tile_data_r0d_fptr(id_tile_hlsp_slope, lnd%tile_map,    soil_tile_hlsp_slope_ptr)
+   call send_tile_data_r0d_fptr(id_tile_hlsp_elev,  lnd%tile_map,    soil_tile_hlsp_elev_ptr)
+   call send_tile_data_r0d_fptr(id_tile_hlsp_hpos,  lnd%tile_map,    soil_tile_hlsp_hpos_ptr)
+   call send_tile_data_r0d_fptr(id_tile_hlsp_width, lnd%tile_map,    soil_tile_hlsp_width_ptr)
+ 
+ !Print out parameters
+ if (is_watch_point()) then
+   te = tail_elmt(lnd%tile_map)
+   ce = first_elmt(lnd%tile_map)
+   do while(ce /= te)
+
+      tile=>current_tile(ce)  ! get pointer to current tile
+      ce=next_elmt(ce)        ! advance position to the next tile
+      if ((associated(tile%soil)) .eqv. .False.)cycle
+      print*,'soil_e_depth',tile%soil%pars%soil_e_depth
+      print*,'microtopo',tile%soil%pars%microtopo
+      print*,'k_sat_gw',tile%soil%pars%k_sat_gw
+      print*,'hlsp_elev',tile%soil%pars%tile_hlsp_elev
+      print*,'hlsp_hpos',tile%soil%pars%tile_hlsp_hpos
+      print*,'hlsp_width',tile%soil%pars%tile_hlsp_width
+      print*,'hlsp_slope',tile%soil%pars%tile_hlsp_slope
+      print*,'hlsp_length',tile%soil%pars%tile_hlsp_length
+      print*,'microtopo',tile%soil%pars%microtopo
+      print*,'hidx_j',tile%soil%hidx_j
+      print*,'hidx_k',tile%soil%hidx_k
+   end do
+ endif
+
+end subroutine hlsp_init_predefined
 
 ! ============================================================================
 subroutine hlsp_diag_init ( id_lon, id_lat )
@@ -888,9 +987,10 @@ subroutine hlsp_config_check()
                      FATAL)
 
   ! ZMS fill in this function
-  if ((do_landuse_change .or. do_harvesting) .and. hillslope_horz_subdiv) then
+  ! NWC - Why is was this ever conditional??? Eventually set externally
+  !if ((do_landuse_change .or. do_harvesting) .and. hillslope_horz_subdiv) then
       call transitions_disturbance_length_init()
-  end if
+  !end if
 
   ! Deallocate variables used during init, as this function is called at end of land_model init
   ! sequence.
