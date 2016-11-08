@@ -806,14 +806,35 @@ function soil_tile_ctor_predefined(hidx_j, hidx_k, tile_parameters, &
             ptr%slow_soil_C       (num_l),  &
             ptr%fsc_in            (num_l),  & 
             ptr%ssc_in            (num_l),  & 
-            ptr%asoil_in          (num_l)   )
+            ptr%asoil_in          (num_l),   &
+            ptr%is_peat           (num_l),  &
+            ptr%fast_protected_in        (num_l),  &
+            ptr%slow_protected_in        (num_l),  &
+            ptr%deadmic_protected_in        (num_l),  &
+            ptr%deadmic_in        (num_l),  &
+            ptr%fast_turnover_accumulated(num_l), &
+            ptr%slow_turnover_accumulated(num_l), &
+            ptr%deadmic_turnover_accumulated(num_l), &
+            ptr%fast_protected_turnover_accumulated(num_l), &
+            ptr%slow_protected_turnover_accumulated(num_l), &
+            ptr%deadmic_protected_turnover_accumulated(num_l), &
+            ptr%soil_C            (num_l),  &
+            ptr%div_hlsp_DOC      (n_c_types, num_l)   )
 
   ! Initialize to catch use before appropriate
   !ptr%psi(:) = initval
   ptr%hyd_cond_horz(:) = initval
   ptr%div_hlsp(:)      = initval
   ptr%div_hlsp_heat(:) = initval
+  ptr%div_hlsp_DOC(:,:) = initval
+
   call soil_data_init_0d_predefined(ptr,tile_parameters,itile)
+  do i=1,num_l
+     call init_soil_carbon(ptr%soil_C(i),Qmax=ptr%pars%Qmax)
+  enddo
+  call init_soil_carbon(ptr%leafLitter,protectionRate=0.0,Qmax=0.0,max_cohorts=1)
+  call init_soil_carbon(ptr%fineWoodLitter,protectionRate=0.0,Qmax=0.0,max_cohorts=1)
+  call init_soil_carbon(ptr%coarseWoodLitter,protectionRate=0.0,Qmax=0.0,max_cohorts=1)
 
 end function soil_tile_ctor_predefined
 

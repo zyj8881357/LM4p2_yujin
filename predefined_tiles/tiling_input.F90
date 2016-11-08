@@ -126,7 +126,7 @@ subroutine load_group_into_memory(tile,is,js,h5id,buf_ptr,buf_len,image_ptr)
  call h5pclose_f(fapl,status)
  !Copy the group from the original database to the new file
  call h5ocopy_f(grpid,cellid_string,dstid,'data',status)
- print*,status,cellid_string
+ !print*,status,cellid_string
  if (status .eq. -1)then
   print*,'This group does not exist in the database'
   stop
@@ -204,9 +204,9 @@ subroutine land_cover_cold_start_0d_predefined_tiles(tiles,lnd,i,j,h5id)
 
   !Print out the current lat and lon
   print*,"Initializing: ",lat,lon
-  print*,'face',lnd%face ! the current mosaic face
-  print*,'is',is
-  print*,'js',js
+  !print*,'face',lnd%face ! the current mosaic face
+  !print*,'is',is
+  !print*,'js',js
 
   !Determine the cell id (I/O core)
   !call determine_cell_id(is,js,h5id,cellid)
@@ -490,7 +490,7 @@ subroutine get_parameter_data_1d_integer(grpid,var,nx,tmp)
  dims(1) = nx
  call h5dopen_f(grpid,var,varid,status)
  call h5dread_f(varid,H5T_STD_I32LE,tmp,dims,status)
- print*,status,var,tmp
+ !print*,status,var,tmp
  call h5dclose_f(varid,status)
 
 end subroutine
@@ -511,7 +511,7 @@ subroutine get_parameter_data_1d_real(grpid,var,nx,tmp)
  call h5dread_f(varid,H5T_IEEE_F64LE,tmp2,dims,status)
  !call h5dread_f(varid,H5T_IEEE_F64LE,tmp2,dims,status)
  tmp = real(tmp2)
- print*,status,var,tmp
+ !print*,status,var,tmp
  call h5dclose_f(varid,status) 
 
 end subroutine 
@@ -529,7 +529,7 @@ subroutine get_parameter_data_2d_integer(grpid,var,nx,ny,tmp)
  dims(2) = ny
  call h5dopen_f(grpid,var,varid,status)
  call h5dread_f(varid,H5T_STD_I32LE,tmp,dims,status)
- print*,status,var,tmp
+ !print*,status,var,tmp
  call h5dclose_f(varid,status)
 
 end subroutine
@@ -550,7 +550,7 @@ subroutine get_parameter_data_2d_real(grpid,var,nx,ny,tmp)
  !call h5dread_f(varid,H5T_IEEE_F64LE,tmp,dims,status)
  call h5dread_f(varid,H5T_IEEE_F64LE,tmp2,dims,status)
  tmp = real(tmp2)
- print*,status,var,tmp
+ !print*,status,var,tmp
  call h5dclose_f(varid,status)
 
 end subroutine

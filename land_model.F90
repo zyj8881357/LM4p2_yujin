@@ -845,7 +845,7 @@ subroutine land_cover_cold_start_predefined(lnd)
     if(.not.land_mask(i,j)) cycle ! skip ocean points
     call set_current_point(i+lnd%is-1,j+lnd%js-1,1)
     call cpu_time(t0)
-    call land_cover_cold_start_0d_predefined_tiles(lnd%tile_map(i+lnd%is-1,j+lnd%js-1),&
+    call land_cover_cold_start_0d_predefined_tiles(land_tile_map(i+lnd%is-1,j+lnd%js-1),&
          lnd,i,j,h5id)
     call cpu_time(t1)
    enddo
@@ -924,7 +924,7 @@ subroutine land_cover_cold_start_0d (set,glac0,lake0,soil0,soiltags0,&
 
   do i = 1,size(glac)
      if (glac(i)>0) then
-        print*,'glacier',glac(i)
+        !print*,'glacier',glac(i)
         tile => new_land_tile(frac=glac(i),glac=i)
         call insert(tile,set)
         if(is_watch_point()) then
@@ -934,7 +934,7 @@ subroutine land_cover_cold_start_0d (set,glac0,lake0,soil0,soiltags0,&
   enddo
   do i = 1,size(lake)
      if (lake(i)>0) then
-        print*,'lake',lake(i)
+        !print*,'lake',lake(i)
         tile => new_land_tile(frac=lake(i),lake=i)
         call insert(tile,set)
         if(is_watch_point()) then
@@ -957,7 +957,7 @@ subroutine land_cover_cold_start_0d (set,glac0,lake0,soil0,soiltags0,&
   do j = 1,size(vegn)
      frac = soil(i)*vegn(j)*factor
      if(frac>0) then
-        print*,'soil',frac
+        !print*,'soil',frac
         tile  => new_land_tile(frac=frac,soil=soiltags0(i),vegn=j,&
                                htag_j=hlsp_pos0(i),htag_k=hlsp_par0(i))
         call insert(tile,first_non_vegn)

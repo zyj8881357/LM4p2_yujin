@@ -1076,8 +1076,8 @@ end subroutine print_river_tracer_data
     end do
     end do
 
-    if (nerrors>0.and.stop_on_mask_mismatch) call mpp_error(FATAL,&
-        'get_river_data: river/land mask-related mismatch detected during river data initialization')
+    !if (nerrors>0.and.stop_on_mask_mismatch) call mpp_error(FATAL,&
+    !    'get_river_data: river/land mask-related mismatch detected during river data initialization')
 
     call read_data(river_src_file, 'basin', River%basinid, domain)
     where (River%basinid >0)

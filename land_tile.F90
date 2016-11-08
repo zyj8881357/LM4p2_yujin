@@ -35,12 +35,9 @@ use land_tile_selectors_mod, only : tile_selector_type, &
      SEL_SOIL, SEL_VEGN, SEL_LAKE, SEL_GLAC, SEL_SNOW, SEL_CANA, SEL_HLSP
 use tile_diag_buff_mod, only : &
      diag_buff_type, new_diag_buff, delete_diag_buff
-<<<<<<< HEAD
 use land_data_mod, only : lnd
-=======
 use tiling_input_types_mod, only : soil_predefined_type,lake_predefined_type, &
      glacier_predefined_type
->>>>>>> user/nwc/field_scale
 
 implicit none
 private

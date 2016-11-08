@@ -158,7 +158,6 @@ subroutine glac_init ( id_lon, id_lat )
         ce=next_elmt(ce)       ! advance position to the next tile
 
         if (.not.associated(tile%glac)) cycle
-        print*,tile%frac
 
         if (init_temp.ge.tfreeze.or.lm2) then      ! USE glac TFREEZE HERE
            tile%glac%wl(1:num_l) = init_w*dz(1:num_l)
