@@ -229,10 +229,12 @@ type :: soil_tile_type
    real, allocatable :: psi(:) ! soil water potential [m]
    real, allocatable :: hyd_cond_horz(:) ! soil hydraulic conductivity for inter-tile transfers [mm/s]
    ! flux variables for tiled hillslope hydrology
-   real, allocatable :: div_hlsp(:) ! net groundwater divergence flux from tile to hillslope
+   real*8, allocatable :: div_hlsp(:) ! net groundwater divergence flux from tile to hillslope
                                      ! or stream [mm/s]
    real, allocatable :: div_hlsp_heat(:) ! net heat divergence flux associated with groundwater
                                      ! (relative to tfreeze) [W/m^2]
+   real*8, allocatable :: gtos(:) ! groundwater from tile to stream [mm/s]
+   real, allocatable :: gtosh(:) ! heat flux to stream [W/m^2]
 
    ! soil carbon
    ! CENTURY-style values
@@ -746,7 +748,9 @@ function soil_tile_ctor(tag, hidx_j, hidx_k) result(ptr)
             ptr%slow_protected_turnover_accumulated(num_l), &
             ptr%deadmic_protected_turnover_accumulated(num_l), &
             ptr%soil_C            (num_l),  &
-            ptr%div_hlsp_DOC      (n_c_types, num_l)   )
+            ptr%div_hlsp_DOC      (n_c_types, num_l), &
+            ptr%gtos          (num_l),  &
+            ptr%gtosh     (num_l))
 
   ! Initialize to catch use before appropriate
   !ptr%psi(:) = initval
@@ -754,6 +758,8 @@ function soil_tile_ctor(tag, hidx_j, hidx_k) result(ptr)
   ptr%div_hlsp(:)      = initval
   ptr%div_hlsp_heat(:) = initval
   ptr%div_hlsp_DOC(:,:) = initval
+  ptr%gtos(:)      = initval
+  ptr%gtosh(:) = initval
 
   call soil_data_init_0d(ptr)
   do i=1,num_l
@@ -819,7 +825,9 @@ function soil_tile_ctor_predefined(hidx_j, hidx_k, tile_parameters, &
             ptr%slow_protected_turnover_accumulated(num_l), &
             ptr%deadmic_protected_turnover_accumulated(num_l), &
             ptr%soil_C            (num_l),  &
-            ptr%div_hlsp_DOC      (n_c_types, num_l)   )
+            ptr%div_hlsp_DOC      (n_c_types, num_l), &
+            ptr%gtos          (num_l),  &
+            ptr%gtosh     (num_l))
 
   ! Initialize to catch use before appropriate
   !ptr%psi(:) = initval

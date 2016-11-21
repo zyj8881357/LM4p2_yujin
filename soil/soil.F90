@@ -2701,6 +2701,7 @@ end subroutine soil_step_1
   real, dimension(num_l  ) :: div, & ! total divergence of soil water [mm/s]
        div_it    ! divergence of water due to inter-tile flow (incl. to stream)
   ! set in hlsp_hydrology_1 [mm/s]
+  real, dimension(num_l  ) :: div_gtos,hdiv_gtos
   real, dimension(num_l  ) :: hdiv_it, &! divergence of heat due to inter-tile water flow [W/m^2]
        div_bf, & ! baseflow [mm/s]
        div_if, & ! interlow [mm/s]
@@ -3214,7 +3215,8 @@ end subroutine soil_step_1
 
   CASE (GW_TILED)
      call hlsp_hydrology_2(soil, psi, vlc, vsc, div_it, hdiv_it, &
-        sat_area_frac, inundated_frac, storage_2, depth_to_wt_2b, surface_water, sat_runf_frac)
+        sat_area_frac, inundated_frac, storage_2, depth_to_wt_2b, surface_water, sat_runf_frac, &
+        div_gtos, hdiv_gtos)
      if (depth_to_wt_2b >= 0. .and. depth_to_wt_2b <= wet_depth) then
         wet_frac = 1.
      else
@@ -3227,8 +3229,11 @@ end subroutine soil_step_1
   END SELECT
 
   div = div_bf + div_if + div_al + div_it ! div includes inter-tile flow
-  lrunf_bf = sum(div_bf + div_it) ! baseflow runoff includes inter-tile flow
-  !stop
+  if (gw_option .eq. GW_TILED)then
+   lrunf_bf = sum(div_gtos)
+  else
+   lrunf_bf = sum(div_bf + div_it) ! baseflow runoff includes inter-tile flow
+  endif
   lrunf_if = sum(div_if)
   lrunf_al = sum(div_al)
 
@@ -3529,7 +3534,12 @@ end subroutine soil_step_1
 
   flow_macro = (macro_inf-extra_cum)/delta_time
 
-  hlrunf_bf = clw*sum(div_bf*(soil%T-tfreeze)) + sum(hdiv_it)
+  if (gw_option .eq. GW_TILED)then
+   hlrunf_bf = sum(hdiv_gtos)
+  else
+   hlrunf_bf = clw*sum(div_bf*(soil%T-tfreeze))
+  endif
+  !hlrunf_bf = clw*sum(div_bf*(soil%T-tfreeze)) + sum(hdiv_it)
   ! div_bf is 0. for GW_TILED, else hdiv_it == zero
   hlrunf_if = clw*sum(div_if*(soil%T-tfreeze))
   hlrunf_al = clw*sum(div_al*(soil%T-tfreeze))
@@ -3540,7 +3550,8 @@ end subroutine soil_step_1
         soil_hlrunf = hlrunf_sn + hlrunf_ie +  clw*sum(div*(soil%T-tfreeze)) &
                                                       + hlrunf_nu + hlrunf_sc
      else
-        soil_hlrunf = hlrunf_sn + hlrunf_ie +  sum(hdiv_it) &
+        !soil_hlrunf = hlrunf_sn + hlrunf_ie +  sum(hdiv_it) &
+        soil_hlrunf = hlrunf_sn + hlrunf_ie +  sum(hdiv_gtos) &
              + hlrunf_nu + hlrunf_sc
      end if
   else

@@ -126,7 +126,7 @@ real, public        :: surf_flow_velocity = 1.  ! [m/s] Assumed nominal surface 
                     ! (tangent) of 1. (for simple_inundation)
 logical, public     :: limit_intertile_flow = .false. ! True ==> Limit explicit inter-tile flows
                        ! to improve numerical stability
-real, public        :: flow_ratio_limit = 1.    ! max delta psi to length ratio allowed, if limit_intertile_flow
+real, public        :: flow_ratio_limit = 1.0    ! max delta psi to length ratio allowed, if limit_intertile_flow
 logical, public     :: tiled_DOC_flux = .false. ! True ==> Calculate DOC fluxes for soil carbon model
 
 
