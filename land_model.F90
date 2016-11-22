@@ -111,7 +111,8 @@ use vegn_data_mod, only : LU_CROP, LU_PAST, LU_NTRL, LU_SCND, &
     SP_C4GRASS, SP_C3GRASS, SP_TEMPDEC, SP_TROPICAL, SP_EVERGR
 use predefined_tiles_mod, only: land_cover_cold_start_0d_predefined_tiles,&
                                 open_database_predefined_tiles,&
-                                close_database_predefined_tiles
+                                close_database_predefined_tiles,&
+                                land_cover_warm_start_0d_predefined_tiles
 
 implicit none
 private
@@ -413,7 +414,11 @@ subroutine land_model_init &
   call open_land_restart(restart,restart_file_name,restart_exists)
   if(restart_exists) then
      ! read map of tiles -- retrieve information from
-     call land_cover_warm_start(restart)
+     if (predefined_tiles .eq. .False.) then
+      call land_cover_warm_start(restart)
+     else if (predefined_tiles .eq. .True.) then
+      call land_cover_warm_start_predefined(restart)
+     endif
      ! initialize land model data
      if (field_exists(restart, 'lwup'   )) call get_tile_data(restart,'lwup',   land_lwup_ptr)
      if (field_exists(restart, 'e_res_1')) call get_tile_data(restart,'e_res_1',land_e_res_1_ptr)
@@ -647,6 +652,10 @@ subroutine land_model_restart(timestamp)
   call add_int_tile_data(restart,'lake',lake_tag_ptr,'tag of lake tiles')
   call add_int_tile_data(restart,'soil',soil_tag_ptr,'tag of soil tiles')
   call add_int_tile_data(restart,'vegn',vegn_tag_ptr,'tag of vegetation tiles')
+  call add_int_tile_data(restart,'pid',tile_pid_ptr,'parent id of the tiles')
+  call add_int_tile_data(restart,'is',tile_is_ptr,'i position of the cell')
+  call add_int_tile_data(restart,'js',tile_js_ptr,'j position of the cell')
+  call add_int_tile_data(restart,'face',tile_face_ptr,'face of the cell')
   ! write the upward long-wave flux
   call add_tile_data(restart,'lwup',land_lwup_ptr,'upward long-wave flux')
   ! write energy residuals
@@ -831,7 +840,6 @@ subroutine land_cover_cold_start_predefined(lnd)
        land_mask
   integer :: i,j,h5id
   real, dimension(:,:,:), pointer :: soil
-  real :: t0,t1
 
   ! calculate the global land mask
   land_mask = lnd%area > 0
@@ -843,10 +851,8 @@ subroutine land_cover_cold_start_predefined(lnd)
    do i = 1,size(land_mask,1)
     if(.not.land_mask(i,j)) cycle ! skip ocean points
     call set_current_point(i+lnd%is-1,j+lnd%js-1,1)
-    call cpu_time(t0)
     call land_cover_cold_start_0d_predefined_tiles(land_tile_map(i+lnd%is-1,j+lnd%js-1),&
          lnd,i,j,h5id)
-    call cpu_time(t1)
    enddo
   enddo
 
@@ -981,6 +987,58 @@ subroutine land_cover_cold_start_0d (set,glac0,lake0,soil0,soiltags0,&
   end if
 
 end subroutine land_cover_cold_start_0d
+
+! ============================================================================
+subroutine land_cover_warm_start_predefined(restart)
+ type(land_restart_type), intent(in) :: restart
+ ! ---- local vars
+ integer, allocatable :: pid(:),is(:),js(:),faces(:),itiles(:),vegn(:)
+ real,    allocatable :: frac(:) ! fraction of land covered by tile
+ integer :: ntiles    ! total number of land tiles in the input file
+ integer :: i,j,k,it,h5id,nt,face,first,last
+ type(land_tile_type), pointer :: tile
+
+ ntiles = size(restart%tidx)
+ allocate(pid(ntiles),is(ntiles),js(ntiles),faces(ntiles),vegn(ntiles),frac(ntiles))
+
+ call read_compressed(restart%basename,'frac',frac,domain=lnd%domain, timelevel=1)
+ call read_compressed(restart%basename,'vegn',vegn,domain=lnd%domain, timelevel=1)
+ call read_compressed(restart%basename,'pid',pid,domain=lnd%domain, timelevel=1)
+ call read_compressed(restart%basename,'is',is,domain=lnd%domain, timelevel=1)
+ call read_compressed(restart%basename,'js',js,domain=lnd%domain, timelevel=1)
+ call read_compressed(restart%basename,'face',faces,domain=lnd%domain, timelevel=1)
+
+ ! Open access to model input database
+ call open_database_predefined_tiles(h5id)
+
+ ! Create tiles
+ i = is(1)
+ j = js(1)
+ face = faces(1)
+ first = 1
+ last = 0
+ do it = 1,ntiles
+  if ((it+1 .gt. ntiles) .or. (is(it+1) .ne. i) .or. (js(it+1) .ne. j) .or. (faces(it+1) .ne. face))then
+   last = it
+   !Create all the tiles for this cell
+   call land_cover_warm_start_0d_predefined_tiles(land_tile_map(i+lnd%is-1,j+lnd%js-1),&
+        lnd,i,j,h5id,pid(first:last),vegn(first:last))
+   !Update the parameters
+   first = it+1
+   i = is(first) 
+   j = js(first)
+   face = faces(first)
+  else
+   last = last + 1
+  endif
+ enddo
+
+ ! Close access to model input database
+ call close_database_predefined_tiles(h5id)
+
+ deallocate(pid, is, js, faces, vegn, frac)
+
+end subroutine land_cover_warm_start_predefined
 
 ! ============================================================================
 subroutine land_cover_warm_start(restart)
@@ -3917,6 +3975,16 @@ DEFINE_TAG_ACCESSOR(glac)
 DEFINE_TAG_ACCESSOR(lake)
 DEFINE_TAG_ACCESSOR(soil)
 DEFINE_TAG_ACCESSOR(vegn)
+
+#define DEFINE_PID_ACCESSOR(x) subroutine tile_ ## x ## _ptr(t,p);\
+type(land_tile_type),pointer::t;integer,pointer::p;p=>NULL();if(associated(t))\
+then;if (associated(t)) p=>t%x;endif;\
+end subroutine
+
+DEFINE_PID_ACCESSOR(pid)
+DEFINE_PID_ACCESSOR(is)
+DEFINE_PID_ACCESSOR(js)
+DEFINE_PID_ACCESSOR(face)
 
 end module land_model_mod
 

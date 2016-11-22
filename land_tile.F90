@@ -141,6 +141,10 @@ type :: land_tile_type
 
    integer :: tag = 0   ! defines type of the tile
    real    :: frac      ! fractional tile area, dimensionless
+   integer :: pid       ! parent id of the tile
+   integer :: is
+   integer :: js
+   integer :: face
    type(glac_tile_type), pointer :: glac => NULL() ! glacier model data
    type(lake_tile_type), pointer :: lake => NULL() ! lake model data
    type(soil_tile_type), pointer :: soil => NULL() ! soil model data
@@ -368,7 +372,7 @@ end function land_tile_ctor
 ! case are defined externally
 function land_tile_ctor_predefined(frac,glac,lake,soil,vegn,tag,htag_j,htag_k,&
                         soil_predefined,lake_predefined,glacier_predefined,&
-                        itile) result(tile)
+                        itile,pid,is,js,face) result(tile)
   real   , optional, intent(in) :: frac ! fractional area of tile
   integer, optional, intent(in) :: &
                glac,lake,soil,vegn ! kinds of respective tiles
@@ -378,7 +382,7 @@ function land_tile_ctor_predefined(frac,glac,lake,soil,vegn,tag,htag_j,htag_k,&
   type(soil_predefined_type), optional, intent(in) :: soil_predefined
   type(lake_predefined_type), optional, intent(in) :: lake_predefined
   type(glacier_predefined_type), optional, intent(in) :: glacier_predefined
-  integer, optional, intent(in) :: itile
+  integer, optional, intent(in) :: itile,pid,is,js,face
   type(land_tile_type), pointer :: tile ! return value
 
   ! ---- local vars
@@ -394,6 +398,10 @@ function land_tile_ctor_predefined(frac,glac,lake,soil,vegn,tag,htag_j,htag_k,&
   ! fill common fields
   tile%frac = 0.0 ; if(present(frac)) tile%frac = frac
   tile%tag  = 0   ; if(present(tag))  tile%tag  = tag
+  tile%pid = 0; if(present(itile)) tile%pid = pid
+  tile%is = 0; if(present(itile)) tile%is = is
+  tile%js = 0; if(present(itile)) tile%js = js
+  tile%face = 0; if(present(itile)) tile%face = face
 
   ! create sub-model tiles
   tile%cana => new_cana_tile()

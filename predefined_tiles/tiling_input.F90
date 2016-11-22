@@ -243,17 +243,101 @@ subroutine land_cover_cold_start_0d_predefined_tiles(tiles,lnd,i,j,h5id)
     case(1)
      tile => new_land_tile_predefined(frac=tile_parameters%metadata%frac(itile),&
             glac=tid,glacier_predefined=tile_parameters%glacier,&
-            itile=tid)
+            itile=tid,pid=tile_parameters%metadata%tile(itile)+1,&
+           is=i,js=j,face=lnd%face)
     case(2)
      tile => new_land_tile_predefined(frac=tile_parameters%metadata%frac(itile),&
             lake=tid,lake_predefined=tile_parameters%lake,&
-            itile=tid)
+            itile=tid,pid=tile_parameters%metadata%tile(itile)+1,&
+           is=i,js=j,face=lnd%face)
     case(3)
      tile => new_land_tile_predefined(frac=tile_parameters%metadata%frac(itile),&
            soil=1,vegn=tile_parameters%soil%vegn(tid),&
            htag_j=tile_parameters%soil%hidx_j(tid),&
            htag_k=tile_parameters%soil%hidx_k(tid),&
-           soil_predefined=tile_parameters%soil,itile=tid)
+           soil_predefined=tile_parameters%soil,itile=tid,&
+           pid=tile_parameters%metadata%tile(itile)+1,&
+           is=i,js=j,face=lnd%face)
+   end select
+   call insert(tile,tiles)
+  enddo
+
+  !Close access to the grid cell's group
+  call h5gclose_f(cid,status)
+  call h5fclose_f(dstid,status)
+  
+end subroutine
+
+subroutine land_cover_warm_start_0d_predefined_tiles(tiles,lnd,i,j,h5id,warm_tiles,warm_vegn)
+  
+  type(land_tile_list_type),intent(inout) :: tiles
+  type(land_state_type),intent(in) :: lnd
+  integer,intent(in) :: i,j,h5id,warm_tiles(:),warm_vegn(:)
+  type(land_tile_type), pointer :: tile
+  integer :: itile,tid,is,js,warm_tile
+  integer :: status,varid,grpid,dimid,cell_grpid,cellid,dstid
+  integer :: dsid,cid
+  real :: lat,lon,t0,t1
+  real,allocatable,dimension(:) :: tmp
+  type(tile_parameters_type) :: tile_parameters
+  type(c_ptr) :: buf_ptr
+  integer(size_t) :: buf_len
+  character(kind=c_char),allocatable,dimension(:),target :: image_ptr
+
+  !Determine the lat/lon of the grid cell (degrees)
+  is = i+lnd%is-1
+  js = j+lnd%js-1
+  lon = 180.0*lnd%lon(is,js)/pi
+  lat = 180.0*lnd%lat(is,js)/pi
+
+  !Print out the current lat and lon
+  print*,"Initializing: ",lat,lon
+
+  !Retrieve buffer and buffer length of desired group (I/O core)
+  call load_group_into_memory(lnd%face,is,js,h5id,buf_ptr,buf_len,image_ptr)
+
+  !Use buffer and buffer length to open new image file (Land model core)
+  call open_image_file(buf_ptr,buf_len,image_ptr,dstid)
+
+  !Retrieve the group
+  call h5gopen_f(dstid,'data',cid,status)
+
+  !Metadata
+  call retrieve_metadata(tile_parameters,cid)
+
+  !Soil parameters
+  call retrieve_soil_parameters(tile_parameters,cid)
+
+  !Lake parameters
+  call retrieve_lake_parameters(tile_parameters,cid)
+
+  !Glacier parameters
+  call retrieve_glacier_parameters(tile_parameters,cid)
+
+  !Create the tiles
+  do warm_tile = 1,size(warm_tiles)
+   itile = warm_tiles(warm_tile)
+   !if (tile_parameters%metadata%frac(itile) .eq. 0.0)cycle
+   tid = tile_parameters%metadata%tid(itile)
+   select case (tile_parameters%metadata%ttype(itile))
+    case(1)
+     tile => new_land_tile_predefined(frac=tile_parameters%metadata%frac(itile),&
+            glac=tid,glacier_predefined=tile_parameters%glacier,&
+            itile=tid,pid=tile_parameters%metadata%tile(itile)+1,&
+           is=i,js=j,face=lnd%face)
+    case(2)
+     tile => new_land_tile_predefined(frac=tile_parameters%metadata%frac(itile),&
+            lake=tid,lake_predefined=tile_parameters%lake,&
+            itile=tid,pid=tile_parameters%metadata%tile(itile)+1,&
+           is=i,js=j,face=lnd%face)
+    case(3)
+     tile => new_land_tile_predefined(frac=tile_parameters%metadata%frac(itile),&
+           soil=1,vegn=warm_vegn(warm_tile),&
+           htag_j=tile_parameters%soil%hidx_j(tid),&
+           htag_k=tile_parameters%soil%hidx_k(tid),&
+           soil_predefined=tile_parameters%soil,itile=tid,&
+           pid=tile_parameters%metadata%tile(itile)+1,&
+           is=i,js=j,face=lnd%face)
    end select
    call insert(tile,tiles)
   enddo
