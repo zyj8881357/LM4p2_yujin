@@ -274,6 +274,9 @@ integer :: id_mrlsl, id_mrsfl, id_mrsll, id_mrsol, id_mrso, id_mrsos, id_mrlso, 
     id_mrro, id_mrros, id_csoil, id_rh, &
     id_csoilfast, id_csoilmedium, id_csoilslow
 
+! diag IDs of full tile variables
+integer :: id_lwc1_tile
+
 ! test tridiagonal solver for advection
 integer :: id_st_diff
 
@@ -805,11 +808,12 @@ end subroutine soil_init
 
 ! ============================================================================
 ! initialize soil model
-subroutine soil_init_predefined ( id_lon, id_lat, id_band, id_zfull)
+subroutine soil_init_predefined ( id_lon, id_lat, id_band, id_zfull, id_ptid)
   integer, intent(in)  :: id_lon  ! ID of land longitude (X) axis
   integer, intent(in)  :: id_lat  ! ID of land latitude (Y) axis
   integer, intent(in)  :: id_band ! ID of spectral band axis
   integer, intent(out) :: id_zfull ! ID of vertical soil axis
+  integer, intent(in)  :: id_ptid
 
   ! ---- local vars
   type(land_tile_enum_type)     :: te,ce  ! tail and current tile list elements
@@ -842,7 +846,7 @@ subroutine soil_init_predefined ( id_lon, id_lat, id_band, id_zfull)
   i_river_DOC  = river_tracer_index('doc')
 
   ! -------- initialize soil model diagnostic fields
-  call soil_diag_init ( id_lon, id_lat, id_band, id_zfull)
+  call soil_diag_init ( id_lon, id_lat, id_band, id_zfull, id_ptid)
 
   !Initialize the soil data parameters
   te = tail_elmt (land_tile_map)
@@ -1555,11 +1559,12 @@ end subroutine soil_init_predefined
 !end subroutine soil_init_predefined
 
 ! ============================================================================
-subroutine soil_diag_init ( id_lon, id_lat, id_band, id_zfull)
+subroutine soil_diag_init ( id_lon, id_lat, id_band, id_zfull, id_ptid)
   integer, intent(in) :: id_lon  ! ID of land longitude (X) axis
   integer, intent(in) :: id_lat  ! ID of land latitude (Y) axis
   integer, intent(in) :: id_band ! ID of spectral band axis
   integer, intent(out) :: id_zfull ! ID of vertical soil axis
+  integer,optional,intent(in) :: id_ptid
 
   ! ---- local vars
   integer :: axes(3)
@@ -2097,6 +2102,14 @@ subroutine soil_diag_init ( id_lon, id_lat, id_band, id_zfull)
   id_rh = register_tiled_diag_field ( cmor_name, 'rh', (/id_lon,id_lat/), &
        lnd%time, 'Heterotrophic Respiration', 'kg C m-2 s-1', missing_value=-1.0, &
        standard_name='heterotrophic_respiration', fill_missing=.TRUE.)
+
+  !Full tile output
+  if (present(id_ptid)) then
+   call set_default_diag_filter('soil')
+   id_lwc1_tile    = register_tiled_diag_field ( module_name, 'lwc1$tile',  &
+       (/id_lon,id_lat,id_ptid/), lnd%time, 'volumetric water content of liquid water (layer 1)', &
+       'm3/m3', missing_value=-100.0,sm=.False.)
+  endif
 
 end subroutine soil_diag_init
 
@@ -3680,6 +3693,9 @@ end subroutine soil_step_1
   call send_tile_data(id_total_DOC_div_loss, total_DOC_div, diag)
 
   if (.not. LM2) call send_tile_data(id_psi_bot, soil%psi(num_l), diag)
+
+  ! tile variables
+  call send_tile_data(id_lwc1_tile,soil%wl(1)/dz(1), diag)
 
 end subroutine soil_step_2
 

@@ -278,7 +278,8 @@ integer :: &
   id_vegn_tran_dir, id_vegn_tran_dif, id_vegn_tran_lw,                     &
   id_vegn_sctr_dir,                                                        &
   id_subs_refl_dir, id_subs_refl_dif, id_subs_emis, id_grnd_T, id_total_C, &
-  id_water_cons,    id_carbon_cons, id_DOCrunf, id_dis_DOC
+  id_water_cons,    id_carbon_cons, id_DOCrunf, id_dis_DOC, &
+  id_transp_tile,id_frac_tile,id_ttype_tile
 ! diagnostic ids for canopy air tracers (moist mass ratio)
 integer, allocatable :: id_cana_tr(:)
 ! diag IDs of CMOR variables
@@ -333,6 +334,7 @@ subroutine land_model_init &
   integer :: ncid, varid
   integer :: unit, ierr, io
   integer :: id_lon, id_lat, id_band, id_zfull ! IDs of land diagnostic axes
+  integer :: id_ptid
   logical :: used                        ! return value of send_data diagnostics routine
   integer :: i,j,k
   type(land_tile_type), pointer :: tile
@@ -440,7 +442,7 @@ subroutine land_model_init &
   ! [6] initialize land model diagnostics -- must be before *_data_init so that
   ! *_data_init can write static fields if necessary
   call land_diag_init( lnd%coord_glonb, lnd%coord_glatb, lnd%coord_glon, lnd%coord_glat, time, lnd%domain, &
-       id_lon, id_lat, id_band )
+       id_lon, id_lat, id_band , id_ptid)
   ! set the land diagnostic axes ids for the flux exchange
   land2cplr%axes = (/id_lon,id_lat/)
   ! send some static diagnostic fields to output
@@ -459,10 +461,10 @@ subroutine land_model_init &
    call soil_init ( id_lon, id_lat, id_band, id_zfull)
   else if (predefined_tiles .eq. .True.)then
    call hlsp_init_predefined ( id_lon, id_lat) ! Must be called before soil_init
-   call soil_init_predefined ( id_lon, id_lat, id_band, id_zfull)
+   call soil_init_predefined ( id_lon, id_lat, id_band, id_zfull, id_ptid)
   endif
   call hlsp_hydro_init (id_lon, id_lat, id_zfull) ! Must be called after soil_init
-  call vegn_init ( id_lon, id_lat, id_band)
+  call vegn_init ( id_lon, id_lat, id_band, id_ptid)
   if (predefined_tiles .eq. .False.)then
    call lake_init ( id_lon, id_lat) 
   else if (predefined_tiles .eq. .True.)then
@@ -2332,6 +2334,13 @@ subroutine update_land_model_fast_0d(tile, i,j,k, land2cplr, &
   call send_tile_data(id_evspsblveg,  vegn_levap+vegn_fevap,          tile%diag)
   call send_tile_data(id_nbr,    -vegn_fco2*mol_C/mol_co2,            tile%diag)
   call send_tile_data(id_snm, snow_melt,                              tile%diag)
+  !HACK
+  call send_tile_data(id_transp_tile,  vegn_uptk,                          tile%diag)
+  call send_tile_data(id_frac_tile, tile%frac, tile%diag)
+  call send_tile_data(id_ttype_tile, tile%ttype, tile%diag)
+  !call send_tile_data(id_hrunftile,   snow_hlrunf+snow_hfrunf+subs_hlrunf,tile%diag)
+  !call send_tile_data(id_lrunftile,   snow_lrunf+subs_lrunf,              tile%diag)
+  !call send_tile_data(id_watertile, subs_LMASS+subs_FMASS, tile%diag)
 
 end subroutine update_land_model_fast_0d
 
@@ -3030,7 +3039,7 @@ end subroutine Lnd_stock_pe
 ! initialize horizontal axes for land grid so that all sub-modules can use them,
 ! instead of creating their own
 subroutine land_diag_init(clonb, clatb, clon, clat, time, domain, &
-     id_lon, id_lat, id_band)
+     id_lon, id_lat, id_band, id_ptid)
   real, intent(in) :: &
        clonb(:), clatb(:), & ! longitudes and latitudes of grid cells vertices,
                              ! specified for the global grid
@@ -3038,7 +3047,7 @@ subroutine land_diag_init(clonb, clatb, clon, clat, time, domain, &
   type(time_type), intent(in) :: time ! initial time for diagnostic fields
   type(domain2d), intent(in)  :: domain
   integer, intent(out) :: &
-       id_lon, id_lat, id_band   ! IDs of respective diag. manager axes
+       id_lon, id_lat, id_band, id_ptid   ! IDs of respective diag. manager axes
 
   ! ---- local vars ----------------------------------------------------------
   integer :: id_lonb, id_latb ! IDs for cell boundaries
@@ -3076,6 +3085,8 @@ subroutine land_diag_init(clonb, clatb, clon, clat, time, domain, &
   id_band = diag_axis_init (                                                &
        'band',  (/1.0,2.0/), 'unitless', 'Z', &
        'spectral band', set_name='land' )
+  id_ptid = diag_axis_init ('ptid',lnd%pids,'unitless','Z',&
+       'parent tile id', set_name='land')
 
   ! set up an array of axes, for convenience
   axes = (/id_lon, id_lat/)
@@ -3478,6 +3489,19 @@ subroutine land_diag_init(clonb, clatb, clon, clat, time, domain, &
              'Total C4 PFT Cover Fraction','%', standard_name='total_c4_pft_cover_fraction', &
              area=id_cellarea)
   call diag_field_add_attribute(id_c4pftFrac,'cell_methods','area: mean')
+  !
+  id_transp_tile = register_tiled_diag_field(module_name, 'transp$tile', (/id_lon, id_lat, id_ptid/),&
+             time, 'Transpiration', 'kg/(m2 s)',missing_value=-1.0e+20,sm=.False.)
+  id_frac_tile = register_tiled_diag_field(module_name, 'frac$tile', (/id_lon, id_lat, id_ptid/),&
+             time, 'Fraction of land area', 'unitless',missing_value=-1.0e+20,sm=.False.,op=OP_SUM)
+  id_ttype_tile = register_tiled_diag_field(module_name, 'ttype$tile', (/id_lon, id_lat, id_ptid/),&
+             time, 'Type of parent tile', 'unitless',missing_value=-1.0,sm=.False.,op=OP_AVERAGE)
+!  id_hrunftile = register_tiled_diag_field(module_name, 'hrunftile', (/id_lon, id_lat, id_tile/),&
+!             time, 'sensible heat of total runoff', 'W/m2',missing_value=-1.0e+20,op=4)
+!  id_lrunftile = register_tiled_diag_field(module_name, 'lrunftile', (/id_lon, id_lat, id_tile/),&
+!             time, 'total rate of liq runoff', 'kg/(m2 s)',missing_value=-1.0e+20,op=4)
+!  id_watertile = register_tiled_diag_field(module_name, 'watertile', (/id_lon, id_lat, id_tile/),&
+!             time, 'column-integrated soil water', 'kg/m2',missing_value=-1.0e+20,op=4)
 
 end subroutine land_diag_init
 

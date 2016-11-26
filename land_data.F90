@@ -132,6 +132,7 @@ type :: land_state_type
    real, allocatable  :: coord_glat(:), coord_glatb(:) ! latitudes for use in diag axis and such, degrees North
 
    integer :: nfaces ! number of mosaic faces
+   real, allocatable :: pids(:) ! list of potential parent ids
    integer :: face  ! the current mosaic face
    integer, allocatable :: pelist(:) ! list of processors that run land model
    integer, allocatable :: io_pelist(:) ! list of processors in our io_domain

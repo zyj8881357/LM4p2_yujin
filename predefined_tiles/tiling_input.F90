@@ -176,13 +176,13 @@ end subroutine open_image_file
 subroutine land_cover_cold_start_0d_predefined_tiles(tiles,lnd,i,j,h5id)
   
   type(land_tile_list_type),intent(inout) :: tiles
-  type(land_state_type),intent(in) :: lnd
+  type(land_state_type),intent(inout) :: lnd
   integer,intent(in) :: i,j,h5id
   type(land_tile_type), pointer :: tile
   integer :: itile,tid,is,js
   !integer :: parent_id = 0
   integer :: status,varid,grpid,dimid,cell_grpid,cellid,dstid
-  integer :: dsid,cid
+  integer :: dsid,cid,max_npt,k
   !real*8 :: h5tmp(1,1)
   !integer(hsize_t) :: dims(2),maxdims(2)
   !character(100) :: cellid_string
@@ -201,6 +201,14 @@ subroutine land_cover_cold_start_0d_predefined_tiles(tiles,lnd,i,j,h5id)
   js = j+lnd%js-1
   lon = 180.0*lnd%lon(is,js)/pi
   lat = 180.0*lnd%lat(is,js)/pi
+  !Construct pid array
+  max_npt = 12
+  if (allocated(lnd%pids) .eq. .False.)then
+   allocate(lnd%pids(max_npt))
+   do k = 1,max_npt
+    lnd%pids(k) = k
+   enddo
+  endif
 
   !Print out the current lat and lon
   print*,"Initializing: ",lat,lon
@@ -244,12 +252,12 @@ subroutine land_cover_cold_start_0d_predefined_tiles(tiles,lnd,i,j,h5id)
      tile => new_land_tile_predefined(frac=tile_parameters%metadata%frac(itile),&
             glac=tid,glacier_predefined=tile_parameters%glacier,&
             itile=tid,pid=tile_parameters%metadata%tile(itile)+1,&
-           is=i,js=j,face=lnd%face)
+           is=i,js=j,face=lnd%face,ttype=1)
     case(2)
      tile => new_land_tile_predefined(frac=tile_parameters%metadata%frac(itile),&
             lake=tid,lake_predefined=tile_parameters%lake,&
             itile=tid,pid=tile_parameters%metadata%tile(itile)+1,&
-           is=i,js=j,face=lnd%face)
+           is=i,js=j,face=lnd%face,ttype=2)
     case(3)
      tile => new_land_tile_predefined(frac=tile_parameters%metadata%frac(itile),&
            soil=1,vegn=tile_parameters%soil%vegn(tid),&
@@ -257,7 +265,7 @@ subroutine land_cover_cold_start_0d_predefined_tiles(tiles,lnd,i,j,h5id)
            htag_k=tile_parameters%soil%hidx_k(tid),&
            soil_predefined=tile_parameters%soil,itile=tid,&
            pid=tile_parameters%metadata%tile(itile)+1,&
-           is=i,js=j,face=lnd%face)
+           is=i,js=j,face=lnd%face,ttype=3)
    end select
    call insert(tile,tiles)
   enddo
@@ -271,12 +279,12 @@ end subroutine
 subroutine land_cover_warm_start_0d_predefined_tiles(tiles,lnd,i,j,h5id,warm_tiles,warm_vegn)
   
   type(land_tile_list_type),intent(inout) :: tiles
-  type(land_state_type),intent(in) :: lnd
+  type(land_state_type),intent(inout) :: lnd
   integer,intent(in) :: i,j,h5id,warm_tiles(:),warm_vegn(:)
   type(land_tile_type), pointer :: tile
   integer :: itile,tid,is,js,warm_tile
   integer :: status,varid,grpid,dimid,cell_grpid,cellid,dstid
-  integer :: dsid,cid
+  integer :: dsid,cid,max_npt,k
   real :: lat,lon,t0,t1
   real,allocatable,dimension(:) :: tmp
   type(tile_parameters_type) :: tile_parameters
@@ -289,6 +297,13 @@ subroutine land_cover_warm_start_0d_predefined_tiles(tiles,lnd,i,j,h5id,warm_til
   js = j+lnd%js-1
   lon = 180.0*lnd%lon(is,js)/pi
   lat = 180.0*lnd%lat(is,js)/pi
+  max_npt = 12
+  if (allocated(lnd%pids) .eq. .False.)then
+   allocate(lnd%pids(max_npt))
+   do k = 1,max_npt
+    lnd%pids(k) = k
+   enddo
+  endif
 
   !Print out the current lat and lon
   print*,"Initializing: ",lat,lon
@@ -324,12 +339,12 @@ subroutine land_cover_warm_start_0d_predefined_tiles(tiles,lnd,i,j,h5id,warm_til
      tile => new_land_tile_predefined(frac=tile_parameters%metadata%frac(itile),&
             glac=tid,glacier_predefined=tile_parameters%glacier,&
             itile=tid,pid=tile_parameters%metadata%tile(itile)+1,&
-           is=i,js=j,face=lnd%face)
+           is=i,js=j,face=lnd%face,ttype=1)
     case(2)
      tile => new_land_tile_predefined(frac=tile_parameters%metadata%frac(itile),&
             lake=tid,lake_predefined=tile_parameters%lake,&
             itile=tid,pid=tile_parameters%metadata%tile(itile)+1,&
-           is=i,js=j,face=lnd%face)
+           is=i,js=j,face=lnd%face,ttype=2)
     case(3)
      tile => new_land_tile_predefined(frac=tile_parameters%metadata%frac(itile),&
            soil=1,vegn=warm_vegn(warm_tile),&
@@ -337,7 +352,7 @@ subroutine land_cover_warm_start_0d_predefined_tiles(tiles,lnd,i,j,h5id,warm_til
            htag_k=tile_parameters%soil%hidx_k(tid),&
            soil_predefined=tile_parameters%soil,itile=tid,&
            pid=tile_parameters%metadata%tile(itile)+1,&
-           is=i,js=j,face=lnd%face)
+           is=i,js=j,face=lnd%face,ttype=3)
    end select
    call insert(tile,tiles)
   enddo

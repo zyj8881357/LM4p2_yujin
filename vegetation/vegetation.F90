@@ -183,6 +183,8 @@ integer :: id_vegn_type, id_temp, id_wl, id_ws, id_height, &
 integer :: id_lai_cmor, id_btot_cmor, id_cproduct, &
    id_fFire, id_fGrazing, id_fHarvest, id_fLuc, &
    id_cLeaf, id_cWood, id_cRoot, id_cMisc
+! All tile variables
+integer :: id_lai_tile
 ! ==== end of module variables ===============================================
 
 contains
@@ -257,10 +259,11 @@ end subroutine read_vegn_namelist
 
 ! ============================================================================
 ! initialize vegetation
-subroutine vegn_init ( id_lon, id_lat, id_band )
+subroutine vegn_init ( id_lon, id_lat, id_band, id_ptid )
   integer, intent(in) :: id_lon  ! ID of land longitude (X) axis
   integer, intent(in) :: id_lat  ! ID of land latitude (Y) axis
   integer, intent(in) :: id_band ! ID of spectral band axis
+  integer, intent(in) :: id_ptid ! ID of parent tile id axis
 
   ! ---- local vars
   integer :: unit         ! unit for various i/o
@@ -458,7 +461,7 @@ subroutine vegn_init ( id_lon, id_lat, id_band )
   call vegn_harvesting_init()
 
   ! initialize vegetation diagnostic fields
-  call vegn_diag_init ( id_lon, id_lat, id_band, lnd%time )
+  call vegn_diag_init ( id_lon, id_lat, id_band, id_ptid, lnd%time )
 
   ! ---- diagnostic section
   ce = first_elmt(land_tile_map, is=lnd%is, js=lnd%js)
@@ -479,10 +482,11 @@ subroutine vegn_init ( id_lon, id_lat, id_band )
 end subroutine vegn_init
 
 ! ============================================================================
-subroutine vegn_diag_init ( id_lon, id_lat, id_band, time )
+subroutine vegn_diag_init ( id_lon, id_lat, id_band, id_ptid, time )
   integer        , intent(in) :: id_lon  ! ID of land longitude (X) axis
   integer        , intent(in) :: id_lat  ! ID of land latitude (Y) axis
   integer        , intent(in) :: id_band ! ID of spectral band axis
+  integer        , intent(in) :: id_ptid
   type(time_type), intent(in) :: time    ! initial time for diagnostic fields
 
   ! ---- local vars
@@ -704,6 +708,11 @@ subroutine vegn_diag_init ( id_lon, id_lat, id_band, time )
   id_cMisc = register_tiled_diag_field ( cmor_name, 'cMisc',  (/id_lon,id_lat/), &
        time, 'Carbon in Other Living Compartments', 'kg C m-2', missing_value=-1.0, &
        standard_name='carbon_in_other_living_compartments', fill_missing=.TRUE.)
+
+  !Full tile output
+  call set_default_diag_filter('soil')
+  id_lai_tile    = register_tiled_diag_field ( module_name, 'lai$tile',  &
+       (/id_lon,id_lat,id_ptid/), time, 'leaf area index', 'm2/m2', missing_value=-1.0,sm=.False.)
 
 end subroutine
 
@@ -1263,6 +1272,8 @@ subroutine vegn_step_2 ( vegn, diag, &
   call send_tile_data(id_snow_crit, cohort%snow_crit, diag)
   ! CMOR variables
   call send_tile_data(id_lai_cmor, cohort%lai*100.0, diag)
+  ! tile variables
+  call send_tile_data(id_lai_tile, cohort%lai, diag)
 end subroutine vegn_step_2
 
 
