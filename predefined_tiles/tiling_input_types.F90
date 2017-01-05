@@ -106,6 +106,7 @@ end type soil_predefined_type
 type :: metadata_predefined_type
 
  integer :: ntile,nband
+ integer,pointer,dimension(:) :: max_npt
  integer,pointer,dimension(:) :: tid
  integer,pointer,dimension(:) :: tile
  integer,pointer,dimension(:) :: ttype

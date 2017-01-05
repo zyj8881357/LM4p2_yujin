@@ -2106,7 +2106,7 @@ subroutine soil_diag_init ( id_lon, id_lat, id_band, id_zfull, id_ptid)
   !Full tile output
   if (present(id_ptid)) then
    call set_default_diag_filter('soil')
-   id_lwc1_tile    = register_tiled_diag_field ( module_name, 'lwc1$tile',  &
+   id_lwc1_tile    = register_tiled_diag_field ( module_name, 'lwc1_tile',  &
        (/id_lon,id_lat,id_ptid/), lnd%time, 'volumetric water content of liquid water (layer 1)', &
        'm3/m3', missing_value=-100.0,sm=.False.)
   endif
@@ -3695,7 +3695,7 @@ end subroutine soil_step_1
   if (.not. LM2) call send_tile_data(id_psi_bot, soil%psi(num_l), diag)
 
   ! tile variables
-  call send_tile_data(id_lwc1_tile,soil%wl(1)/dz(1), diag)
+  call send_tile_data(id_lwc1_tile,soil%wl(1)/(1000.0*dz(1)), diag)
 
 end subroutine soil_step_2
 

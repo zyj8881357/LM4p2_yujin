@@ -182,7 +182,7 @@ subroutine land_cover_cold_start_0d_predefined_tiles(tiles,lnd,i,j,h5id)
   integer :: itile,tid,is,js
   !integer :: parent_id = 0
   integer :: status,varid,grpid,dimid,cell_grpid,cellid,dstid
-  integer :: dsid,cid,max_npt,k
+  integer :: dsid,cid,k
   !real*8 :: h5tmp(1,1)
   !integer(hsize_t) :: dims(2),maxdims(2)
   !character(100) :: cellid_string
@@ -201,14 +201,6 @@ subroutine land_cover_cold_start_0d_predefined_tiles(tiles,lnd,i,j,h5id)
   js = j+lnd%js-1
   lon = 180.0*lnd%lon(is,js)/pi
   lat = 180.0*lnd%lat(is,js)/pi
-  !Construct pid array
-  max_npt = 12
-  if (allocated(lnd%pids) .eq. .False.)then
-   allocate(lnd%pids(max_npt))
-   do k = 1,max_npt
-    lnd%pids(k) = k
-   enddo
-  endif
 
   !Print out the current lat and lon
   print*,"Initializing: ",lat,lon
@@ -273,7 +265,15 @@ subroutine land_cover_cold_start_0d_predefined_tiles(tiles,lnd,i,j,h5id)
   !Close access to the grid cell's group
   call h5gclose_f(cid,status)
   call h5fclose_f(dstid,status)
-  
+
+  !Construct pid array
+  if (allocated(lnd%pids) .eq. .False.)then
+   allocate(lnd%pids(tile_parameters%metadata%max_npt(1)))
+   do k = 1,tile_parameters%metadata%max_npt(1)
+    lnd%pids(k) = k
+   enddo
+  endif
+
 end subroutine
 
 subroutine land_cover_warm_start_0d_predefined_tiles(tiles,lnd,i,j,h5id,warm_tiles,warm_vegn)
@@ -388,6 +388,7 @@ subroutine retrieve_metadata(tile_parameters,cid)
   call get_parameter_data(grpid,'tile',metadata%ntile,metadata%tile)
   call get_parameter_data(grpid,'type',metadata%ntile,metadata%ttype)
   call get_parameter_data(grpid,'tid',metadata%ntile,metadata%tid)
+  call get_parameter_data(grpid,'max_npt',1,metadata%max_npt)
 
   !Clean up (This should go in the database creation)
   where ((metadata%frac .lt. 1.e-8) .and. (metadata%ttype .eq. 2))metadata%frac = 0.0

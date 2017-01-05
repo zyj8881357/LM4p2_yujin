@@ -711,7 +711,7 @@ subroutine vegn_diag_init ( id_lon, id_lat, id_band, id_ptid, time )
 
   !Full tile output
   call set_default_diag_filter('soil')
-  id_lai_tile    = register_tiled_diag_field ( module_name, 'lai$tile',  &
+  id_lai_tile    = register_tiled_diag_field ( module_name, 'lai_tile',  &
        (/id_lon,id_lat,id_ptid/), time, 'leaf area index', 'm2/m2', missing_value=-1.0,sm=.False.)
 
 end subroutine

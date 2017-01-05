@@ -279,7 +279,9 @@ integer :: &
   id_vegn_sctr_dir,                                                        &
   id_subs_refl_dir, id_subs_refl_dif, id_subs_emis, id_grnd_T, id_total_C, &
   id_water_cons,    id_carbon_cons, id_DOCrunf, id_dis_DOC, &
-  id_transp_tile,id_frac_tile,id_ttype_tile
+  id_transp_tile,id_frac_tile,id_ttype_tile,id_precip_tile,id_runf_tile,&
+  id_evap_tile
+
 ! diagnostic ids for canopy air tracers (moist mass ratio)
 integer, allocatable :: id_cana_tr(:)
 ! diag IDs of CMOR variables
@@ -2335,7 +2337,10 @@ subroutine update_land_model_fast_0d(tile, i,j,k, land2cplr, &
   call send_tile_data(id_nbr,    -vegn_fco2*mol_C/mol_co2,            tile%diag)
   call send_tile_data(id_snm, snow_melt,                              tile%diag)
   !HACK
-  call send_tile_data(id_transp_tile,  vegn_uptk,                          tile%diag)
+  call send_tile_data(id_transp_tile,vegn_uptk,tile%diag)
+  call send_tile_data(id_precip_tile,precip_l+precip_s,tile%diag)
+  call send_tile_data(id_runf_tile,snow_lrunf+snow_frunf+subs_lrunf,tile%diag)
+  call send_tile_data(id_evap_tile,land_evap,tile%diag)
   call send_tile_data(id_frac_tile, tile%frac, tile%diag)
   call send_tile_data(id_ttype_tile, tile%ttype, tile%diag)
   !call send_tile_data(id_hrunftile,   snow_hlrunf+snow_hfrunf+subs_hlrunf,tile%diag)
@@ -3490,12 +3495,19 @@ subroutine land_diag_init(clonb, clatb, clon, clat, time, domain, &
              area=id_cellarea)
   call diag_field_add_attribute(id_c4pftFrac,'cell_methods','area: mean')
   !
-  id_transp_tile = register_tiled_diag_field(module_name, 'transp$tile', (/id_lon, id_lat, id_ptid/),&
+  id_transp_tile = register_tiled_diag_field(module_name, 'transp_tile', (/id_lon, id_lat, id_ptid/),&
              time, 'Transpiration', 'kg/(m2 s)',missing_value=-1.0e+20,sm=.False.)
-  id_frac_tile = register_tiled_diag_field(module_name, 'frac$tile', (/id_lon, id_lat, id_ptid/),&
+  id_frac_tile = register_tiled_diag_field(module_name, 'frac_tile', (/id_lon, id_lat, id_ptid/),&
              time, 'Fraction of land area', 'unitless',missing_value=-1.0e+20,sm=.False.,op=OP_SUM)
-  id_ttype_tile = register_tiled_diag_field(module_name, 'ttype$tile', (/id_lon, id_lat, id_ptid/),&
+  id_ttype_tile = register_tiled_diag_field(module_name, 'ttype_tile', (/id_lon, id_lat, id_ptid/),&
              time, 'Type of parent tile', 'unitless',missing_value=-1.0,sm=.False.,op=OP_AVERAGE)
+  id_precip_tile = register_tiled_diag_field ( module_name, 'precip_tile', (/id_lon, id_lat, id_ptid/),&
+             time, 'precipitation rate', 'kg/(m2 s)', missing_value=-1.0e+20,sm=.False.)
+  id_evap_tile = register_tiled_diag_field ( module_name, 'evap_tile', (/id_lon, id_lat, id_ptid/),&
+             time, 'vapor flux up from land', 'kg/(m2 s)', missing_value=-1.0e+20 )
+  id_runf_tile = register_tiled_diag_field ( module_name, 'runf_tile', (/id_lon, id_lat, id_ptid/),&
+             time, 'total runoff', 'kg/(m2 s)', missing_value=-1.0e+20 )
+
 !  id_hrunftile = register_tiled_diag_field(module_name, 'hrunftile', (/id_lon, id_lat, id_tile/),&
 !             time, 'sensible heat of total runoff', 'W/m2',missing_value=-1.0e+20,op=4)
 !  id_lrunftile = register_tiled_diag_field(module_name, 'lrunftile', (/id_lon, id_lat, id_tile/),&
