@@ -128,7 +128,7 @@ subroutine load_group_into_memory(tile,is,js,h5id,buf_ptr,buf_len,image_ptr)
  call h5ocopy_f(grpid,cellid_string,dstid,'data',status)
  !print*,status,cellid_string
  if (status .eq. -1)then
-  print*,'This group does not exist in the database'
+  print*,'This group does not exist in the database',cellid_string
   stop
  endif
  !Flush the file
@@ -234,6 +234,8 @@ subroutine land_cover_cold_start_0d_predefined_tiles(tiles,lnd,i,j,h5id)
   call retrieve_glacier_parameters(tile_parameters,cid)
 
   !Vegetation parameters
+
+  !Open access to the predefined tile meteorology
 
   !Create the tiles
   do itile = 1,tile_parameters%metadata%ntile

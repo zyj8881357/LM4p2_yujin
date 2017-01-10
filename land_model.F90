@@ -1238,6 +1238,9 @@ subroutine update_land_model_fast ( cplr2land, land2cplr )
      do while (ce/=te)
         k = k+1 ; tile=>current_tile(ce) ; ce = next_elmt(ce)
 
+        ! override tile meteorology
+        !call override_tile_meteorology(tile,lnd%itime)
+
         ! set this point coordinates as current for debug output
         call set_current_point(i-is+lnd%is,j-js+lnd%js,k)
 
