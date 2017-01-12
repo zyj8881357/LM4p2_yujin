@@ -52,6 +52,7 @@ use snow_mod, only : read_snow_namelist, snow_init, snow_end, snow_get_sfc_temp,
 use vegetation_mod, only : read_vegn_namelist, vegn_init, vegn_end, vegn_get_cover, &
      vegn_radiation, vegn_properties, vegn_step_1, vegn_step_2, vegn_step_3, &
      update_vegn_slow, save_vegn_restart
+use vegetation_mod, only : vegn_init_predefined
 use cana_tile_mod, only : canopy_air_mass, canopy_air_mass_for_tracers, cana_tile_heat
 use canopy_air_mod, only : read_cana_namelist, cana_init, cana_end, cana_state,&
      cana_step_1, cana_step_2, cana_roughness, &
@@ -280,7 +281,7 @@ integer :: &
   id_subs_refl_dir, id_subs_refl_dif, id_subs_emis, id_grnd_T, id_total_C, &
   id_water_cons,    id_carbon_cons, id_DOCrunf, id_dis_DOC, &
   id_transp_tile,id_frac_tile,id_ttype_tile,id_precip_tile,id_runf_tile,&
-  id_evap_tile
+  id_evap_tile,id_snow_tile
 
 ! diagnostic ids for canopy air tracers (moist mass ratio)
 integer, allocatable :: id_cana_tr(:)
@@ -466,7 +467,13 @@ subroutine land_model_init &
    call soil_init_predefined ( id_lon, id_lat, id_band, id_zfull, id_ptid)
   endif
   call hlsp_hydro_init (id_lon, id_lat, id_zfull) ! Must be called after soil_init
-  call vegn_init ( id_lon, id_lat, id_band, id_ptid)
+  if (predefined_tiles .eq. .False.)then
+   call vegn_init ( id_lon, id_lat, id_band, id_ptid)
+   !call lake_init ( id_lon, id_lat)
+  else if (predefined_tiles .eq. .True.)then
+   call vegn_init_predefined ( id_lon, id_lat, id_band, id_ptid)
+   !call lake_init_predefined ( id_lon, id_lat)
+  endif
   if (predefined_tiles .eq. .False.)then
    call lake_init ( id_lon, id_lat) 
   else if (predefined_tiles .eq. .True.)then
@@ -1403,6 +1410,9 @@ subroutine update_land_model_fast ( cplr2land, land2cplr )
      ! CMOR variables
      call send_tile_data(id_snw, snow_FMASS, tile%diag)
      call send_tile_data(id_lwsnl, snow_LMASS, tile%diag)
+
+     ! Tile variables
+     call send_tile_data(id_snow_tile, subs_LMASS+subs_FMASS, tile%diag)
   enddo
 
   ! advance land model time
@@ -3507,9 +3517,11 @@ subroutine land_diag_init(clonb, clatb, clon, clat, time, domain, &
   id_precip_tile = register_tiled_diag_field ( module_name, 'precip_tile', (/id_lon, id_lat, id_ptid/),&
              time, 'precipitation rate', 'kg/(m2 s)', missing_value=-1.0e+20,sm=.False.)
   id_evap_tile = register_tiled_diag_field ( module_name, 'evap_tile', (/id_lon, id_lat, id_ptid/),&
-             time, 'vapor flux up from land', 'kg/(m2 s)', missing_value=-1.0e+20 )
+             time, 'vapor flux up from land', 'kg/(m2 s)', missing_value=-1.0e+20,sm=.False. )
   id_runf_tile = register_tiled_diag_field ( module_name, 'runf_tile', (/id_lon, id_lat, id_ptid/),&
-             time, 'total runoff', 'kg/(m2 s)', missing_value=-1.0e+20 )
+             time, 'total runoff', 'kg/(m2 s)', missing_value=-1.0e+20,sm=.False.)
+  id_snow_tile = register_tiled_diag_field ( module_name, 'snow_tile', (/id_lon, id_lat, id_ptid/), time, &
+             'column-integrated snow water', 'kg/m2', missing_value=-1.0e+20,sm=.False.)
 
 !  id_hrunftile = register_tiled_diag_field(module_name, 'hrunftile', (/id_lon, id_lat, id_tile/),&
 !             time, 'sensible heat of total runoff', 'W/m2',missing_value=-1.0e+20,op=4)

@@ -233,8 +233,6 @@ subroutine land_cover_cold_start_0d_predefined_tiles(tiles,lnd,i,j,h5id)
   !Glacier parameters
   call retrieve_glacier_parameters(tile_parameters,cid)
 
-  !Vegetation parameters
-
   !Open access to the predefined tile meteorology
 
   !Create the tiles
@@ -270,6 +268,7 @@ subroutine land_cover_cold_start_0d_predefined_tiles(tiles,lnd,i,j,h5id)
 
   !Construct pid array
   if (allocated(lnd%pids) .eq. .False.)then
+   !tile_parameters%metadata%max_npt(1) = 200
    allocate(lnd%pids(tile_parameters%metadata%max_npt(1)))
    do k = 1,tile_parameters%metadata%max_npt(1)
     lnd%pids(k) = k
@@ -574,6 +573,7 @@ subroutine retrieve_soil_parameters(tile_parameters,cid)
   call get_parameter_data(grpid,"hidx_k",nsoil,soil%hidx_k)
   call get_parameter_data(grpid,"hidx_j",nsoil,soil%hidx_j)
   call get_parameter_data(grpid,"vegn",nsoil,soil%vegn)
+  call get_parameter_data(grpid,"landuse",nsoil,soil%landuse)
 
   !Close access to the group
   call h5gclose_f(grpid,status)

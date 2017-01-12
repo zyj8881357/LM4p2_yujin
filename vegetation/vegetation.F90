@@ -71,6 +71,7 @@ private
 ! ==== public interfaces =====================================================
 public :: read_vegn_namelist
 public :: vegn_init
+public :: vegn_init_predefined
 public :: vegn_end
 public :: save_vegn_restart
 
@@ -480,6 +481,230 @@ subroutine vegn_init ( id_lon, id_lat, id_band, id_ptid )
   if (allocated(ncm))    deallocate(ncm)
 
 end subroutine vegn_init
+
+! ============================================================================
+! initialize predefined vegetation
+subroutine vegn_init_predefined ( id_lon, id_lat, id_band, id_ptid )
+  integer, intent(in) :: id_lon  ! ID of land longitude (X) axis
+  integer, intent(in) :: id_lat  ! ID of land latitude (Y) axis
+  integer, intent(in) :: id_band ! ID of spectral band axis
+  integer, intent(in) :: id_ptid ! ID of parent tile id axis
+
+  ! ---- local vars
+  integer :: unit         ! unit for various i/o
+  type(land_tile_enum_type)     :: te,ce ! current and tail tile list elements
+  type(land_tile_type), pointer :: tile  ! pointer to current tile
+  type(vegn_cohort_type), pointer :: cohort! pointer to initial cohort for cold-start
+  integer :: n_accum
+  integer :: nmn_acm
+  type(land_restart_type) :: restart1, restart2
+  logical :: restart_1_exists, restart_2_exists
+  real, allocatable :: t_ann(:,:),t_cold(:,:),p_ann(:,:),ncm(:,:) ! buffers for biodata reading
+  logical :: did_read_biodata
+  integer :: i,j ! indices of current tile
+
+  module_is_initialized = .TRUE.
+
+  ! ---- make module copy of time and calculate time step ------------------
+  delta_time = time_type_to_real(lnd%dt_fast)
+  dt_fast_yr = delta_time/seconds_per_year
+
+
+  ! ---- initialize vegn state ---------------------------------------------
+  n_accum = 0
+  nmn_acm = 0
+  call open_land_restart(restart1,'INPUT/vegn1.res.nc',restart_1_exists)
+  call open_land_restart(restart2,'INPUT/vegn2.res.nc',restart_2_exists)
+  if (restart_1_exists) then
+     call error_mesg('vegn_init',&
+          'reading NetCDF restarts "INPUT/vegn1.res.nc" and "INPUT/vegn2.res.nc"',&
+          NOTE)
+
+     ! read the cohort index and generate appropriate number of cohorts
+     ! for each vegetation tile
+     call read_create_cohorts(restart1)
+     call get_cohort_data(restart1, 'tv', cohort_tv_ptr)
+     call get_cohort_data(restart1, 'wl', cohort_wl_ptr)
+     call get_cohort_data(restart1, 'ws', cohort_ws_ptr)
+
+     ! read global variables
+     call get_scalar_data(restart2,'n_accum',n_accum)
+     call get_scalar_data(restart2,'nmn_acm',nmn_acm)
+
+     call get_int_cohort_data(restart2, 'species', cohort_species_ptr)
+     call get_cohort_data(restart2, 'hite', cohort_height_ptr)
+     call get_cohort_data(restart2, 'bl', cohort_bl_ptr)
+     call get_cohort_data(restart2, 'blv', cohort_blv_ptr)
+     call get_cohort_data(restart2, 'br', cohort_br_ptr)
+     call get_cohort_data(restart2, 'bsw', cohort_bsw_ptr)
+     call get_cohort_data(restart2, 'bwood', cohort_bwood_ptr)
+     call get_cohort_data(restart2, 'bliving', cohort_bliving_ptr)
+     call get_int_cohort_data(restart2, 'status', cohort_status_ptr)
+     if(field_exists(restart2,'leaf_age')) &
+          call get_cohort_data(restart2,'leaf_age',cohort_leaf_age_ptr)
+     call get_cohort_data(restart2, 'npp_prev_day', cohort_npp_previous_day_ptr)
+
+     if(field_exists(restart2,'landuse')) &
+          call get_int_tile_data(restart2,'landuse',vegn_landuse_ptr)
+     call get_tile_data(restart2,'age',vegn_age_ptr)
+     if(field_exists(restart2,'fsc_pool_ag')) then
+       call get_tile_data(restart2,'fsc_pool_ag',vegn_fsc_pool_ag_ptr)
+       call get_tile_data(restart2,'fsc_rate_ag',vegn_fsc_rate_ag_ptr)
+       call get_tile_data(restart2,'fsc_pool_bg',vegn_fsc_pool_bg_ptr)
+       call get_tile_data(restart2,'fsc_rate_bg',vegn_fsc_rate_bg_ptr)
+       call get_tile_data(restart2,'ssc_pool_ag',vegn_ssc_pool_ag_ptr)
+       call get_tile_data(restart2,'ssc_rate_ag',vegn_ssc_rate_ag_ptr)
+       call get_tile_data(restart2,'ssc_pool_bg',vegn_ssc_pool_bg_ptr)
+       call get_tile_data(restart2,'ssc_rate_bg',vegn_ssc_rate_bg_ptr)
+       call get_tile_data(restart2,'leaflitter_buffer_ag',vegn_leaflitter_buffer_ag_ptr)
+       call get_tile_data(restart2,'coarsewoodlitter_buffer_ag',vegn_coarsewoodlitter_buffer_ag_ptr)
+       call get_tile_data(restart2,'leaflitter_buffer_rate_ag',vegn_leaflitter_buffer_rate_ag_ptr)
+       call get_tile_data(restart2,'coarsewoodlitter_buffer_rate_ag',vegn_coarsewoodlitter_buffer_rate_ag_ptr)
+     else
+       call get_tile_data(restart2,'fsc_pool',vegn_fsc_pool_bg_ptr)
+       call get_tile_data(restart2,'fsc_rate',vegn_fsc_rate_bg_ptr)
+       call get_tile_data(restart2,'ssc_pool',vegn_ssc_pool_bg_ptr)
+       call get_tile_data(restart2,'ssc_rate',vegn_ssc_rate_bg_ptr)
+     endif
+     ! monthly-mean values
+     call get_tile_data(restart2,'tc_av', vegn_tc_av_ptr)
+     if(field_exists(restart2,'theta_av_phen')) then
+        call get_tile_data(restart2,'theta_av_phen', vegn_theta_av_phen_ptr)
+        call get_tile_data(restart2,'theta_av_fire', vegn_theta_av_fire_ptr)
+        call get_tile_data(restart2,'psist_av', vegn_psist_av_ptr)
+     else
+        call get_tile_data(restart2,'theta_av', vegn_theta_av_phen_ptr)
+        call get_tile_data(restart2,'theta_av', vegn_theta_av_fire_ptr)
+        ! psist_av remains at initial value (equal to 0)
+     endif
+     call get_tile_data(restart2,'tsoil_av', vegn_tsoil_av_ptr)
+     call get_tile_data(restart2,'precip_av', vegn_precip_av_ptr)
+     call get_tile_data(restart2,'lambda', vegn_lambda_ptr)
+     call get_tile_data(restart2,'fuel', vegn_fuel_ptr)
+     ! annual-mean values
+     call get_tile_data(restart2,'t_ann', vegn_t_ann_ptr)
+     call get_tile_data(restart2,'t_cold', vegn_t_cold_ptr)
+     call get_tile_data(restart2,'p_ann', vegn_p_ann_ptr)
+     call get_tile_data(restart2,'ncm', vegn_ncm_ptr)
+     ! accumulated values for annual averaging
+     call get_tile_data(restart2,'t_ann_acm', vegn_t_ann_acm_ptr)
+     call get_tile_data(restart2,'t_cold_acm', vegn_t_cold_acm_ptr)
+     call get_tile_data(restart2,'p_ann_acm', vegn_p_ann_acm_ptr)
+     call get_tile_data(restart2,'ncm_acm', vegn_ncm_acm_ptr)
+     ! burned carbon pool and rate
+     if(field_exists(restart2,'csmoke_pool')) &
+          call get_tile_data(restart2,'csmoke_pool',vegn_csmoke_pool_ptr)
+     if(field_exists(restart2,'csmoke_rate')) &
+          call get_tile_data(restart2,'csmoke_rate',vegn_csmoke_rate_ptr)
+     ! harvesting pools and rates
+     do i = 1, N_HARV_POOLS
+        if (field_exists(restart2,trim(HARV_POOL_NAMES(i))//'_harv_pool')) &
+             call get_tile_data(restart2,trim(HARV_POOL_NAMES(i))//'_harv_pool',vegn_harv_pool_ptr,i)
+        if (field_exists(restart2,trim(HARV_POOL_NAMES(i))//'_harv_rate')) &
+             call get_tile_data(restart2,trim(HARV_POOL_NAMES(i))//'_harv_rate',vegn_harv_rate_ptr,i)
+     enddo
+  else
+     call error_mesg('vegn_init',&
+          'cold-starting vegetation',&
+          NOTE)
+  endif
+  call free_land_restart(restart1)
+  call free_land_restart(restart2)
+
+  ! read climatological fields for initialization of species distribution
+  if (file_exist('INPUT/biodata.nc'))then
+     allocate(&
+          t_ann (lnd%is:lnd%ie,lnd%js:lnd%je),&
+          t_cold(lnd%is:lnd%ie,lnd%js:lnd%je),&
+          p_ann (lnd%is:lnd%ie,lnd%js:lnd%je),&
+          ncm   (lnd%is:lnd%ie,lnd%js:lnd%je) )
+     call read_field( 'INPUT/biodata.nc','T_ANN', lnd%lon, lnd%lat, t_ann,  interp='nearest')
+     call read_field( 'INPUT/biodata.nc','T_COLD',lnd%lon, lnd%lat, t_cold, interp='nearest')
+     call read_field( 'INPUT/biodata.nc','P_ANN', lnd%lon, lnd%lat, p_ann,  interp='nearest')
+     call read_field( 'INPUT/biodata.nc','NCM',   lnd%lon, lnd%lat, ncm,    interp='nearest')
+     did_read_biodata = .TRUE.
+     call error_mesg('vegn_init','did read INPUT/biodata.nc',NOTE)
+  else
+     did_read_biodata = .FALSE.
+     call error_mesg('vegn_init','did NOT read INPUT/biodata.nc',NOTE)
+  endif
+  ! Go through all tiles and initialize the cohorts that have not been initialized yet --
+  ! this allows to read partial restarts. Also initialize accumulation counters to zero
+  ! or the values from the restarts.
+  te = tail_elmt(land_tile_map)
+  ce = first_elmt(land_tile_map, is=lnd%is, js=lnd%js)
+  do while(ce /= te)
+     tile=>current_tile(ce)  ! get pointer to current tile
+     call get_elmt_indices(ce,i,j)
+     ce=next_elmt(ce)       ! advance position to the next tile
+     if (.not.associated(tile%vegn)) cycle
+
+     tile%vegn%n_accum = n_accum
+     tile%vegn%nmn_acm = nmn_acm
+
+     if (tile%vegn%n_cohorts>0) cycle ! skip initialized tiles
+
+     ! create and initialize cohorts for this vegetation tile
+     ! for now, just create a new cohort with default values of biomasses
+     tile%vegn%n_cohorts = 1
+     allocate(tile%vegn%cohorts(tile%vegn%n_cohorts))
+     cohort => tile%vegn%cohorts(1)
+     cohort%Wl      = init_Wl
+     cohort%Ws      = init_Ws
+     cohort%Tv      = init_Tv
+
+     cohort%bl      = init_cohort_bl
+     cohort%blv     = init_cohort_blv
+     cohort%br      = init_cohort_br
+     cohort%bsw     = init_cohort_bsw
+     cohort%bwood   = init_cohort_bwood
+     cohort%bliving = cohort%bl+cohort%br+cohort%blv+cohort%bsw
+     cohort%npp_previous_day = 0.0
+     cohort%status  = LEAF_ON
+     cohort%leaf_age = 0.0
+     if(did_read_biodata.and.do_biogeography) then
+        call update_species(cohort,t_ann(i,j),t_cold(i,j),p_ann(i,j),ncm(i,j),LU_NTRL)
+        if (.not.biodata_bug) then
+           tile%vegn%t_ann  = t_ann (i,j)
+           tile%vegn%t_cold = t_cold(i,j)
+           tile%vegn%p_ann  = p_ann (i,j)
+           tile%vegn%ncm    = ncm   (i,j)
+        endif
+     else
+        cohort%species = tile%vegn%tag
+     endif
+  enddo
+
+  ! initialize carbon integrator
+  call vegn_dynamics_init ( id_lon, id_lat, lnd%time, delta_time )
+
+  ! initialize static vegetation
+  call static_vegn_init ()
+  call read_static_vegn (lnd%time)
+
+  ! initialize harvesting options
+  call vegn_harvesting_init()
+
+  ! initialize vegetation diagnostic fields
+  call vegn_diag_init ( id_lon, id_lat, id_band, id_ptid, lnd%time )
+
+  ! ---- diagnostic section
+  ce = first_elmt(land_tile_map, is=lnd%is, js=lnd%js)
+  te  = tail_elmt(land_tile_map)
+  do while(ce /= te)
+     tile => current_tile(ce)
+     ce=next_elmt(ce)
+     if (.not.associated(tile%vegn)) cycle ! skip non-vegetation tiles
+     ! send the data
+     call send_tile_data(id_vegn_type,  real(tile%vegn%tag), tile%diag)
+  enddo
+
+  if (allocated(t_ann))  deallocate(t_ann)
+  if (allocated(t_cold)) deallocate(t_cold)
+  if (allocated(p_ann))  deallocate(p_ann)
+  if (allocated(ncm))    deallocate(ncm)
+
+end subroutine vegn_init_predefined
 
 ! ============================================================================
 subroutine vegn_diag_init ( id_lon, id_lat, id_band, id_ptid, time )

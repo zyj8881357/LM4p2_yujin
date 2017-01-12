@@ -851,6 +851,7 @@ subroutine dump_diag_field_with_sel_full(id, tiles, field, sel, time)
   do while(ce /= te)
     tile => current_tile(ce)      ! get the pointer to current tile
     call get_elmt_indices(ce,i,j) ! get the indices of current tile
+    !print*,'ks',ks,'ke',ke,i,j,ntiles_max
     ce = next_elmt(ce)           ! move to the next position
 
     if ( size(tile%diag%data) < ke )       cycle ! do nothing if there is no data in the buffer
@@ -914,7 +915,7 @@ subroutine dump_diag_field_with_sel_full(id, tiles, field, sel, time)
      mask = .TRUE.
   endif
   ! send diag field
-  used = send_data ( id, buffer, time, mask=mask )
+  if (size(buffer) .gt. 0)used = send_data ( id, buffer, time, mask=mask )
 
   ! clean up temporary data
   deallocate(buffer,weight,mask)

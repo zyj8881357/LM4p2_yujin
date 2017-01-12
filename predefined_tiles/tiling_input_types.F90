@@ -100,6 +100,7 @@ type :: soil_predefined_type
  integer,pointer,dimension(:) :: hidx_j
  !vegetation
  integer,pointer,dimension(:) :: vegn
+ integer,pointer,dimension(:) :: landuse
 
 end type soil_predefined_type
 

@@ -26,7 +26,8 @@ use cana_tile_mod, only : &
 use vegn_tile_mod, only : &
      vegn_tile_type, new_vegn_tile, delete_vegn_tile, vegn_is_selected, &
      vegn_tiles_can_be_merged, merge_vegn_tiles, get_vegn_tile_tag, &
-     vegn_tile_stock_pe, vegn_tile_carbon, vegn_tile_heat
+     vegn_tile_stock_pe, vegn_tile_carbon, vegn_tile_heat, &
+     new_vegn_tile_predefined
 use snow_tile_mod, only : &
      snow_tile_type, new_snow_tile, delete_snow_tile, snow_is_selected, &
      snow_tiles_can_be_merged, merge_snow_tiles, get_snow_tile_tag, &
@@ -419,7 +420,7 @@ function land_tile_ctor_predefined(frac,glac,lake,soil,vegn,tag,htag_j,htag_k,&
         ! these indices will be set in hlsp_init.
     end if
   end if
-  if(vegn_>=0) tile%vegn => new_vegn_tile(vegn_)
+  if(vegn_>=0) tile%vegn => new_vegn_tile_predefined(soil_predefined,itile)
 
   ! create a buffer for diagnostic output
   tile%diag=>new_diag_buff()
