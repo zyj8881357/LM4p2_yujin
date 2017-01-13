@@ -1211,7 +1211,6 @@ subroutine update_land_model_fast ( cplr2land, land2cplr )
   real, allocatable :: phot_co2_data(:,:)  ! buffer for data
   logical           :: phot_co2_overridden ! flag indicating successful override
 
-
   ! start clocks
   call mpp_clock_begin(landClock)
   call mpp_clock_begin(landFastClock)
@@ -1281,6 +1280,7 @@ subroutine update_land_model_fast ( cplr2land, land2cplr )
         call send_tile_data(id_cd_t, cplr2land%cd_t(i,j,k),          tile%diag)
      enddo
   enddo
+
 
 !=================================================================================
   ! update river state
@@ -3071,7 +3071,7 @@ subroutine land_diag_init(clonb, clatb, clon, clat, time, domain, &
   integer :: id_lonb, id_latb ! IDs for cell boundaries
   integer :: nlon, nlat       ! sizes of respective axes
   integer :: axes(2)          ! array of axes for 2-D fields
-  integer :: i
+  integer :: i,max_npt
   character(32) :: name       ! tracer name
 
   nlon = size(clon)
@@ -3103,6 +3103,17 @@ subroutine land_diag_init(clonb, clatb, clon, clat, time, domain, &
   id_band = diag_axis_init (                                                &
        'band',  (/1.0,2.0/), 'unitless', 'Z', &
        'spectral band', set_name='land' )
+  !Determine the maximum number of parent tiles over the global domain
+  max_npt = lnd%max_npt
+  call mpp_max(max_npt)
+  !Initialize the parent id array
+  if (allocated(lnd%pids) .eq. .False.)then
+   allocate(lnd%pids(max_npt))
+   do i = 1,max_npt
+    lnd%pids(i) = i
+   enddo
+  endif
+  !Initialize the parent id axis
   id_ptid = diag_axis_init ('ptid',lnd%pids,'unitless','Z',&
        'parent tile id', set_name='land')
 

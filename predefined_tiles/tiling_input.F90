@@ -267,13 +267,15 @@ subroutine land_cover_cold_start_0d_predefined_tiles(tiles,lnd,i,j,h5id)
   call h5fclose_f(dstid,status)
 
   !Construct pid array
-  if (allocated(lnd%pids) .eq. .False.)then
-   !tile_parameters%metadata%max_npt(1) = 200
-   allocate(lnd%pids(tile_parameters%metadata%max_npt(1)))
-   do k = 1,tile_parameters%metadata%max_npt(1)
-    lnd%pids(k) = k
-   enddo
-  endif
+  !Define the maximum number of parent tiles
+  lnd%max_npt = tile_parameters%metadata%max_npt(1)
+  !if (allocated(lnd%pids) .eq. .False.)then
+  ! !tile_parameters%metadata%max_npt(1) = 200
+  ! allocate(lnd%pids(tile_parameters%metadata%max_npt(1)))
+  ! do k = 1,tile_parameters%metadata%max_npt(1)
+  !  lnd%pids(k) = k
+  ! enddo
+  !endif
 
 end subroutine
 

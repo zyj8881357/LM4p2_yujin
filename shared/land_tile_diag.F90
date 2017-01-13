@@ -789,12 +789,12 @@ subroutine dump_tile_diag_fields(tiles, time)
      if (total_n_sends(ifld) == 0) cycle ! no data to send
      do isel = 1, n_selectors
         if (fields(ifld)%ids(isel) <= 0) cycle
-        if (fields(ifld)%sm .eq. .True.)then
+        if ((fields(ifld)%sm .eq. .True.))then
          call dump_diag_field_with_sel ( fields(ifld)%ids(isel), tiles, &
               fields(ifld), selectors(isel), time )
         else 
-         call dump_diag_field_with_sel_full ( fields(ifld)%ids(isel), tiles, &
-              fields(ifld), selectors(isel), time )
+          call dump_diag_field_with_sel_full ( fields(ifld)%ids(isel), tiles, &
+               fields(ifld), selectors(isel), time )
         endif
      enddo
   enddo
@@ -915,7 +915,8 @@ subroutine dump_diag_field_with_sel_full(id, tiles, field, sel, time)
      mask = .TRUE.
   endif
   ! send diag field
-  if (size(buffer) .gt. 0)used = send_data ( id, buffer, time, mask=mask )
+  !if (size(buffer) .gt. 0)used = send_data ( id, buffer, time, mask=mask )
+  used = send_data ( id, buffer, time, mask=mask )
 
   ! clean up temporary data
   deallocate(buffer,weight,mask)
