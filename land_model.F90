@@ -281,7 +281,8 @@ integer :: &
   id_subs_refl_dir, id_subs_refl_dif, id_subs_emis, id_grnd_T, id_total_C, &
   id_water_cons,    id_carbon_cons, id_DOCrunf, id_dis_DOC, &
   id_transp_tile,id_frac_tile,id_ttype_tile,id_precip_tile,id_runf_tile,&
-  id_evap_tile,id_snow_tile
+  id_evap_tile,id_snow_tile,id_hevap_tile,id_levap_tile,id_water_tile,&
+  id_sens_tile,id_grnd_T_tile,id_total_C_tile
 
 ! diagnostic ids for canopy air tracers (moist mass ratio)
 integer, allocatable :: id_cana_tr(:)
@@ -1412,7 +1413,8 @@ subroutine update_land_model_fast ( cplr2land, land2cplr )
      call send_tile_data(id_lwsnl, snow_LMASS, tile%diag)
 
      ! Tile variables
-     call send_tile_data(id_snow_tile, subs_LMASS+subs_FMASS, tile%diag)
+     call send_tile_data(id_snow_tile, snow_LMASS+snow_FMASS, tile%diag)
+     call send_tile_data(id_water_tile, subs_LMASS+subs_FMASS, tile%diag)
   enddo
 
   ! advance land model time
@@ -2354,11 +2356,10 @@ subroutine update_land_model_fast_0d(tile, i,j,k, land2cplr, &
   call send_tile_data(id_precip_tile,precip_l+precip_s,tile%diag)
   call send_tile_data(id_runf_tile,snow_lrunf+snow_frunf+subs_lrunf,tile%diag)
   call send_tile_data(id_evap_tile,land_evap,tile%diag)
+  call send_tile_data(id_sens_tile,land_sens,tile%diag)
   call send_tile_data(id_frac_tile, tile%frac, tile%diag)
   call send_tile_data(id_ttype_tile, tile%ttype, tile%diag)
-  !call send_tile_data(id_hrunftile,   snow_hlrunf+snow_hfrunf+subs_hlrunf,tile%diag)
-  !call send_tile_data(id_lrunftile,   snow_lrunf+subs_lrunf,              tile%diag)
-  !call send_tile_data(id_watertile, subs_LMASS+subs_FMASS, tile%diag)
+  if (id_total_C > 0)call send_tile_data(id_total_C_tile, land_tile_carbon(tile),tile%diag)
 
 end subroutine update_land_model_fast_0d
 
@@ -2855,6 +2856,9 @@ subroutine update_land_bc_fast (tile, i,j,k, land2cplr, is_init)
 
   ! --- debug section
   call check_temp_range(land2cplr%t_ca(i,j,k),'update_land_bc_fast','T_ca')
+
+  !Full tile data
+  call send_tile_data(id_grnd_T_tile,     grnd_T,     tile%diag)
 
 end subroutine update_land_bc_fast
 
@@ -3533,13 +3537,19 @@ subroutine land_diag_init(clonb, clatb, clon, clat, time, domain, &
              time, 'total runoff', 'kg/(m2 s)', missing_value=-1.0e+20,sm=.False.)
   id_snow_tile = register_tiled_diag_field ( module_name, 'snow_tile', (/id_lon, id_lat, id_ptid/), time, &
              'column-integrated snow water', 'kg/m2', missing_value=-1.0e+20,sm=.False.)
+  id_sens_tile    = register_tiled_diag_field ( module_name, 'sens_tile', (/id_lon, id_lat, id_ptid/), time, &
+             'sens heat flux from land', 'W/m2', missing_value=-1.0e+20,sm=.False.)
+  id_water_tile = register_tiled_diag_field(module_name, 'water_tile', (/id_lon, id_lat, id_ptid/),&
+             time, 'column-integrated soil water', 'kg/m2',missing_value=-1.0e+20,sm=.False.)
+  id_grnd_T_tile = register_tiled_diag_field ( module_name, 'Tgrnd_tile', (/id_lon, id_lat, id_ptid/), time, &
+       'ground surface temperature', 'degK', missing_value=-1.0,sm=.False.)
+  id_total_C_tile = register_tiled_diag_field ( module_name, 'Ctot_tile', (/id_lon, id_lat, id_ptid/), time, &
+       'total land carbon', 'kg C/m2', missing_value=-1.0,sm=.False.)
 
 !  id_hrunftile = register_tiled_diag_field(module_name, 'hrunftile', (/id_lon, id_lat, id_tile/),&
 !             time, 'sensible heat of total runoff', 'W/m2',missing_value=-1.0e+20,op=4)
 !  id_lrunftile = register_tiled_diag_field(module_name, 'lrunftile', (/id_lon, id_lat, id_tile/),&
 !             time, 'total rate of liq runoff', 'kg/(m2 s)',missing_value=-1.0e+20,op=4)
-!  id_watertile = register_tiled_diag_field(module_name, 'watertile', (/id_lon, id_lat, id_tile/),&
-!             time, 'column-integrated soil water', 'kg/m2',missing_value=-1.0e+20,op=4)
 
 end subroutine land_diag_init
 

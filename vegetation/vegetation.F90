@@ -185,7 +185,7 @@ integer :: id_lai_cmor, id_btot_cmor, id_cproduct, &
    id_fFire, id_fGrazing, id_fHarvest, id_fLuc, &
    id_cLeaf, id_cWood, id_cRoot, id_cMisc
 ! All tile variables
-integer :: id_lai_tile
+integer :: id_lai_tile,id_btot_tile
 ! ==== end of module variables ===============================================
 
 contains
@@ -938,6 +938,8 @@ subroutine vegn_diag_init ( id_lon, id_lat, id_band, id_ptid, time )
   call set_default_diag_filter('soil')
   id_lai_tile    = register_tiled_diag_field ( module_name, 'lai_tile',  &
        (/id_lon,id_lat,id_ptid/), time, 'leaf area index', 'm2/m2', missing_value=-1.0,sm=.False.)
+  id_btot_tile = register_tiled_diag_field ( module_name, 'btot_tile',  &
+       (/id_lon,id_lat,id_ptid/), time, 'total biomass', 'kg C/m2', missing_value=-1.0,sm=.False.)
 
 end subroutine
 
@@ -1811,6 +1813,13 @@ subroutine update_vegn_slow( )
             +sum(tile%vegn%cohorts(1:n)%br), &
          tile%diag)
      if (id_cMisc>0) call send_tile_data(id_cMisc, sum(tile%vegn%cohorts(1:n)%blv), tile%diag)
+
+     ! tile output
+     call send_tile_data(id_btot_tile,    sum(tile%vegn%cohorts(1:n)%bl    &
+                                        +tile%vegn%cohorts(1:n)%blv   &
+                                        +tile%vegn%cohorts(1:n)%br    &
+                                        +tile%vegn%cohorts(1:n)%bsw   &
+                                        +tile%vegn%cohorts(1:n)%bwood ), tile%diag)
 
      ! ---- end of diagnostic section
 

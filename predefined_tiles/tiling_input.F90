@@ -266,16 +266,8 @@ subroutine land_cover_cold_start_0d_predefined_tiles(tiles,lnd,i,j,h5id)
   call h5gclose_f(cid,status)
   call h5fclose_f(dstid,status)
 
-  !Construct pid array
   !Define the maximum number of parent tiles
   lnd%max_npt = tile_parameters%metadata%max_npt(1)
-  !if (allocated(lnd%pids) .eq. .False.)then
-  ! !tile_parameters%metadata%max_npt(1) = 200
-  ! allocate(lnd%pids(tile_parameters%metadata%max_npt(1)))
-  ! do k = 1,tile_parameters%metadata%max_npt(1)
-  !  lnd%pids(k) = k
-  ! enddo
-  !endif
 
 end subroutine
 
@@ -300,13 +292,6 @@ subroutine land_cover_warm_start_0d_predefined_tiles(tiles,lnd,i,j,h5id,warm_til
   js = j+lnd%js-1
   lon = 180.0*lnd%lon(is,js)/pi
   lat = 180.0*lnd%lat(is,js)/pi
-  max_npt = 12
-  if (allocated(lnd%pids) .eq. .False.)then
-   allocate(lnd%pids(max_npt))
-   do k = 1,max_npt
-    lnd%pids(k) = k
-   enddo
-  endif
 
   !Print out the current lat and lon
   print*,"Initializing: ",lat,lon
@@ -363,6 +348,9 @@ subroutine land_cover_warm_start_0d_predefined_tiles(tiles,lnd,i,j,h5id,warm_til
   !Close access to the grid cell's group
   call h5gclose_f(cid,status)
   call h5fclose_f(dstid,status)
+
+  !Define the maximum number of parent tiles
+  lnd%max_npt = tile_parameters%metadata%max_npt(1)
   
 end subroutine
 
@@ -576,6 +564,10 @@ subroutine retrieve_soil_parameters(tile_parameters,cid)
   call get_parameter_data(grpid,"hidx_j",nsoil,soil%hidx_j)
   call get_parameter_data(grpid,"vegn",nsoil,soil%vegn)
   call get_parameter_data(grpid,"landuse",nsoil,soil%landuse)
+
+  !Do some basic QC (should be done in the preprocessing...)
+  where(soil%tile_hlsp_length .lt. 10.0)soil%tile_hlsp_length = 10.0
+  where(soil%tile_hlsp_width .lt. 1.0)soil%tile_hlsp_width = 1.0
 
   !Close access to the group
   call h5gclose_f(grpid,status)

@@ -275,7 +275,8 @@ integer :: id_mrlsl, id_mrsfl, id_mrsll, id_mrsol, id_mrso, id_mrsos, id_mrlso, 
     id_csoilfast, id_csoilmedium, id_csoilslow
 
 ! diag IDs of full tile variables
-integer :: id_lwc1_tile
+integer :: id_lwc1_tile,id_lwc2_tile,id_lwc3_tile
+integer :: id_swc1_tile,id_swc2_tile,id_swc3_tile
 
 ! test tridiagonal solver for advection
 integer :: id_st_diff
@@ -2109,6 +2110,21 @@ subroutine soil_diag_init ( id_lon, id_lat, id_band, id_zfull, id_ptid)
    id_lwc1_tile    = register_tiled_diag_field ( module_name, 'lwc1_tile',  &
        (/id_lon,id_lat,id_ptid/), lnd%time, 'volumetric water content of liquid water (layer 1)', &
        'm3/m3', missing_value=-100.0,sm=.False.)
+   id_lwc2_tile    = register_tiled_diag_field ( module_name, 'lwc2_tile',  &
+       (/id_lon,id_lat,id_ptid/), lnd%time, 'volumetric water content of liquid water (layer 2)', &
+       'm3/m3', missing_value=-100.0,sm=.False.)
+   id_lwc3_tile    = register_tiled_diag_field ( module_name, 'lwc3_tile',  &
+       (/id_lon,id_lat,id_ptid/), lnd%time, 'volumetric water content of liquid water (layer 3)', &
+       'm3/m3', missing_value=-100.0,sm=.False.)
+   id_swc1_tile    = register_tiled_diag_field ( module_name, 'swc1_tile',  &
+       (/id_lon,id_lat,id_ptid/), lnd%time, 'volumetric water content of frozen water (layer 1)', &
+       'm3/m3', missing_value=-100.0,sm=.False.)
+   id_swc2_tile    = register_tiled_diag_field ( module_name, 'swc2_tile',  &
+       (/id_lon,id_lat,id_ptid/), lnd%time, 'volumetric water content of frozen water (layer 2)', &
+       'm3/m3', missing_value=-100.0,sm=.False.)
+   id_swc3_tile    = register_tiled_diag_field ( module_name, 'swc3_tile',  &
+       (/id_lon,id_lat,id_ptid/), lnd%time, 'volumetric water content of frozen water (layer 3)', &
+       'm3/m3', missing_value=-100.0,sm=.False.)
   endif
 
 end subroutine soil_diag_init
@@ -3129,11 +3145,11 @@ end subroutine soil_step_1
   END SELECT
 
   div = div_bf + div_if + div_al + div_it ! div includes inter-tile flow
-  if (gw_option .eq. GW_TILED)then
-   lrunf_bf = sum(div_gtos)
-  else
-   lrunf_bf = sum(div_bf + div_it) ! baseflow runoff includes inter-tile flow
-  endif
+  !if (gw_option .eq. GW_TILED)then
+  ! lrunf_bf = sum(div_gtos)
+  !else
+  lrunf_bf = sum(div_bf + div_it) ! baseflow runoff includes inter-tile flow
+  !endif
   lrunf_if = sum(div_if)
   lrunf_al = sum(div_al)
 
@@ -3434,25 +3450,26 @@ end subroutine soil_step_1
 
   flow_macro = (macro_inf-extra_cum)/delta_time
 
-  if (gw_option .eq. GW_TILED)then
-   hlrunf_bf = sum(hdiv_gtos)
-  else
-   hlrunf_bf = clw*sum(div_bf*(soil%T-tfreeze))
-  endif
-  !hlrunf_bf = clw*sum(div_bf*(soil%T-tfreeze)) + sum(hdiv_it)
+  !if (gw_option .eq. GW_TILED)then
+  ! hlrunf_bf = sum(hdiv_gtos)
+  !else
+  ! hlrunf_bf = clw*sum(div_bf*(soil%T-tfreeze))
+  !endif
+  hlrunf_bf = clw*sum(div_bf*(soil%T-tfreeze)) + sum(hdiv_it)
   ! div_bf is 0. for GW_TILED, else hdiv_it == zero
   hlrunf_if = clw*sum(div_if*(soil%T-tfreeze))
   hlrunf_al = clw*sum(div_al*(soil%T-tfreeze))
   hlrunf_sc = clw*lrunf_sc  *(soil%groundwater_T(1)-tfreeze)
-  if (lrunf_from_div) then
-     soil_lrunf  =  lrunf_sn +  lrunf_ie +  sum(div) +  lrunf_nu +  lrunf_sc
+  if (lrunf_from_div .or. GW_TILED .eq. .True.) then !MUST BE TRUE WITH TILED HILLSLOPES???
      if (gw_option /= GW_TILED) then
         soil_hlrunf = hlrunf_sn + hlrunf_ie +  clw*sum(div*(soil%T-tfreeze)) &
                                                       + hlrunf_nu + hlrunf_sc
+        soil_lrunf  =  lrunf_sn +  lrunf_ie +  sum(div) +  lrunf_nu +  lrunf_sc
      else
         !soil_hlrunf = hlrunf_sn + hlrunf_ie +  sum(hdiv_it) &
         soil_hlrunf = hlrunf_sn + hlrunf_ie +  sum(hdiv_gtos) &
              + hlrunf_nu + hlrunf_sc
+        soil_lrunf  =  lrunf_sn +  lrunf_ie +  sum(div_gtos) +  lrunf_nu +  lrunf_sc
      end if
   else
      soil_lrunf  =  lrunf_sn +  lrunf_ie +  lrunf_bf +  lrunf_if &
@@ -3696,6 +3713,11 @@ end subroutine soil_step_1
 
   ! tile variables
   call send_tile_data(id_lwc1_tile,soil%wl(1)/(1000.0*dz(1)), diag)
+  call send_tile_data(id_lwc2_tile,soil%wl(2)/(1000.0*dz(2)), diag)
+  call send_tile_data(id_lwc3_tile,soil%wl(3)/(1000.0*dz(3)), diag)
+  call send_tile_data(id_swc1_tile,soil%ws(1)/(1000.0*dz(1)), diag)
+  call send_tile_data(id_swc2_tile,soil%ws(2)/(1000.0*dz(2)), diag)
+  call send_tile_data(id_swc3_tile,soil%ws(3)/(1000.0*dz(3)), diag)
 
 end subroutine soil_step_2
 
