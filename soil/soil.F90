@@ -51,7 +51,8 @@ use land_tile_diag_mod, only : diag_buff_type, &
      send_tile_data, send_tile_data_r0d_fptr, send_tile_data_r1d_fptr, &
      send_tile_data_i0d_fptr, &
      add_tiled_diag_field_alias, add_tiled_static_field_alias, &
-     set_default_diag_filter, cmor_name, cmor_mrsos_depth
+     set_default_diag_filter, cmor_name, cmor_mrsos_depth, &
+     OP_STD
 use land_data_mod, only : land_state_type, lnd, log_version
 use land_io_mod, only : read_field
 use land_tile_io_mod, only: land_restart_type, &
@@ -277,6 +278,9 @@ integer :: id_mrlsl, id_mrsfl, id_mrsll, id_mrsol, id_mrso, id_mrsos, id_mrlso, 
 ! diag IDs of full tile variables
 integer :: id_lwc1_tile,id_lwc2_tile,id_lwc3_tile
 integer :: id_swc1_tile,id_swc2_tile,id_swc3_tile
+
+! diag IDs of std of variables
+integer :: id_lwc_std,id_swc_std
 
 ! test tridiagonal solver for advection
 integer :: id_st_diff
@@ -2127,6 +2131,13 @@ subroutine soil_diag_init ( id_lon, id_lat, id_band, id_zfull, id_ptid)
        'm3/m3', missing_value=-100.0,sm=.False.)
   endif
 
+  !Std output
+  call set_default_diag_filter('soil')
+  id_lwc_std = register_tiled_diag_field ( module_name, 'soil_liq_std', axes,  &
+       lnd%time, 'bulk density of liquid water', 'kg/m3', missing_value=-100.0,op=OP_STD)
+  id_swc_std  = register_tiled_diag_field ( module_name, 'soil_ice_std',  axes,  &
+       lnd%time, 'bulk density of solid water', 'kg/m3',  missing_value=-100.0,op=OP_STD)
+
 end subroutine soil_diag_init
 
 
@@ -3718,6 +3729,10 @@ end subroutine soil_step_1
   call send_tile_data(id_swc1_tile,soil%ws(1)/(1000.0*dz(1)), diag)
   call send_tile_data(id_swc2_tile,soil%ws(2)/(1000.0*dz(2)), diag)
   call send_tile_data(id_swc3_tile,soil%ws(3)/(1000.0*dz(3)), diag)
+
+  ! std variables
+  if (id_lwc_std > 0) call send_tile_data(id_lwc_std,  soil%wl/dz(1:num_l), diag)
+  if (id_swc_std > 0) call send_tile_data(id_swc_std,  soil%ws/dz(1:num_l), diag)
 
 end subroutine soil_step_2
 

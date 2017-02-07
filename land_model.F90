@@ -94,7 +94,7 @@ use land_tile_diag_mod, only : tile_diag_init, tile_diag_end, &
      register_tiled_diag_field, register_tiled_area_fields, &
      add_tiled_diag_field_alias, &
      send_tile_data, dump_tile_diag_fields, &
-     OP_AVERAGE, OP_SUM, cmor_name
+     OP_AVERAGE, OP_SUM, OP_STD, cmor_name
 use land_debug_mod, only : land_debug_init, land_debug_end, set_current_point, &
      is_watch_point, get_watch_point, check_temp_range, current_face, &
      get_current_point, check_conservation, water_cons_tol, carbon_cons_tol, &
@@ -282,7 +282,9 @@ integer :: &
   id_water_cons,    id_carbon_cons, id_DOCrunf, id_dis_DOC, &
   id_transp_tile,id_frac_tile,id_ttype_tile,id_precip_tile,id_runf_tile,&
   id_evap_tile,id_snow_tile,id_hevap_tile,id_levap_tile,id_water_tile,&
-  id_sens_tile,id_grnd_T_tile,id_total_C_tile
+  id_sens_tile,id_grnd_T_tile,id_total_C_tile,&
+  id_transp_std,id_precip_std,id_runf_std,id_evap_std,id_snow_std,id_water_std,&
+  id_sens_std,id_grnd_T_std,id_total_C_std
 
 ! diagnostic ids for canopy air tracers (moist mass ratio)
 integer, allocatable :: id_cana_tr(:)
@@ -1005,9 +1007,13 @@ subroutine land_cover_warm_start_predefined(restart)
  type(land_restart_type), intent(in) :: restart
  ! ---- local vars
  integer, allocatable :: pid(:),is(:),js(:),faces(:),itiles(:),vegn(:)
+ integer, allocatable :: pids(:),iss(:),jss(:),facess(:),vegns(:)
  real,    allocatable :: frac(:) ! fraction of land covered by tile
+ real,    allocatable :: fracs(:) ! fraction of land covered by tile
  integer :: ntiles    ! total number of land tiles in the input file
+ integer :: ntiless
  integer :: i,j,k,it,h5id,nt,face,first,last
+ integer :: itt
  type(land_tile_type), pointer :: tile
 
  ntiles = size(restart%tidx)
@@ -1023,27 +1029,74 @@ subroutine land_cover_warm_start_predefined(restart)
  ! Open access to model input database
  call open_database_predefined_tiles(h5id)
 
- ! Create tiles
- i = is(1)
- j = js(1)
- face = faces(1)
- first = 1
- last = 0
+ !Calculate the number of tiles in the subdomain
+ ntiless = 0
  do it = 1,ntiles
-  if ((it+1 .gt. ntiles) .or. (is(it+1) .ne. i) .or. (js(it+1) .ne. j) .or. (faces(it+1) .ne. face))then
-   last = it
-   !Create all the tiles for this cell
-   call land_cover_warm_start_0d_predefined_tiles(land_tile_map(i+lnd%is-1,j+lnd%js-1),&
-        lnd,i,j,h5id,pid(first:last),vegn(first:last))
-   !Update the parameters
-   first = it+1
-   i = is(first) 
-   j = js(first)
-   face = faces(first)
-  else
-   last = last + 1
-  endif
+  k = restart%tidx(it)
+  if (k<0) cycle ! skip negative indices
+  i = modulo(k,lnd%nlon)+1; k = k/lnd%nlon
+  j = modulo(k,lnd%nlat)+1; k = k/lnd%nlat
+  if (i<lnd%is.or.i>lnd%ie) cycle
+  if (j<lnd%js.or.j>lnd%je) cycle
+  k = k + 1
+  ntiless = ntiless + 1
  enddo
+
+ if (ntiless .gt. 0)then
+  !Extract the info for the subdomain
+  allocate(pids(ntiless),iss(ntiless),jss(ntiless),facess(ntiless),vegns(ntiless),fracs(ntiless))
+  itt = 1
+  do it = 1,ntiles
+   k = restart%tidx(it)
+   if (k<0) cycle ! skip negative indices
+   i = modulo(k,lnd%nlon)+1; k = k/lnd%nlon
+   j = modulo(k,lnd%nlat)+1; k = k/lnd%nlat
+   if (i<lnd%is.or.i>lnd%ie) cycle
+    if (j<lnd%js.or.j>lnd%je) cycle
+   k = k + 1
+   pids(itt) = pid(it)
+   iss(itt) = is(it)
+   jss(itt) = js(it)
+   facess(itt) = faces(it)
+   vegns(itt) = vegn(it)
+   fracs(itt) = frac(it)
+   itt = itt + 1
+  enddo
+ 
+  ! Create tiles
+  i = iss(1)
+  j = jss(1)
+  face = facess(1)
+  first = 1
+  last = 0
+  do itt = 1,ntiless
+   !k = restart%tidx(it)
+   !if (k<0) cycle ! skip negative indices
+   if ((itt+1 .gt. ntiless) .or. (iss(itt+1) .ne. i) .or. (jss(itt+1) .ne. j) &
+      .or. (facess(itt+1) .ne. face))then
+    last = itt
+    !Create all the tiles for this cell
+    call land_cover_warm_start_0d_predefined_tiles(land_tile_map(i+lnd%is-1,j+lnd%js-1),&
+         lnd,i,j,h5id,pids(first:last),vegns(first:last))
+    !if (restart%tidx(it) .ge. 0)then
+    !Create all the tiles for this cell
+    !call land_cover_warm_start_0d_predefined_tiles(land_tile_map(i+lnd%is-1,j+lnd%js-1),&
+    !     lnd,i,j,h5id,pid(first:last),vegn(first:last))
+    ! call land_cover_warm_start_0d_predefined_tiles(land_tile_map(i,j),&
+    !      lnd,i+1-lnd%is,j+1-lnd%js,h5id,pid(first:last),vegn(first:last))
+    !endif
+    !Update the parameters
+    first = itt+1
+    i = iss(first) 
+    j = jss(first)
+    face = facess(first)
+   else
+    last = last + 1
+   endif
+  enddo
+  !deallocate the subset
+  deallocate(pids, iss, jss, facess, vegns, fracs)
+ endif
 
  ! Close access to model input database
  call close_database_predefined_tiles(h5id)
@@ -1415,6 +1468,10 @@ subroutine update_land_model_fast ( cplr2land, land2cplr )
      ! Tile variables
      call send_tile_data(id_snow_tile, snow_LMASS+snow_FMASS, tile%diag)
      call send_tile_data(id_water_tile, subs_LMASS+subs_FMASS, tile%diag)
+
+     ! Standard deviation
+     call send_tile_data(id_snow_std, snow_LMASS+snow_FMASS, tile%diag)
+     call send_tile_data(id_water_std, subs_LMASS+subs_FMASS, tile%diag)
   enddo
 
   ! advance land model time
@@ -2351,7 +2408,7 @@ subroutine update_land_model_fast_0d(tile, i,j,k, land2cplr, &
   call send_tile_data(id_evspsblveg,  vegn_levap+vegn_fevap,          tile%diag)
   call send_tile_data(id_nbr,    -vegn_fco2*mol_C/mol_co2,            tile%diag)
   call send_tile_data(id_snm, snow_melt,                              tile%diag)
-  !HACK
+  !Tile variables
   call send_tile_data(id_transp_tile,vegn_uptk,tile%diag)
   call send_tile_data(id_precip_tile,precip_l+precip_s,tile%diag)
   call send_tile_data(id_runf_tile,snow_lrunf+snow_frunf+subs_lrunf,tile%diag)
@@ -2360,6 +2417,14 @@ subroutine update_land_model_fast_0d(tile, i,j,k, land2cplr, &
   call send_tile_data(id_frac_tile, tile%frac, tile%diag)
   call send_tile_data(id_ttype_tile, tile%ttype, tile%diag)
   if (id_total_C > 0)call send_tile_data(id_total_C_tile, land_tile_carbon(tile),tile%diag)
+
+  !Std variables
+  call send_tile_data(id_transp_std,vegn_uptk,tile%diag)
+  call send_tile_data(id_precip_std,precip_l+precip_s,tile%diag)
+  call send_tile_data(id_runf_std,snow_lrunf+snow_frunf+subs_lrunf,tile%diag)
+  call send_tile_data(id_evap_std,land_evap,tile%diag)
+  call send_tile_data(id_sens_std,land_sens,tile%diag)
+  if (id_total_C > 0)call send_tile_data(id_total_C_std, land_tile_carbon(tile),tile%diag)
 
 end subroutine update_land_model_fast_0d
 
@@ -2859,6 +2924,9 @@ subroutine update_land_bc_fast (tile, i,j,k, land2cplr, is_init)
 
   !Full tile data
   call send_tile_data(id_grnd_T_tile,     grnd_T,     tile%diag)
+
+  !Std data
+  call send_tile_data(id_grnd_T_std,     grnd_T,     tile%diag)
 
 end subroutine update_land_bc_fast
 
@@ -3545,6 +3613,26 @@ subroutine land_diag_init(clonb, clatb, clon, clat, time, domain, &
        'ground surface temperature', 'degK', missing_value=-1.0,sm=.False.)
   id_total_C_tile = register_tiled_diag_field ( module_name, 'Ctot_tile', (/id_lon, id_lat, id_ptid/), time, &
        'total land carbon', 'kg C/m2', missing_value=-1.0,sm=.False.)
+
+  !Standard deviation of the values
+  id_transp_std  = register_tiled_diag_field ( module_name, 'transp_std', axes, time, &
+             'Transpiration', 'kg/(m2 s)', missing_value=-1.0e+20,op=OP_STD)
+  id_precip_std = register_tiled_diag_field ( module_name, 'precip_std', axes, time, &
+             'precipitation rate', 'kg/(m2 s)', missing_value=-1.0e+20,op=OP_STD)
+  id_evap_std = register_tiled_diag_field ( module_name, 'evap_std', axes, time, &
+             'vapor flux up from land', 'kg/(m2 s)', missing_value=-1.0e+20,op=OP_STD)
+  id_runf_std   = register_tiled_diag_field ( module_name, 'runf_std', axes, time, &
+             'total runoff', 'kg/(m2 s)', missing_value=-1.0e+20,op=OP_STD)
+  id_snow_std = register_tiled_diag_field ( module_name, 'snow_std', axes, time, &
+             'column-integrated snow water', 'kg/m2', missing_value=-1.0e+20,op=OP_STD)
+  id_sens_std = register_tiled_diag_field ( module_name, 'sens_std', axes, time, &
+             'sens heat flux from land', 'W/m2', missing_value=-1.0e+20,op=OP_STD)
+  id_water_std = register_tiled_diag_field ( module_name, 'water_std', axes, time, &
+             'column-integrated soil water', 'kg/m2', missing_value=-1.0e+20,op=OP_STD)
+  id_grnd_T_std = register_tiled_diag_field ( module_name, 'Tgrnd_std', axes, time, &
+       'ground surface temperature', 'degK', missing_value=-1.0,op=OP_STD)
+  id_total_C_std = register_tiled_diag_field ( module_name, 'Ctot_std', axes, time, &
+       'total land carbon', 'kg C/m2', missing_value=-1.0,op=OP_STD)
 
 !  id_hrunftile = register_tiled_diag_field(module_name, 'hrunftile', (/id_lon, id_lat, id_tile/),&
 !             time, 'sensible heat of total runoff', 'W/m2',missing_value=-1.0e+20,op=4)

@@ -186,6 +186,10 @@ integer :: id_lai_cmor, id_btot_cmor, id_cproduct, &
    id_cLeaf, id_cWood, id_cRoot, id_cMisc
 ! All tile variables
 integer :: id_lai_tile,id_btot_tile
+
+! Std of variables
+integer :: id_btot_std
+
 ! ==== end of module variables ===============================================
 
 contains
@@ -940,6 +944,10 @@ subroutine vegn_diag_init ( id_lon, id_lat, id_band, id_ptid, time )
        (/id_lon,id_lat,id_ptid/), time, 'leaf area index', 'm2/m2', missing_value=-1.0,sm=.False.)
   id_btot_tile = register_tiled_diag_field ( module_name, 'btot_tile',  &
        (/id_lon,id_lat,id_ptid/), time, 'total biomass', 'kg C/m2', missing_value=-1.0,sm=.False.)
+
+  !Standard deviation
+  id_btot_std = register_tiled_diag_field ( module_name, 'btot_std',  &
+       (/id_lon,id_lat/), time, 'total biomass', 'kg C/m2', missing_value=-1.0,op=OP_STD)
 
 end subroutine
 
@@ -1816,6 +1824,13 @@ subroutine update_vegn_slow( )
 
      ! tile output
      call send_tile_data(id_btot_tile,    sum(tile%vegn%cohorts(1:n)%bl    &
+                                        +tile%vegn%cohorts(1:n)%blv   &
+                                        +tile%vegn%cohorts(1:n)%br    &
+                                        +tile%vegn%cohorts(1:n)%bsw   &
+                                        +tile%vegn%cohorts(1:n)%bwood ), tile%diag)
+
+     ! standard deviation output
+     call send_tile_data(id_btot_std,    sum(tile%vegn%cohorts(1:n)%bl    &
                                         +tile%vegn%cohorts(1:n)%blv   &
                                         +tile%vegn%cohorts(1:n)%br    &
                                         +tile%vegn%cohorts(1:n)%bsw   &

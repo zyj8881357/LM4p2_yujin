@@ -290,6 +290,7 @@ subroutine land_cover_warm_start_0d_predefined_tiles(tiles,lnd,i,j,h5id,warm_til
   !Determine the lat/lon of the grid cell (degrees)
   is = i+lnd%is-1
   js = j+lnd%js-1
+  !print*,i,j,lnd%is,lnd%js,is,js,pi,shape(lnd%lon),shape(lnd%lat)
   lon = 180.0*lnd%lon(is,js)/pi
   lat = 180.0*lnd%lat(is,js)/pi
 
@@ -566,8 +567,8 @@ subroutine retrieve_soil_parameters(tile_parameters,cid)
   call get_parameter_data(grpid,"landuse",nsoil,soil%landuse)
 
   !Do some basic QC (should be done in the preprocessing...)
-  where(soil%tile_hlsp_length .lt. 10.0)soil%tile_hlsp_length = 10.0
-  where(soil%tile_hlsp_width .lt. 1.0)soil%tile_hlsp_width = 1.0
+  !where(soil%tile_hlsp_length .lt. 10.0)soil%tile_hlsp_length = 10.0
+  !where(soil%tile_hlsp_width .lt. 1.0)soil%tile_hlsp_width = 1.0
 
   !Close access to the group
   call h5gclose_f(grpid,status)
