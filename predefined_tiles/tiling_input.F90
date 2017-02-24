@@ -237,7 +237,7 @@ subroutine land_cover_cold_start_0d_predefined_tiles(tiles,lnd,i,j,h5id)
 
   !Create the tiles
   do itile = 1,tile_parameters%metadata%ntile
-   !if (tile_parameters%metadata%frac(itile) .eq. 0.0)cycle
+   if (tile_parameters%metadata%frac(itile) .eq. 0.0)cycle
    tid = tile_parameters%metadata%tid(itile)
    select case (tile_parameters%metadata%ttype(itile))
     case(1)
@@ -321,7 +321,7 @@ subroutine land_cover_warm_start_0d_predefined_tiles(tiles,lnd,i,j,h5id,warm_til
   !Create the tiles
   do warm_tile = 1,size(warm_tiles)
    itile = warm_tiles(warm_tile)
-   !if (tile_parameters%metadata%frac(itile) .eq. 0.0)cycle
+   if (tile_parameters%metadata%frac(itile) .eq. 0.0)cycle
    tid = tile_parameters%metadata%tid(itile)
    select case (tile_parameters%metadata%ttype(itile))
     case(1)
@@ -567,8 +567,10 @@ subroutine retrieve_soil_parameters(tile_parameters,cid)
   call get_parameter_data(grpid,"landuse",nsoil,soil%landuse)
 
   !Do some basic QC (should be done in the preprocessing...)
-  !where(soil%tile_hlsp_length .lt. 10.0)soil%tile_hlsp_length = 10.0
-  !where(soil%tile_hlsp_width .lt. 1.0)soil%tile_hlsp_width = 1.0
+  !where(soil%tile_hlsp_length .lt. 0.001)soil%tile_hlsp_length = 100.0
+  !where(soil%tile_hlsp_width .lt. 0.001)soil%tile_hlsp_width = 1.0
+  where(isnan(soil%gw_soil_e_depth) .eq. .True.)soil%gw_soil_e_depth = 3.0
+  where(soil%dat_k_sat_ref .gt. 0.01)soil%dat_k_sat_ref = 0.01
 
   !Close access to the group
   call h5gclose_f(grpid,status)

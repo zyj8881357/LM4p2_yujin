@@ -1608,7 +1608,8 @@ subroutine update_vegn_slow( )
   call get_date(lnd%time,             year0,month0,day0,hour,minute,second)
   call get_date(lnd%time-lnd%dt_slow, year1,month1,day1,hour,minute,second)
 
-  if(month0 /= month1) then
+  !if(month0 /= month1) then
+  if(day0 /= day1) then
      ! heartbeat
      write(timestamp,'("Current date is ",i4.4,"-",i2.2,"-",i2.2)')year0,month0,day0
      call error_mesg('update_vegn_slow',trim(timestamp),NOTE)

@@ -3477,10 +3477,11 @@ end subroutine soil_step_1
                                                       + hlrunf_nu + hlrunf_sc
         soil_lrunf  =  lrunf_sn +  lrunf_ie +  sum(div) +  lrunf_nu +  lrunf_sc
      else
-        !soil_hlrunf = hlrunf_sn + hlrunf_ie +  sum(hdiv_it) &
-        soil_hlrunf = hlrunf_sn + hlrunf_ie +  sum(hdiv_gtos) &
+        !soil_hlrunf = hlrunf_sn + hlrunf_ie +  sum(hdiv_gtos) &
+        soil_hlrunf = hlrunf_sn + hlrunf_ie +  sum(hdiv_it) &
              + hlrunf_nu + hlrunf_sc
-        soil_lrunf  =  lrunf_sn +  lrunf_ie +  sum(div_gtos) +  lrunf_nu +  lrunf_sc
+        !soil_lrunf  =  lrunf_sn +  lrunf_ie +  sum(div_gtos) +  lrunf_nu +  lrunf_sc
+        soil_lrunf  =  lrunf_sn +  lrunf_ie +  sum(div_it) +  lrunf_nu +  lrunf_sc
      end if
   else
      soil_lrunf  =  lrunf_sn +  lrunf_ie +  lrunf_bf +  lrunf_if &

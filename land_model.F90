@@ -1968,9 +1968,13 @@ subroutine update_land_model_fast_0d(tile, i,j,k, land2cplr, &
 
 ! [X.2] solve the system for free terms and delta_Tg and delta_psig terms, getting
 !       linear equation for delta_Tg and delta_psig
+     where (isnan(A) .eq. .True.) !HACK
+      A = 0.0 !HACK
+     endwhere !HACK
      call ludcmp(A,indx, ierr)
-     if (ierr/=0)&
+     if (ierr/=0)then
           write(*,*) 'Matrix is singular',i,j,k
+     endif
      call lubksb(A,indx,B0)
      call lubksb(A,indx,B1)
      call lubksb(A,indx,B2)

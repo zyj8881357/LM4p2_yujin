@@ -221,7 +221,7 @@ subroutine hlsp_hydrology_1(num_species)
    real    ::     A1, A2      ! tile area fractions 1 and 2
    real    ::     w_hat       ! mean hillslope width (m)
    real    ::     deltapsi    ! Absolute difference in hydraulic head for tile 1 - tile 2 (m)
-   real    ::     wflux       ! water flux, temporary (mm/s)
+   real    ::     wflux,wflux_p1       ! water flux, temporary (mm/s)
    real    ::     eflux       ! energy flux, temproary (W/m^2)
    real    ::     tflux(num_species) ! tracer flux, temporary (1/m^2/s)
    real    ::     delta_h     ! elevation difference between tile 1 and 2 (m)
@@ -432,6 +432,9 @@ subroutine hlsp_hydrology_1(num_species)
                         ! Will later be normalized by total area of tiles above or below
                         wflux = k_hat * deltapsi/L_hat * dz(l) * tile2%frac / L1 * w_hat / w1
                         ! mm/s =  mm/s *   m     / m    *  m          -      / m   * -    / -
+                        !wflux_p1 = k_hat * deltapsi/L_hat * dz(l) * w_hat
+                        !call qc_wflux(wflux_p1)
+                        !wflux = wflux_p1 * tile2%frac / L1 / w1
 
                         ! Energy flux
                         if (wflux < 0.) then ! water flowing into tile: heat advected in

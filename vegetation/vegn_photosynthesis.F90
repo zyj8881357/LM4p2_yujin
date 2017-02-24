@@ -322,6 +322,7 @@ subroutine gs_Leuning(rad_top, rad_net, tl, ea, lai, leaf_age, &
            Ag=(Ag_l+Ag_rb)/((1.0+exp(0.4*(5.0-tl+TFREEZE)))*(1.0+exp(0.4*(tl-45.0-TFREEZE))));
            An=Ag-Resp;
            anbar=An/lai;
+           if (isnan(anbar) .eq. .True.)anbar = 0.0
 
            if(anbar>0.0) then
                gsbar=anbar/(ci-capgam)/coef0;
