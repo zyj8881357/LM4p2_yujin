@@ -221,12 +221,12 @@ subroutine hlsp_hydrology_1(num_species)
    real    ::     A1, A2      ! tile area fractions 1 and 2
    real    ::     w_hat       ! mean hillslope width (m)
    real    ::     deltapsi    ! Absolute difference in hydraulic head for tile 1 - tile 2 (m)
-   real    ::     wflux,wflux_p1       ! water flux, temporary (mm/s)
+   real    ::     wflux,wflux0,wflux1       ! water flux, temporary (mm/s)
    real    ::     eflux       ! energy flux, temproary (W/m^2)
    real    ::     tflux(num_species) ! tracer flux, temporary (1/m^2/s)
    real    ::     delta_h     ! elevation difference between tile 1 and 2 (m)
    real    ::     y           ! disturbance lengthscale (m)
-   real, parameter :: wthresh = 1.e-14 ! water balance error threshold (mm/s)
+   real, parameter :: wthresh = 1.e-10 ! water balance error threshold (mm/s)
    real, parameter :: ethresh = 1.e-8  ! energy balance error threshold (W/m^2)
    real, parameter :: tthresh = 1.e-13 ! carbon balance error threshold (kg C/m^2/s)
    real    ::     frl         ! flow ratio limit: maximum ratio of head difference to length
@@ -274,6 +274,7 @@ subroutine hlsp_hydrology_1(num_species)
          k = 0
          do while(ce /= te)
             tile=>current_tile(ce)  ! get pointer to current tile
+            !tile%frac = 0.5 !HERE
             ce = next_elmt(ce); k = k+1
             if (.not.associated(tile%soil)) cycle
             soil => tile%soil
@@ -367,6 +368,7 @@ subroutine hlsp_hydrology_1(num_species)
             ! Loop over second tile list, and calculate fluxes
             do while (ce2 /= te)
                tile2=>current_tile(ce2)
+               !tile2%frac = 0.5 !HERE
                if (.not.associated(tile2%soil)) then
                   ce2=next_elmt(ce2)
                   cycle
@@ -381,15 +383,22 @@ subroutine hlsp_hydrology_1(num_species)
                   if (abs(soil%hidx_j - soil2%hidx_j) == 1) then ! tile2 is a vertical neighbor
                                                                  ! of tile
 
-                     if (soil%hidx_j == soil2%hidx_j - 1) then ! tile2 above tile
-                        area_above = area_above + tile2%frac
-                     else ! tile2 below tile
-                        area_below = area_below + tile2%frac
-                     end if
                      L1 = soil%pars%tile_hlsp_length
                      L2 = soil2%pars%tile_hlsp_length
                      w1 = soil%pars%tile_hlsp_width
                      w2 = soil2%pars%tile_hlsp_width
+
+                     if (soil%hidx_j == soil2%hidx_j - 1) then ! tile2 above tile
+                        area_above = area_above + tile2%frac
+                        !area_above = area_above + L2*w2 HERE
+                     else ! tile2 below tile
+                        area_below = area_below + tile2%frac
+                        !area_below = area_below + L2*w2 HERE
+                     end if
+                     !L1 = 100 !HERE
+                     !L2 = 100 !HERE
+                     !w1 = 1 !HERE
+                     !w2 = 1 !HERE
                      L_hat = (L1 + L2)/2.
                      w_hat = (L2*w1 + L1*w2)/(L1 + L2)
                      delta_h = soil%pars%tile_hlsp_elev - soil2%pars%tile_hlsp_elev
@@ -430,7 +439,14 @@ subroutine hlsp_hydrology_1(num_species)
 
                         ! Flux from tile --> tile2
                         ! Will later be normalized by total area of tiles above or below
+                        !wflux0 = L2 * w2 / L1 / w1!tile2%frac/L1/w1
+                        !wflux1 = k_hat * deltapsi/L_hat * dz(l) * w_hat
+                        !wflux = wflux1 * wflux0
                         wflux = k_hat * deltapsi/L_hat * dz(l) * tile2%frac / L1 * w_hat / w1
+                        !wflux = k_hat * deltapsi/L_hat * dz(l) * L2 * w2 / L1 * w_hat / w1
+                        !print*,k_hat,deltapsi,L_hat,dz(l),tile2%frac,L1,w_hat,w1
+                        !print*,tile%frac,L1,w1,wflux,wflux/tile2%frac*tile%frac
+                        !print*,wflux0,wflux1,wflux1/tile2%frac*tile%frac
                         ! mm/s =  mm/s *   m     / m    *  m          -      / m   * -    / -
                         !wflux_p1 = k_hat * deltapsi/L_hat * dz(l) * w_hat
                         !call qc_wflux(wflux_p1)
@@ -444,6 +460,8 @@ subroutine hlsp_hydrology_1(num_species)
                         end if
 
                         ! Update fluxes
+                        !print*,soil%hidx_j,soil2%hidx_j,wflux0,wflux1
+                        !print*,soil%hidx_j,soil2%hidx_j,wflux,w2*L2,tile%frac
                         if (soil%hidx_j == soil2%hidx_j - 1) then ! tile2 above tile
                            div_above(l) = div_above(l) + wflux
                            hdiv_above(l) = hdiv_above(l) + eflux
@@ -480,6 +498,7 @@ subroutine hlsp_hydrology_1(num_species)
 
 
                   else if (soil%hidx_j == soil2%hidx_j .and. ce /= ce2) then
+
                      ! tile2 is in same level
                      A1 = tile%frac
                      A2 = tile2%frac
@@ -521,6 +540,7 @@ subroutine hlsp_hydrology_1(num_species)
                         ! Flux from tile --> tile2
                         ! Will be normalized below by area_level.
                         wflux = k_hat * deltapsi / (y*y)/2. * dz(l) * A2 ! ZMS double-check this
+                        wflux = 0.0 !HERE
                        ! mm/s =  mm/s *   m      /   m^2      *m      --
                         div_level(l) = div_level(l) + wflux
 
@@ -568,6 +588,7 @@ subroutine hlsp_hydrology_1(num_species)
 
             ! Add to outputs
             if (area_above > 0.) then
+               !print*,'above',div_above/area_above*tile%frac
                div_hlsp(:) = div_hlsp(:) + div_above(:) / area_above
                div_hlsp_heat(:) = div_hlsp_heat(:) + hdiv_above(:) / area_above
                do s=1,num_species
@@ -579,6 +600,7 @@ subroutine hlsp_hydrology_1(num_species)
             if (area_level > 0.) then
                ! Add current tile to area_level
                area_level = area_level + tile%frac
+               !print*,'level',div_level/area_level
                div_hlsp(:) = div_hlsp(:) + div_level(:) / area_level
                div_hlsp_heat(:) = div_hlsp_heat(:) + hdiv_level(:) / area_level
                do s=1,num_species
@@ -588,6 +610,7 @@ subroutine hlsp_hydrology_1(num_species)
             end if
             
             if (area_below > 0.) then
+               !print*,'below',div_below/area_below*tile%frac
                div_hlsp(:) = div_hlsp(:) + div_below(:) / area_below
                div_hlsp_heat(:) = div_hlsp_heat(:) + hdiv_below(:) / area_below
                do s=1,num_species
@@ -647,6 +670,7 @@ subroutine hlsp_hydrology_1(num_species)
 
                   ! Flux from tile --> stream, per unit area of tile
                   wflux = k_hat*ks * deltapsi/L_hat * dz(l)/L1
+                  wflux = 0.0 !HERE
                                                                         ! ZMS double-check this
                   ! mm/s =  mm/s *   m     / m    *  m  /m
 
@@ -741,6 +765,7 @@ subroutine hlsp_hydrology_1(num_species)
             if (.not.associated(tile%soil)) cycle
 
             do l=1,num_l
+               !print*,l,tile%soil%div_hlsp(l) * tile%frac
                wbal = wbal + tile%soil%div_hlsp(l) * tile%frac
                ebal = ebal + tile%soil%div_hlsp_heat(l) * tile%frac
                do s=1,num_species

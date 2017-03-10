@@ -606,10 +606,10 @@ subroutine get_parameter_data_1d_real(grpid,var,nx,tmp)
  
  dims(1) = nx
  call h5dopen_f(grpid,var,varid,status)
- !call h5dread_f(varid,H5T_IEEE_F64LE,tmp,dims,status)
- call h5dread_f(varid,H5T_IEEE_F64LE,tmp2,dims,status)
+ call h5dread_f(varid,H5T_IEEE_F64LE,tmp,dims,status)
  !call h5dread_f(varid,H5T_IEEE_F64LE,tmp2,dims,status)
- tmp = real(tmp2)
+ !call h5dread_f(varid,H5T_IEEE_F64LE,tmp2,dims,status)
+ !tmp = real(tmp2)
  !print*,status,var,tmp
  call h5dclose_f(varid,status) 
 
