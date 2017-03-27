@@ -26,6 +26,11 @@ type :: lake_predefined_type
  real,pointer,dimension(:) :: backwater
  real,pointer,dimension(:) :: backwater_1
  real,pointer,dimension(:) :: rsa_exp         ! riparian source-area exponent
+ real,pointer,dimension(:) :: nrsv
+ real,pointer,dimension(:) :: rsv_cap
+ real,pointer,dimension(:) :: rsv_depth
+ real,pointer,dimension(:) :: rsv_area
+
 end type lake_predefined_type
 
 type :: glacier_predefined_type
@@ -101,6 +106,7 @@ type :: soil_predefined_type
  !vegetation
  integer,pointer,dimension(:) :: vegn
  integer,pointer,dimension(:) :: landuse
+ integer,pointer,dimension(:) :: irrigation
 
 end type soil_predefined_type
 

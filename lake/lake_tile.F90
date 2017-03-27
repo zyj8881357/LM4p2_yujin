@@ -104,6 +104,10 @@ type :: lake_pars_type
   real backwater
   real backwater_1
   real rsa_exp         ! riparian source-area exponent
+  integer nrsv
+  real rsv_cap
+  real rsv_depth
+  real rsv_area
 end type lake_pars_type
 
 type :: lake_tile_type
@@ -383,6 +387,12 @@ subroutine init_lake_data_0d_predefined(lake,lake_predefined,itile)
   lake%pars%emis_sat          = lake_predefined%emis_sat(itile)
   lake%pars%z0_momentum       = lake_predefined%z0_momentum(itile)
   lake%pars%z0_momentum_ice   = lake_predefined%z0_momentum_ice(itile)
+
+  !Reservoir parameters
+  lake%pars%nrsv              = lake_predefined%nrsv(itile)
+  lake%pars%rsv_cap           = lake_predefined%rsv_cap(itile)
+  lake%pars%rsv_area          = lake_predefined%rsv_area(itile)
+  lake%pars%rsv_depth         = lake_predefined%rsv_depth(itile)
 
   if (is_watch_point()) then
    print*,'lake parameters'

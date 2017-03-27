@@ -489,6 +489,10 @@ subroutine retrieve_lake_parameters(tile_parameters,cid)
   call get_parameter_data(grpid,"thermal_cond_ref",nlake,lake%thermal_cond_ref)
   call get_parameter_data(grpid,"emis_sat",nlake,lake%emis_sat)
   call get_parameter_data(grpid,"k_sat_ref",nlake,lake%k_sat_ref)
+  call get_parameter_data(grpid,"nrsv",nlake,lake%nrsv)
+  call get_parameter_data(grpid,"rsv_area",nlake,lake%rsv_area)
+  call get_parameter_data(grpid,"rsv_cap",nlake,lake%rsv_cap)
+  call get_parameter_data(grpid,"rsv_depth",nlake,lake%rsv_depth)
 
   !Close access to the group
   call h5gclose_f(grpid,status)
@@ -565,6 +569,7 @@ subroutine retrieve_soil_parameters(tile_parameters,cid)
   call get_parameter_data(grpid,"hidx_j",nsoil,soil%hidx_j)
   call get_parameter_data(grpid,"vegn",nsoil,soil%vegn)
   call get_parameter_data(grpid,"landuse",nsoil,soil%landuse)
+  call get_parameter_data(grpid,"irrigation",nsoil,soil%irrigation)
 
   !Do some basic QC (should be done in the preprocessing...)
   !where(soil%tile_hlsp_length .lt. 0.001)soil%tile_hlsp_length = 100.0
