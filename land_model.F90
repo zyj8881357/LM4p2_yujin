@@ -469,7 +469,7 @@ subroutine land_model_init &
    call hlsp_init_predefined ( id_lon, id_lat) ! Must be called before soil_init
    call soil_init_predefined ( id_lon, id_lat, id_band, id_zfull, id_ptid)
   endif
-  call hlsp_hydro_init (id_lon, id_lat, id_zfull) ! Must be called after soil_init
+  call hlsp_hydro_init (id_lon, id_lat, id_zfull, id_ptid) ! Must be called after soil_init
   if (predefined_tiles .eq. .False.)then
    call vegn_init ( id_lon, id_lat, id_band, id_ptid)
    !call lake_init ( id_lon, id_lat)

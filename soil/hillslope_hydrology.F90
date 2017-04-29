@@ -54,6 +54,7 @@ integer :: id_gtos, & !  groundwater divergence from tile to stream (mm/s)
            id_gtosh   !  heat flux associated with groundwater divergence to stream (W/m^2)
 integer :: id_gtdiv, & ! tracer flux associated with groundwater divergence (excl. to stream) (kg C/m^2/s)
            id_gtost    ! tracer flux from tile to stream (kg C/m^2/s)
+integer :: id_gtos_tile, id_gtosh_tile
 
 ! ==== module variables ======================================================
 logical :: module_is_initialized =.FALSE.
@@ -540,7 +541,7 @@ subroutine hlsp_hydrology_1(num_species)
                         ! Flux from tile --> tile2
                         ! Will be normalized below by area_level.
                         wflux = k_hat * deltapsi / (y*y)/2. * dz(l) * A2 ! ZMS double-check this
-                        wflux = 0.0 !HERE
+                        !wflux = 0.0 !HERE
                        ! mm/s =  mm/s *   m      /   m^2      *m      --
                         div_level(l) = div_level(l) + wflux
 
@@ -670,7 +671,7 @@ subroutine hlsp_hydrology_1(num_species)
 
                   ! Flux from tile --> stream, per unit area of tile
                   wflux = k_hat*ks * deltapsi/L_hat * dz(l)/L1
-                  wflux = 0.0 !HERE
+                  !wflux = 0.0 !HERE
                                                                         ! ZMS double-check this
                   ! mm/s =  mm/s *   m     / m    *  m  /m
 
@@ -787,6 +788,8 @@ subroutine hlsp_hydrology_1(num_species)
             end do
             call send_tile_data(id_gtost, gtost, tile%diag)
             call send_tile_data(id_gtdiv, gtdiv, tile%diag)
+            call send_tile_data(id_gtos_tile,sum(tile%soil%gtos(:)),tile%diag)
+            call send_tile_data(id_gtosh_tile,sum(tile%soil%gtosh(:)),tile%diag)
 
          end do
 
@@ -818,10 +821,11 @@ end subroutine hlsp_hydrology_1
 
 ! Initialize diagnostic fields.
 ! ============================================================================
-subroutine hlsp_hydro_init (id_lon, id_lat, id_zfull)
+subroutine hlsp_hydro_init (id_lon, id_lat, id_zfull, id_ptid)
    integer, intent(in) :: id_lon  ! ID of land longitude (X) axis
    integer, intent(in) :: id_lat  ! ID of land latitude (Y) axis
    integer, intent(in) :: id_zfull ! ID of vertical soil axis
+   integer, intent(in) :: id_ptid ! ID of parent tiles
 
    ! ---- local vars
    integer :: axes(3)
@@ -855,6 +859,12 @@ subroutine hlsp_hydro_init (id_lon, id_lat, id_zfull)
        lnd%time, 'DOC groundwater divergence out of tiles, excluding to stream', 'kg C/m^2/s', missing_value=initval )
    id_gtost = register_tiled_diag_field ( module_name, 'groundtracer_to_stream', axes, &
        lnd%time, 'DOC flux to stream via groundwater', 'kg C/m^2/s', missing_value=initval )
+   id_gtos_tile = register_tiled_diag_field ( module_name, 'gtos_tile', (/id_lon, id_lat,&
+       id_ptid/),lnd%time, 'groundwater divergence to stream', 'mm/s', &
+       missing_value=-1.0e+20, sm=.False. )
+   id_gtosh_tile = register_tiled_diag_field ( module_name, 'gtosh_tile', (/id_lon, id_lat,&
+       id_ptid/),lnd%time, 'heat flux associated with groundwater divergence to stream',&
+       'W/m^2)', missing_value=-1.0e+20,sm=.False. )
 
 end subroutine hlsp_hydro_init
 
