@@ -284,7 +284,8 @@ integer :: &
   id_evap_tile,id_snow_tile,id_hevap_tile,id_levap_tile,id_water_tile,&
   id_sens_tile,id_grnd_T_tile,id_total_C_tile,&
   id_transp_std,id_precip_std,id_runf_std,id_evap_std,id_snow_std,id_water_std,&
-  id_sens_std,id_grnd_T_std,id_total_C_std
+  id_sens_std,id_grnd_T_std,id_total_C_std,&
+  id_swup_dif_1_tile,id_swup_dif_2_tile,id_swdn_dif_1_tile,id_swdn_dif_2_tile
 
 ! diagnostic ids for canopy air tracers (moist mass ratio)
 integer, allocatable :: id_cana_tr(:)
@@ -2421,6 +2422,10 @@ subroutine update_land_model_fast_0d(tile, i,j,k, land2cplr, &
   call send_tile_data(id_frac_tile, tile%frac, tile%diag)
   call send_tile_data(id_ttype_tile, tile%ttype, tile%diag)
   if (id_total_C > 0)call send_tile_data(id_total_C_tile, land_tile_carbon(tile),tile%diag)
+  call send_tile_data(id_swdn_dif_1_tile, ISa_dn_dif(1),                        tile%diag)
+  call send_tile_data(id_swdn_dif_2_tile, ISa_dn_dif(2),                        tile%diag)
+  call send_tile_data(id_swup_dif_1_tile, ISa_dn_dif(1)*tile%land_refl_dif(1),     tile%diag)
+  call send_tile_data(id_swup_dif_2_tile, ISa_dn_dif(2)*tile%land_refl_dif(2),     tile%diag)
 
   !Std variables
   call send_tile_data(id_transp_std,vegn_uptk,tile%diag)
@@ -3617,6 +3622,14 @@ subroutine land_diag_init(clonb, clatb, clon, clat, time, domain, &
        'ground surface temperature', 'degK', missing_value=-1.0,sm=.False.)
   id_total_C_tile = register_tiled_diag_field ( module_name, 'Ctot_tile', (/id_lon, id_lat, id_ptid/), time, &
        'total land carbon', 'kg C/m2', missing_value=-1.0,sm=.False.)
+  id_swdn_dif_1_tile = register_tiled_diag_field ( module_name, 'swdn_dif_1_tile', (/id_lon,id_lat,id_ptid/), &
+       time,'downward diffuse short-wave radiation flux to the land surface', 'W/m2', missing_value=-999.0,sm=.False.)
+  id_swdn_dif_2_tile = register_tiled_diag_field ( module_name, 'swdn_dif_2_tile', (/id_lon,id_lat,id_ptid/), & 
+       time,'downward diffuse short-wave radiation flux to the land surface', 'W/m2', missing_value=-999.0,sm=.False.)
+  id_swup_dif_1_tile = register_tiled_diag_field ( module_name, 'swup_dif_1_tile', (/id_lon,id_lat,id_ptid/), &
+       time, 'diffuse short-wave radiation flux reflected by the land surface', 'W/m2', missing_value=-999.0,sm=.False.)
+  id_swup_dif_2_tile = register_tiled_diag_field ( module_name, 'swup_dif_2_tile', (/id_lon,id_lat,id_ptid/), &
+       time, 'diffuse short-wave radiation flux reflected by the land surface', 'W/m2', missing_value=-999.0,sm=.False.)
 
   !Standard deviation of the values
   id_transp_std  = register_tiled_diag_field ( module_name, 'transp_std', axes, time, &

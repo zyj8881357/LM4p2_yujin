@@ -2,8 +2,7 @@ module vegn_cohort_mod
 
 use constants_mod, only: PI
 
-use land_constants_mod, only: NBANDS, &
-     mol_h2o, mol_air
+use land_constants_mod, only: NBANDS, mol_h2o, mol_air
 use vegn_data_mod, only : spdata, &
    use_mcm_masking, use_bucket, critical_root_density, &
    tg_c4_thresh, tg_c3_thresh, l_fract, fsc_liv, &
@@ -35,9 +34,6 @@ public :: lai_from_biomass
 public :: update_bio_living_fraction
 public :: update_biomass_pools
 ! ==== end of public interfaces ==============================================
-
-! ==== module constants ======================================================
-#include "../shared/version_variable.inc"
 
 ! ==== types =================================================================
 ! vegn_cohort_type describes the data that belong to a vegetation cohort
@@ -110,6 +106,10 @@ type :: vegn_cohort_type
   real :: carbon_loss = 0.0 ! carbon loss during the month
   real :: bwood_gain  = 0.0 !
 
+  !#### MODIFIED BY PPG 2016-12-01
+  real :: Anlayer_acm = 0.0
+  real :: bl_previous = 0.0
+  
   ! used in fast time scale calculations
   real :: npp_previous_day     = 0.0
   real :: npp_previous_day_tmp = 0.0
@@ -141,7 +141,6 @@ type :: vegn_cohort_type
 end type vegn_cohort_type
 
 contains ! -=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-
-
 
 ! ============================================================================
 subroutine vegn_data_heat_capacity ( cohort, mcv )
@@ -525,10 +524,25 @@ subroutine update_biomass_pools(c)
      c%bl  = 0;
      c%br  = 0;
   else
-     c%blv = 0;
-     c%bl  = c%Pl*c%bliving;
-     c%br  = c%Pr*c%bliving;
+     !write(*,*) 'cohort', c%Anlayer_acm
+  	 if (c%Anlayer_acm>0) then
+  	    !write(*,*) 'yes'
+     	c%blv = 0;
+     	c%bl  = c%Pl*c%bliving;
+     	c%br  = c%Pr*c%bliving;
+	 else
+	    !write(*,*) 'no'
+	    c%blv =0
+	    c%br  = c%Pr*c%bliving
+	    if (c%bl_previous>0) then
+	    	c%bsw = c%Psw*c%bliving + c%Pl*c%bliving - c%bl_previous
+    		c%bl= c%bl_previous
+    	else 
+     		c%bl  = c%Pl*c%bliving;
+     	endif
+     endif
   endif
+  !write(*,*) 'bl', c%bl, 'bl_previous', c%bl_previous
   c%lai = lai_from_biomass(c%bl,c%species)
   c%sai = 0.035*c%height ! Federer and Lash,1978
 end subroutine
