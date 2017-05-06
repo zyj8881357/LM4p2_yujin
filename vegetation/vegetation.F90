@@ -24,12 +24,11 @@ use soil_tile_mod, only: soil_tile_type, soil_ave_temp, &
 use land_constants_mod, only : NBANDS, BAND_VIS, d608, mol_C, mol_CO2, mol_air, &
      seconds_per_year
 use land_tile_mod, only : land_tile_map, land_tile_type, land_tile_enum_type, &
-     first_elmt, tail_elmt, next_elmt, current_tile, operator(/=), &
-     get_elmt_indices, land_tile_heat, land_tile_carbon, get_tile_water
+     first_elmt, loop_over_tiles, land_tile_heat, land_tile_carbon, get_tile_water
 use land_tile_diag_mod, only : register_tiled_static_field, register_tiled_diag_field, &
      send_tile_data, diag_buff_type, OP_STD, OP_VAR, set_default_diag_filter, &
      cmor_name
-use land_data_mod, only : land_state_type, lnd, log_version
+use land_data_mod, only : lnd, log_version
 use land_io_mod, only : read_field
 
 use land_tile_io_mod, only: land_restart_type, &
@@ -43,8 +42,7 @@ use vegn_data_mod, only : SP_C4GRASS, LEAF_ON, LU_NTRL, read_vegn_data_namelist,
      N_HARV_POOLS, HARV_POOL_NAMES, HARV_POOL_PAST, HARV_POOL_CROP, HARV_POOL_CLEARED, &
      HARV_POOL_WOOD_FAST, HARV_POOL_WOOD_MED, HARV_POOL_WOOD_SLOW, agf_bs
 use vegn_cohort_mod, only : vegn_cohort_type, &
-     update_species,&
-     vegn_data_heat_capacity, vegn_data_intrcptn_cap, &
+     vegn_data_heat_capacity, vegn_data_intrcptn_cap, update_species,&
      get_vegn_wet_frac, vegn_data_cover
 use canopy_air_mod, only : cana_turbulence
 
@@ -58,7 +56,8 @@ use static_vegn_mod, only : read_static_vegn_namelist, static_vegn_init, static_
      read_static_vegn
 use vegn_dynamics_mod, only : vegn_dynamics_init, vegn_carbon_int, vegn_growth, &
      vegn_daily_npp, vegn_phenology, vegn_biogeography
-use vegn_disturbance_mod, only : vegn_nat_mortality, vegn_disturbance, update_fuel
+use vegn_disturbance_mod, only : vegn_disturbance_init, vegn_nat_mortality, &
+     vegn_disturbance, update_fuel
 use vegn_harvesting_mod, only : &
      vegn_harvesting_init, vegn_harvesting_end, vegn_harvesting
 use soil_carbon_mod, only : add_litter, poolTotalCarbon, cull_cohorts, &
@@ -89,7 +88,6 @@ public :: update_vegn_slow
 ! ==== module constants ======================================================
 character(len=*), parameter :: module_name = 'vegn'
 #include "../shared/version_variable.inc"
-character(len=*), parameter :: tagname     = '$Name$'
 
 ! values for internal selector of CO2 option used for photosynthesis
 integer, parameter :: VEGN_PHOT_CO2_PRESCRIBED  = 1
@@ -179,7 +177,9 @@ integer :: id_vegn_type, id_temp, id_wl, id_ws, id_height, &
    id_leaflitter_buffer_ag, id_coarsewoodlitter_buffer_ag,id_leaflitter_buffer_rate_ag, id_coarsewoodlitter_buffer_rate_ag,& ! id_coarsewoodlitter_buffer_rate_ag is 34 characters long (pjp)
    id_t_ann, id_t_cold, id_p_ann, id_ncm, &
    id_lambda, id_afire, id_atfall, id_closs, id_cgain, id_wdgain, id_leaf_age, &
-   id_phot_co2, id_theph, id_psiph, id_evap_demand
+   id_phot_co2, id_theph, id_psiph, id_evap_demand, &
+   id_lai_kok, id_Anlayer, id_Anlayer_acm, id_bl_previous !Modified PPG-2016-11-29
+
 ! CMOR variables
 integer :: id_lai_cmor, id_btot_cmor, id_cproduct, &
    id_fFire, id_fGrazing, id_fHarvest, id_fLuc, &
@@ -205,7 +205,8 @@ subroutine read_vegn_namelist()
   call read_vegn_data_namelist()
   call read_static_vegn_namelist(use_static_veg)
 
-  call log_version(version, module_name, __FILE__, tagname)
+  call log_version(version, module_name, &
+  __FILE__)
 #ifdef INTERNAL_FILE_NML
     read (input_nml_file, nml=vegn_nml, iostat=io)
     ierr = check_nml_error(io, 'vegn_nml')
@@ -272,7 +273,7 @@ subroutine vegn_init ( id_lon, id_lat, id_band, id_ptid )
 
   ! ---- local vars
   integer :: unit         ! unit for various i/o
-  type(land_tile_enum_type)     :: te,ce ! current and tail tile list elements
+  type(land_tile_enum_type)     :: ce    ! tile list enumerator
   type(land_tile_type), pointer :: tile  ! pointer to current tile
   type(vegn_cohort_type), pointer :: cohort! pointer to initial cohort for cold-start
   integer :: n_accum
@@ -306,7 +307,13 @@ subroutine vegn_init ( id_lon, id_lat, id_band, id_ptid )
      call get_cohort_data(restart1, 'tv', cohort_tv_ptr)
      call get_cohort_data(restart1, 'wl', cohort_wl_ptr)
      call get_cohort_data(restart1, 'ws', cohort_ws_ptr)
-
+	 
+	 !#### MODIFIED BY PPG 2016-12-01
+	 if (field_exists(restart2,'Anlayer_acm')) &
+        call get_cohort_data(restart2, 'Anlayer_acm', cohort_Anlayer_acm_ptr )
+     if (field_exists(restart2,'bl_previous')) &
+        call get_cohort_data(restart2, 'bl_previous', cohort_bl_previous_ptr )
+     
      ! read global variables
      call get_scalar_data(restart2,'n_accum',n_accum)
      call get_scalar_data(restart2,'nmn_acm',nmn_acm)
@@ -411,12 +418,8 @@ subroutine vegn_init ( id_lon, id_lat, id_band, id_ptid )
   ! Go through all tiles and initialize the cohorts that have not been initialized yet --
   ! this allows to read partial restarts. Also initialize accumulation counters to zero
   ! or the values from the restarts.
-  te = tail_elmt(land_tile_map)
   ce = first_elmt(land_tile_map, is=lnd%is, js=lnd%js)
-  do while(ce /= te)
-     tile=>current_tile(ce)  ! get pointer to current tile
-     call get_elmt_indices(ce,i,j)
-     ce=next_elmt(ce)       ! advance position to the next tile
+  do while(loop_over_tiles(ce,tile,i,j))
      if (.not.associated(tile%vegn)) cycle
 
      tile%vegn%n_accum = n_accum
@@ -442,6 +445,11 @@ subroutine vegn_init ( id_lon, id_lat, id_band, id_ptid )
      cohort%npp_previous_day = 0.0
      cohort%status  = LEAF_ON
      cohort%leaf_age = 0.0
+     
+     !#### MODIFIED BY PPG 2016-12-01
+     cohort%Anlayer_acm = 0.0 
+     cohort%bl_previous = 0.0
+     
      if(did_read_biodata.and.do_biogeography) then
         call update_species(cohort,t_ann(i,j),t_cold(i,j),p_ann(i,j),ncm(i,j),LU_NTRL)
         if (.not.biodata_bug) then
@@ -465,17 +473,16 @@ subroutine vegn_init ( id_lon, id_lat, id_band, id_ptid )
   ! initialize harvesting options
   call vegn_harvesting_init()
 
+  ! initialize distrurbances 
+  call vegn_disturbance_init()
+  
   ! initialize vegetation diagnostic fields
   call vegn_diag_init ( id_lon, id_lat, id_band, id_ptid, lnd%time )
 
   ! ---- diagnostic section
   ce = first_elmt(land_tile_map, is=lnd%is, js=lnd%js)
-  te  = tail_elmt(land_tile_map)
-  do while(ce /= te)
-     tile => current_tile(ce)
-     ce=next_elmt(ce)
+  do while(loop_over_tiles(ce, tile))
      if (.not.associated(tile%vegn)) cycle ! skip non-vegetation tiles
-     ! send the data
      call send_tile_data(id_vegn_type,  real(tile%vegn%tag), tile%diag)
   enddo
 
@@ -635,12 +642,8 @@ subroutine vegn_init_predefined ( id_lon, id_lat, id_band, id_ptid )
   ! Go through all tiles and initialize the cohorts that have not been initialized yet --
   ! this allows to read partial restarts. Also initialize accumulation counters to zero
   ! or the values from the restarts.
-  te = tail_elmt(land_tile_map)
   ce = first_elmt(land_tile_map, is=lnd%is, js=lnd%js)
-  do while(ce /= te)
-     tile=>current_tile(ce)  ! get pointer to current tile
-     call get_elmt_indices(ce,i,j)
-     ce=next_elmt(ce)       ! advance position to the next tile
+  do while(loop_over_tiles(ce,tile,i,j))
      if (.not.associated(tile%vegn)) cycle
 
      tile%vegn%n_accum = n_accum
@@ -694,10 +697,7 @@ subroutine vegn_init_predefined ( id_lon, id_lat, id_band, id_ptid )
 
   ! ---- diagnostic section
   ce = first_elmt(land_tile_map, is=lnd%is, js=lnd%js)
-  te  = tail_elmt(land_tile_map)
-  do while(ce /= te)
-     tile => current_tile(ce)
-     ce=next_elmt(ce)
+  do while(loop_over_tiles(ce,tile,i,j))
      if (.not.associated(tile%vegn)) cycle ! skip non-vegetation tiles
      ! send the data
      call send_tile_data(id_vegn_type,  real(tile%vegn%tag), tile%diag)
@@ -773,7 +773,17 @@ subroutine vegn_diag_init ( id_lon, id_lat, id_band, id_ptid, time )
   id_an_cl = register_tiled_diag_field ( module_name, 'an_cl',  &
        (/id_lon,id_lat/), time, 'net photosynthesis with closed stomata', &
        '(mol CO2)(m2 of leaf)^-1 year^-1', missing_value=-1e20 )
-
+  
+  !Modified from PPG-2016-12-01
+  id_lai_kok = register_tiled_diag_field ( module_name, 'lai_kok',  &
+       (/id_lon,id_lat/), time, 'leaf area index at kok effect', 'm2/m2', missing_value=-1.0 )
+  id_Anlayer_acm = register_tiled_diag_field ( module_name, 'Anlayer_acm',  &
+       (/id_lon,id_lat/), time, 'Cumulative Net photosynthesis for LAI layer', '(mol CO2)(m2 of leaf)^-1 year^-1', missing_value=-1.0 )
+  id_Anlayer= register_tiled_diag_field ( module_name, 'Anlayer',  &
+       (/id_lon,id_lat/), time, 'Anet from LAI Layer', 'm2/m2', missing_value=-1.0 )
+  id_bl_previous = register_tiled_diag_field ( module_name, 'bl_previous',  &
+       (/id_lon,id_lat/), time, 'leaf biomass from previous day', 'm2/m2', missing_value=-1.0 )
+       
   id_bl = register_tiled_diag_field ( module_name, 'bl',  &
        (/id_lon,id_lat/), time, 'biomass of leaves', 'kg C/m2', missing_value=-1.0 )
   id_blv = register_tiled_diag_field ( module_name, 'blv',  &
@@ -973,7 +983,7 @@ subroutine save_vegn_restart(tile_dim_length,timestamp)
 
   ! ---- local vars
   integer ::  i
-  type(land_tile_enum_type) :: ce, te
+  type(land_tile_enum_type) :: ce
   type(land_tile_type), pointer :: tile
   integer :: n_accum, nmn_acm
 
@@ -1007,9 +1017,8 @@ subroutine save_vegn_restart(tile_dim_length,timestamp)
   ! store global variables
   ! find first tile and get n_accum and nmn_acm from it
   n_accum = 0; nmn_acm = 0
-  ce = first_elmt(land_tile_map) ; te = tail_elmt(land_tile_map)
-  do while ( ce /= te )
-     tile => current_tile(ce) ; ce=next_elmt(ce)
+  ce = first_elmt(land_tile_map)
+  do while ( loop_over_tiles(ce,tile))
      if(associated(tile%vegn)) then
         n_accum = tile%vegn%n_accum
         nmn_acm = tile%vegn%nmn_acm
@@ -1032,6 +1041,10 @@ subroutine save_vegn_restart(tile_dim_length,timestamp)
   call add_int_cohort_data(restart2,'status', cohort_status_ptr, 'leaf status')
   call add_cohort_data(restart2,'leaf_age',cohort_leaf_age_ptr, 'age of leaves since bud burst', 'days')
 
+  !#### MODIFIED BY PPG 2016-12-01
+  call add_cohort_data(restart2, 'Anlayer_acm', cohort_Anlayer_acm_ptr,  ' Cumulative Net Photosynthesis for new Lai layer', 'kg C/(m2 year)')
+  call add_cohort_data(restart2, 'bl_previous', cohort_bl_previous_ptr, 'Previous leaf biomass','kg C/(m2 year)')
+  
   call add_cohort_data(restart2,'npp_prev_day', cohort_npp_previous_day_ptr, 'previous day NPP','kg C/(m2 year)')
 
   call add_int_tile_data(restart2,'landuse',vegn_landuse_ptr,'vegetation land use type')
@@ -1198,7 +1211,8 @@ subroutine vegn_step_1 ( vegn, soil, diag, &
        phot_co2,  & ! co2 mixing ratio for photosynthesis, mol CO2/mol dry air
        evap_demand, & ! evaporative water demand, kg/(m2 s)
        photosynt, & ! photosynthesis
-       photoresp    ! photo-respiration
+       photoresp, &    ! photo-respiration
+       lai_kok, Anlayer
   real :: litter_fast_C, litter_slow_C, litter_deadmic_C ! For rav_lit calculations
   type(vegn_cohort_type), pointer :: cohort
 
@@ -1264,8 +1278,14 @@ subroutine vegn_step_1 ( vegn, soil, diag, &
   call vegn_photosynthesis ( vegn, &
      SWdn(BAND_VIS), RSv(BAND_VIS), cana_q, phot_co2, p_surf, drag_q, &
      soil_beta, soil_water_supply, &
-     evap_demand, stomatal_cond, photosynt, photoresp )
-
+     evap_demand, stomatal_cond, photosynt, photoresp, &
+     lai_kok, Anlayer) !#### MODIFIED BY PPG 2016-12-01
+  
+  !#### MODIFIED BY PPG 2016-12-01
+  cohort%Anlayer_acm = cohort%Anlayer_acm + Anlayer
+  
+  !write(*,*) 'Anlayer', Anlayer, 'Anlayer_acm', cohort%Anlayer_acm
+  
   call get_vegn_wet_frac ( cohort, fw, DfwDwl, DfwDwf, fs, DfsDwl, DfsDwf )
   ! transpiring fraction and its derivatives
   ft     = 1 - fw - fs
@@ -1372,7 +1392,9 @@ subroutine vegn_step_1 ( vegn, soil, diag, &
   call send_tile_data(id_con_v_h, con_v_h, diag)
   call send_tile_data(id_con_v_v, con_v_v, diag)
   call send_tile_data(id_phot_co2, phot_co2, diag)
-
+  call send_tile_data(id_lai_kok, lai_kok, diag)
+  call send_tile_data(id_Anlayer, Anlayer, diag)
+  call send_tile_data(id_Anlayer_acm, cohort%Anlayer_acm, diag)
 end subroutine vegn_step_1
 
 
@@ -1591,7 +1613,7 @@ subroutine update_vegn_slow( )
 
   ! ---- local vars ----------------------------------------------------------
   integer :: second, minute, hour, day0, day1, month0, month1, year0, year1
-  type(land_tile_enum_type) :: ce, te
+  type(land_tile_enum_type) :: ce
   type(land_tile_type), pointer :: tile
   integer :: i,j,k ! current point indices
   integer :: ii ! pool iterator
@@ -1615,10 +1637,9 @@ subroutine update_vegn_slow( )
      call error_mesg('update_vegn_slow',trim(timestamp),NOTE)
   endif
 
-  ce = first_elmt(land_tile_map, lnd%is, lnd%js) ; te = tail_elmt(land_tile_map)
-  do while ( ce /= te )
-     call get_elmt_indices(ce,i,j,k) ; call set_current_point(i,j,k) ! this is for debug output only
-     tile => current_tile(ce) ; ce=next_elmt(ce)
+  ce = first_elmt(land_tile_map, lnd%is, lnd%js)
+  do while (loop_over_tiles(ce,tile, i,j,k))
+     call set_current_point(i,j,k) ! this is for debug output only
      if(.not.associated(tile%vegn)) cycle ! skip the rest of the loop body
 
      if(do_check_conservation) then
@@ -1691,8 +1712,15 @@ subroutine update_vegn_slow( )
         call send_tile_data(id_cgain,sum(tile%vegn%cohorts(1:n)%carbon_gain),tile%diag)
         call send_tile_data(id_closs,sum(tile%vegn%cohorts(1:n)%carbon_loss),tile%diag)
         call send_tile_data(id_wdgain,sum(tile%vegn%cohorts(1:n)%bwood_gain),tile%diag)
+        call send_tile_data(id_bl_previous, tile%vegn%cohorts(1)%bl, tile%diag)
+        tile%vegn%cohorts(1)%bl_previous=tile%vegn%cohorts(1)%bl
+        !write(*,*) 'Anlayer_acm', tile%vegn%cohorts(1)%Anlayer_acm, 'bl_prev', tile%vegn%cohorts(1)%bl
         call vegn_growth(tile%vegn)
         call vegn_nat_mortality(tile%vegn,tile%soil,86400.0)
+        tile%vegn%cohorts(1)%Anlayer_acm = 0.0
+        call send_tile_data(id_lai, tile%vegn%cohorts(1)%lai, tile%diag)
+  	    call send_tile_data(id_sai, tile%vegn%cohorts(1)%sai, tile%diag)
+  	    call send_tile_data(id_Anlayer_acm, tile%vegn%cohorts(1)%Anlayer_acm, tile%diag)
      endif
 
      if  (month1 /= month0 .and. do_phenology) then
@@ -1882,7 +1910,7 @@ end subroutine update_vegn_slow
 subroutine vegn_seed_transport()
 
   ! local vars
-  type(land_tile_enum_type) :: ce, te
+  type(land_tile_enum_type) :: ce
   type(land_tile_type), pointer :: tile
   integer :: i,j ! current point indices
   real :: total_seed_supply
@@ -1890,11 +1918,9 @@ subroutine vegn_seed_transport()
   real :: f_supply ! fraction of the supply that gets spent
   real :: f_demand ! fraction of the demand that gets satisfied
 
-  ce = first_elmt(land_tile_map, lnd%is, lnd%js) ; te = tail_elmt(land_tile_map)
   total_seed_supply = 0.0; total_seed_demand = 0.0
-  do while ( ce /= te )
-     call get_elmt_indices(ce,i,j)
-     tile => current_tile(ce) ; ce=next_elmt(ce)
+  ce = first_elmt(land_tile_map, lnd%is, lnd%js)
+  do while (loop_over_tiles(ce,tile,i,j))
      if(.not.associated(tile%vegn)) cycle ! skip the rest of the loop body
 
      total_seed_supply = total_seed_supply + vegn_seed_supply(tile%vegn)*tile%frac*lnd%area(i,j)
@@ -1918,13 +1944,9 @@ subroutine vegn_seed_transport()
 
   ! redistribute part (or possibly all) of the supply to satisfy part (or possibly all)
   ! of the demand
-  ce = first_elmt(land_tile_map) ; te = tail_elmt(land_tile_map)
-  do while ( ce /= te )
-     call get_elmt_indices(ce,i,j)
-     tile => current_tile(ce) ; ce=next_elmt(ce)
-     if(.not.associated(tile%vegn)) cycle ! skip the rest of the loop body
-
-     call vegn_add_bliving(tile%vegn, &
+  ce = first_elmt(land_tile_map)
+  do while (loop_over_tiles(ce,tile))
+     if(associated(tile%vegn)) call vegn_add_bliving(tile%vegn, &
           f_demand*vegn_seed_demand(tile%vegn)-f_supply*vegn_seed_supply(tile%vegn))
   enddo
 end subroutine vegn_seed_transport
@@ -2006,6 +2028,10 @@ DEFINE_COHORT_ACCESSOR(real,bliving)
 DEFINE_COHORT_ACCESSOR(integer,status)
 DEFINE_COHORT_ACCESSOR(real,leaf_age)
 DEFINE_COHORT_ACCESSOR(real,npp_previous_day)
+
+!#### MODIFIED BY PPG 2016-12-01
+DEFINE_COHORT_ACCESSOR(real, Anlayer_acm)
+DEFINE_COHORT_ACCESSOR(real, bl_previous)
 
 DEFINE_COHORT_ACCESSOR(real,tv)
 DEFINE_COHORT_ACCESSOR(real,wl)

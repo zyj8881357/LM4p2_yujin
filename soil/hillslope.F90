@@ -15,11 +15,10 @@ use mpp_mod, only: mpp_pe, mpp_root_pe
 use fms_mod, only: error_mesg, file_exist, close_file, check_nml_error, &
      stdlog, FATAL, NOTE, WARNING
 
-use fms_io_mod, only: read_compressed, restart_file_type, free_restart_type, &
-      save_restart, register_restart_field, set_domain, nullify_domain, get_field_size
+use fms_io_mod, only: set_domain, nullify_domain
 
 use land_tile_mod, only : land_tile_map, land_tile_type, land_tile_enum_type, &
-     first_elmt, tail_elmt, next_elmt, current_tile, get_elmt_indices, operator(/=)
+     first_elmt, loop_over_tiles, get_elmt_indices
 use land_utils_mod, only : put_to_tiles_r0d_fptr
 use land_tile_diag_mod, only : diag_buff_type, &
      register_tiled_static_field, set_default_diag_filter, &
@@ -73,7 +72,6 @@ private :: meanelev ! used by calculate_wt_init
 ! ==== module constants ======================================================
 character(len=*), parameter :: module_name = 'hillslope'
 #include "../shared/version_variable.inc"
-character(len=*), parameter :: tagname = '$Name$'
 
 integer, parameter :: max_vc = 30 ! Max num_vertclusters that can be input from namelist for
                                   ! tile horizontal grid.
@@ -114,7 +112,7 @@ logical             :: diagnostics_by_cluster    = .false.  ! True ==> create di
 logical             :: init_wt_strmelev      = .true.    ! initialize water table at stream depth
                                                          ! else use requested soil:init_wtdep
 logical             :: equal_length_tiles    = .true.    ! .false. ==> tile lengths input from namelist
-real, dimension(max_vc) :: dl  ! [-] vector of length fractions input from namelist for tile horizontal grid
+real, dimension(max_vc) :: dl = 0.0  ! [-] vector of length fractions input from namelist for tile horizontal grid
                                ! Ordered from stream-most tile to hilltop.
 logical, public     :: dammed_strm_bc = .false.  ! True ==> Hydraulic head increases with stream
                        !depth, limiting outflow with large strm_depth_penetration
@@ -128,7 +126,6 @@ logical, public     :: limit_intertile_flow = .false. ! True ==> Limit explicit 
                        ! to improve numerical stability
 real, public        :: flow_ratio_limit = 1.0    ! max delta psi to length ratio allowed, if limit_intertile_flow
 logical, public     :: tiled_DOC_flux = .false. ! True ==> Calculate DOC fluxes for soil carbon model
-
 
 character(len=256)  :: hillslope_surfdata = 'INPUT/hillslope.nc'
 character(len=24)   :: hlsp_interpmethod = 'nearest'
@@ -183,7 +180,8 @@ subroutine read_hlsp_namelist()
   integer :: io           ! i/o status for the namelist
   integer :: ierr         ! error code, returned by i/o routines
 
-  call log_version(version, module_name, __FILE__, tagname)
+  call log_version(version, module_name, &
+  __FILE__)
 #ifdef INTERNAL_FILE_NML
   read (input_nml_file, nml=hlsp_nml, iostat=io)
   ierr = check_nml_error(io, 'hlsp_nml')
@@ -565,8 +563,8 @@ subroutine hlsp_init ( id_lon, id_lat )
 
   ! ---- local vars
   integer :: unit         ! unit for various i/o
-  type(land_tile_enum_type)     :: te,ce  ! tail and current tile list elements
-  type(land_tile_type), pointer :: tile   ! pointer to current tile
+  type(land_tile_enum_type)     :: ce    ! tile list enu,erator
+  type(land_tile_type), pointer :: tile  ! pointer to current tile
   real, allocatable, dimension(:,:,:) :: frac_topo_hlsps
   integer, allocatable, dimension(:,:) :: num_topo_hlsps
   real, allocatable, dimension(:,:,:) :: soil_e_depth, microtopo, hlsp_length, &
@@ -583,18 +581,14 @@ subroutine hlsp_init ( id_lon, id_lat )
   real :: hpos ! local horizontal position (-)
   real :: hbdu ! local upstream bdy (-)
   real :: hbdd ! local downstream bdy (-)
-  logical :: found
   type(land_restart_type) :: restart
 
   module_is_initialized = .TRUE.
 
   if (.not. do_hillslope_model) then
      ! Set hillslope indices all to 0 and return
-     te = tail_elmt (land_tile_map)
      ce = first_elmt(land_tile_map)
-     do while(ce /= te)
-        tile=>current_tile(ce)  ! get pointer to current tile
-        ce=next_elmt(ce)        ! advance position to the next tile
+     do while(loop_over_tiles(ce,tile))
         if (associated(tile%soil)) then
            tile%soil%hidx_j = 0
            tile%soil%hidx_k = 0
@@ -652,13 +646,9 @@ subroutine hlsp_init ( id_lon, id_lat )
   tfreeze_diff = 0. ! Initialize before tile loop.
 
   ! Assign hillslope-topographic-position dependent parameters to tiles.
-  te = tail_elmt (land_tile_map)
   ce = first_elmt(land_tile_map, is=lis, js=ljs)
-  do while(ce /= te)
-     tile=>current_tile(ce)  ! get pointer to current tile
-     call get_elmt_indices(ce,i=li,j=lj,k=lk)
+  do while(loop_over_tiles(ce,tile,li,lj,lk))
      call set_current_point(li, lj, lk)
-     ce=next_elmt(ce)        ! advance position to the next tile
 
      if (.not.associated(tile%soil)) cycle
 
@@ -842,28 +832,6 @@ subroutine hlsp_init_predefined ( id_lon, id_lat )
    call send_tile_data_r0d_fptr(id_tile_hlsp_hpos,  land_tile_map,    soil_tile_hlsp_hpos_ptr)
    call send_tile_data_r0d_fptr(id_tile_hlsp_width, land_tile_map,    soil_tile_hlsp_width_ptr)
 !   call send_tile_data_r0d_fptr(id_transm_bedrock,  land_tile_map,    soil_transm_bedrock_ptr)
-
- !Print out parameters
- if (is_watch_point()) then
-   te = tail_elmt(land_tile_map)
-   ce = first_elmt(land_tile_map)
-   do while(ce /= te)
-      tile=>current_tile(ce)  ! get pointer to current tile
-      ce=next_elmt(ce)        ! advance position to the next tile
-      if ((associated(tile%soil)) .eqv. .False.)cycle
-      print*,'soil_e_depth',tile%soil%pars%soil_e_depth
-      print*,'microtopo',tile%soil%pars%microtopo
-      print*,'k_sat_gw',tile%soil%pars%k_sat_gw
-      print*,'hlsp_elev',tile%soil%pars%tile_hlsp_elev
-      print*,'hlsp_hpos',tile%soil%pars%tile_hlsp_hpos
-      print*,'hlsp_width',tile%soil%pars%tile_hlsp_width
-      print*,'hlsp_slope',tile%soil%pars%tile_hlsp_slope
-      print*,'hlsp_length',tile%soil%pars%tile_hlsp_length
-      print*,'microtopo',tile%soil%pars%microtopo
-      print*,'hidx_j',tile%soil%hidx_j
-      print*,'hidx_k',tile%soil%hidx_k
-   end do
- endif
 
 end subroutine hlsp_init_predefined
 
@@ -1096,14 +1064,11 @@ end function soil_tile_exists
 ! For now just set disturb_scale to 1/2 hillslope_length. Later this will be set externally
 ! in transitions code, or in vegetation / peat code.
 subroutine transitions_disturbance_length_init()
-   type(land_tile_enum_type)     :: te,ce  ! tail and current tile list elements
-   type(land_tile_type), pointer :: tile   ! pointer to current tile
+   type(land_tile_enum_type)     :: ce   ! tile list enumerator
+   type(land_tile_type), pointer :: tile ! pointer to current tile
 
-   te = tail_elmt (land_tile_map)
    ce = first_elmt(land_tile_map)
-   do while(ce /= te)
-      tile=>current_tile(ce)  ! get pointer to current tile
-      ce=next_elmt(ce)        ! advance position to the next tile
+   do while(loop_over_tiles(ce,tile))
       if (associated(tile%soil)) then
          tile%soil%pars%disturb_scale = tile%soil%pars%tile_hlsp_length * num_vertclusters / 2.
       end if

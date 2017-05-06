@@ -13,10 +13,8 @@ use fms_mod, only: open_namelist_file
 
 use fms_mod, only: error_mesg, file_exist, check_nml_error, &
      stdlog, close_file, mpp_pe, mpp_root_pe, FATAL, WARNING, NOTE
-use fms_io_mod, only: read_compressed, restart_file_type, free_restart_type, &
-      field_exist, save_restart, &
-      register_restart_field, set_domain, nullify_domain, get_field_size
-use time_manager_mod,   only: time_type, increment_time, time_type_to_real
+use fms_io_mod, only: set_domain, nullify_domain
+use time_manager_mod,   only: time_type_to_real
 use diag_manager_mod,   only: diag_axis_init
 use constants_mod,      only: tfreeze, hlv, hlf, dens_h2o
 use tracer_manager_mod, only: NO_TRACER
@@ -43,8 +41,7 @@ use soil_carbon_mod, only: poolTotalCarbon, soilMaxCohorts, &
      C_CEL, C_LIG, C_MIC, A_function, debug_pool, adjust_pool_ncohorts
 
 use land_tile_mod, only : land_tile_map, land_tile_type, land_tile_enum_type, &
-     first_elmt, tail_elmt, next_elmt, prev_elmt, current_tile, get_elmt_indices, &
-     operator(/=)
+     first_elmt, prev_elmt, loop_over_tiles
 use land_utils_mod, only : put_to_tiles_r0d_fptr, put_to_tiles_r1d_fptr
 use land_tile_diag_mod, only : diag_buff_type, &
      register_tiled_static_field, register_tiled_diag_field, &
@@ -91,7 +88,8 @@ public :: soil_init_predefined
 public :: soil_end
 public :: save_soil_restart
 
-public :: soil_get_sfc_temp
+public :: soil_sfc_water
+public :: soil_evap_limits
 public :: soil_step_1
 public :: soil_step_2
 public :: soil_step_3
@@ -106,7 +104,6 @@ public :: redistribute_peat_carbon
 ! ==== module constants ======================================================
 character(len=*), parameter :: module_name = 'soil'
 #include "../shared/version_variable.inc"
-character(len=*), parameter :: tagname = '$Name$'
 
 ! ==== module variables ======================================================
 
@@ -278,6 +275,7 @@ integer :: id_mrlsl, id_mrsfl, id_mrsll, id_mrsol, id_mrso, id_mrsos, id_mrlso, 
 ! diag IDs of full tile variables
 integer :: id_lwc1_tile,id_lwc2_tile,id_lwc3_tile
 integer :: id_swc1_tile,id_swc2_tile,id_swc3_tile
+integer :: id_wt_2b_tile
 
 ! diag IDs of std of variables
 integer :: id_lwc_std,id_swc_std
@@ -301,7 +299,8 @@ subroutine read_soil_namelist()
 
   call read_soil_data_namelist(num_l,dz,use_single_geo,gw_option)
 
-  call log_version(version, module_name, __FILE__, tagname)
+  call log_version(version, module_name, &
+  __FILE__)
 #ifdef INTERNAL_FILE_NML
   read (input_nml_file, nml=soil_nml, iostat=io)
   ierr = check_nml_error(io, 'soil_nml')
@@ -370,8 +369,8 @@ subroutine soil_init ( id_lon, id_lat, id_band, id_zfull)
   integer, intent(out) :: id_zfull ! ID of vertical soil axis
 
   ! ---- local vars
-  type(land_tile_enum_type)     :: te,ce  ! tail and current tile list elements
-  type(land_tile_type), pointer :: tile   ! pointer to current tile
+  type(land_tile_enum_type)     :: ce   ! tile list enumerator
+  type(land_tile_type), pointer :: tile ! pointer to current tile
   ! input data buffers for respective variables:
   real, allocatable :: gw_param(:,:), gw_param2(:,:), gw_param3(:,:), albedo(:,:,:)
   real, allocatable :: f_iso(:,:,:), f_vol(:,:,:), f_geo(:,:,:), refl_dif(:,:,:)
@@ -458,11 +457,8 @@ subroutine soil_init ( id_lon, id_lat, id_band, id_zfull)
                                             soil_k_sat_gw_ptr )
         endif
         deallocate(gw_param, gw_param2, gw_param3)
-        te = tail_elmt (land_tile_map)
         ce = first_elmt(land_tile_map)
-        do while(ce /= te)
-            tile=>current_tile(ce)  ! get pointer to current tile
-            ce=next_elmt(ce)        ! advance position to the next tile
+        do while(loop_over_tiles(ce,tile))
             if (.not.associated(tile%soil)) cycle
             select case (gw_option)
             case (GW_HILL)
@@ -472,11 +468,8 @@ subroutine soil_init ( id_lon, id_lat, id_band, id_zfull)
             end select
         enddo
      case (GW_TILED)
-        te = tail_elmt (land_tile_map)
         ce = first_elmt(land_tile_map)
-        do while(ce /= te)
-            tile=>current_tile(ce)  ! get pointer to current tile
-            ce=next_elmt(ce)        ! advance position to the next tile
+        do while(loop_over_tiles(ce,tile))
             if (.not.associated(tile%soil)) cycle
             call soil_data_init_derive_subsurf_pars_tiled(tile%soil, use_geohydrodata)
         end do
@@ -560,15 +553,9 @@ subroutine soil_init ( id_lon, id_lat, id_band, id_zfull)
   end if
 
   ! -------- initialize soil state --------
-  te = tail_elmt (land_tile_map)
   ce = first_elmt(land_tile_map, is=lnd%is, js=lnd%js) ! Use global indices here because element indices
-                                                      ! needed.
-  do while(ce /= te)
-     tile=>current_tile(ce)  ! get pointer to current tile
-     ce=next_elmt(ce)        ! advance position to the next tile
+  do while(loop_over_tiles(ce,tile,i=li,j=lj,k=k))
      if (.not.associated(tile%soil)) cycle
-     ! Retrieve indices
-     call get_elmt_indices(prev_elmt(ce),i=li,j=lj,k=k)
      call set_current_point(li,lj,k)
      if (init_wtdep .gt. 0.) then
         if (.not. use_coldstart_wtt_data) then
@@ -653,11 +640,8 @@ subroutine soil_init ( id_lon, id_lat, id_band, id_zfull)
 
      if (field_exists(restart,'fast_soil_C')) then
         ! we are dealing with CORPSE restart
-        te = tail_elmt (land_tile_map)
         ce = first_elmt(land_tile_map)
-        do while(ce /= te)
-            tile=>current_tile(ce)  ! get pointer to current tile
-            ce=next_elmt(ce)        ! advance position to the next tile
+        do while(loop_over_tiles(ce,tile))
             if (.not.associated(tile%soil)) cycle
             call adjust_pool_ncohorts(tile%soil%leafLitter)
             call adjust_pool_ncohorts(tile%soil%fineWoodLitter)
@@ -854,11 +838,8 @@ subroutine soil_init_predefined ( id_lon, id_lat, id_band, id_zfull, id_ptid)
   call soil_diag_init ( id_lon, id_lat, id_band, id_zfull, id_ptid)
 
   !Initialize the soil data parameters
-  te = tail_elmt (land_tile_map)
   ce = first_elmt(land_tile_map)
-  do while(ce /= te)
-    tile=>current_tile(ce)  ! get pointer to current tile
-    ce=next_elmt(ce)        ! advance position to the next tile
+  do while(loop_over_tiles(ce,tile))
     if (.not.associated(tile%soil)) cycle
     call soil_data_init_derive_subsurf_pars_tiled(tile%soil, use_geohydrodata)
   end do
@@ -930,15 +911,9 @@ subroutine soil_init_predefined ( id_lon, id_lat, id_band, id_zfull, id_ptid)
   end if
 
   ! -------- initialize soil state --------
-  te = tail_elmt (land_tile_map)
   ce = first_elmt(land_tile_map, is=lnd%is, js=lnd%js) ! Use global indices here because element indices
-                                                      ! needed.
-  do while(ce /= te)
-     tile=>current_tile(ce)  ! get pointer to current tile
-     ce=next_elmt(ce)        ! advance position to the next tile
+  do while(loop_over_tiles(ce,tile,i=li,j=lj,k=k))
      if (.not.associated(tile%soil)) cycle
-     ! Retrieve indices
-     call get_elmt_indices(prev_elmt(ce),i=li,j=lj,k=k)
      call set_current_point(li,lj,k)
      if (init_wtdep .gt. 0.) then
         if (.not. use_coldstart_wtt_data) then
@@ -1023,11 +998,8 @@ subroutine soil_init_predefined ( id_lon, id_lat, id_band, id_zfull, id_ptid)
 
      if (field_exists(restart,'fast_soil_C')) then
         ! we are dealing with CORPSE restart
-        te = tail_elmt (land_tile_map)
         ce = first_elmt(land_tile_map)
-        do while(ce /= te)
-            tile=>current_tile(ce)  ! get pointer to current tile
-            ce=next_elmt(ce)        ! advance position to the next tile
+        do while(loop_over_tiles(ce,tile))
             if (.not.associated(tile%soil)) cycle
             call adjust_pool_ncohorts(tile%soil%leafLitter)
             call adjust_pool_ncohorts(tile%soil%fineWoodLitter)
@@ -2129,6 +2101,9 @@ subroutine soil_diag_init ( id_lon, id_lat, id_band, id_zfull, id_ptid)
    id_swc3_tile    = register_tiled_diag_field ( module_name, 'swc3_tile',  &
        (/id_lon,id_lat,id_ptid/), lnd%time, 'volumetric water content of frozen water (layer 3)', &
        'm3/m3', missing_value=-100.0,sm=.False.)
+   id_wt_2b_tile = register_tiled_diag_field ( module_name, 'wt_2b_tile',  &
+       (/id_lon,id_lat,id_ptid/), lnd%time, 'Water Table Depth from Surface to Liquid Saturation', 'm', &
+       missing_value=-100.0 ,sm=.False.)
   endif
 
   !Std output
@@ -2157,8 +2132,8 @@ subroutine save_soil_restart (tile_dim_length, timestamp)
   ! ---- local vars ----------------------------------------------------------
   character(267) :: filename
   type(land_restart_type) :: restart ! restart file i/o object
-  type(land_tile_enum_type)     :: te,ce  ! tail and current tile list elements
-  type(land_tile_type), pointer :: tile   ! pointer to current tile
+  type(land_tile_enum_type)     :: ce   ! tile list enumerator
+  type(land_tile_type), pointer :: tile ! pointer to current tile
   integer :: i
 
   call error_mesg('soil_end','writing NetCDF restart',NOTE)
@@ -2184,11 +2159,8 @@ subroutine save_soil_restart (tile_dim_length, timestamp)
      call add_tile_data(restart,'fsc', 'zfull', soil_fast_soil_C_ptr ,'fast soil carbon', 'kg C/m2')
      call add_tile_data(restart,'ssc', 'zfull', soil_slow_soil_C_ptr ,'slow soil carbon', 'kg C/m2')
   case (SOILC_CORPSE)
-     te = tail_elmt (land_tile_map)
      ce = first_elmt(land_tile_map)
-     do while(ce /= te)
-        tile=>current_tile(ce)  ! get pointer to current tile
-        ce=next_elmt(ce)        ! advance position to the next tile
+     do while(loop_over_tiles(ce,tile))
         if (.not.associated(tile%soil)) cycle
         call adjust_pool_ncohorts(tile%soil%leafLitter)
         call adjust_pool_ncohorts(tile%soil%fineWoodLitter)
@@ -2317,16 +2289,6 @@ subroutine save_soil_restart (tile_dim_length, timestamp)
   call nullify_domain()
 end subroutine save_soil_restart
 
-
-! ============================================================================
-subroutine soil_get_sfc_temp ( soil, soil_T )
-  type(soil_tile_type), intent(in) :: soil
-  real, intent(out) :: soil_T
-
-  soil_T= soil%T(1)
-end subroutine soil_get_sfc_temp
-
-
 ! ============================================================================
 ! compute beta function
 ! after Manabe (1969), but distributed vertically.
@@ -2450,6 +2412,51 @@ subroutine soil_data_beta ( soil, vegn, diag, soil_beta, soil_water_supply, &
   end select
 end subroutine soil_data_beta
 
+! ============================================================================
+subroutine soil_sfc_water(soil, grnd_liq, grnd_ice, grnd_subl, grnd_tf)
+  type(soil_tile_type), intent(in) :: soil
+  real, intent(out) :: &
+     grnd_liq, grnd_ice, & ! surface liquid and ice, respectively, kg/m2
+     grnd_subl, &          ! fraction of vapor flux that sublimates
+     grnd_tf               ! freezing temperature
+
+  grnd_liq = 0
+  grnd_ice = 0
+  grnd_subl = soil_subl_frac(soil)
+  ! set soil freezing temperature
+  grnd_tf = soil%pars%tfreeze
+end subroutine soil_sfc_water
+
+! ============================================================================
+real function soil_subl_frac(soil)
+  type(soil_tile_type), intent(in) :: soil
+
+  real :: grnd_liq, grnd_ice ! surface liquid and ice, respectively, kg/m2
+  grnd_liq  = max(soil%wl(1), 0.)
+  grnd_ice  = max(soil%ws(1), 0.)
+  soil_subl_frac = 0.0
+  if (grnd_liq + grnd_ice > 0) &
+      soil_subl_frac = grnd_ice / (grnd_liq + grnd_ice)
+end function soil_subl_frac
+
+! ============================================================================
+subroutine soil_evap_limits(soil, soil_E_min, soil_E_max)
+  type(soil_tile_type), intent(in) :: soil
+  real, intent(out) :: soil_E_min, soil_E_max
+
+  real :: vlc
+  soil_E_min = Eg_min
+  if (use_E_max) then
+     vlc = max(0.0, soil%wl(1) / (dens_h2o * dz(1)))
+     soil_E_max = (soil%pars%k_sat_ref*soil%alpha(1)**2) &
+               * (-soil%pars%psi_sat_ref/soil%alpha(1)) &
+               * ((4.+soil%pars%chb)*vlc/ &
+                ((3.+soil%pars%chb)*soil%pars%vwc_sat))**(3.+soil%pars%chb) &
+                / ((1.+3./soil%pars%chb)*dz(1))
+  else
+     soil_E_max =  HUGE(soil_E_max)
+  endif
+end subroutine soil_evap_limits
 
 ! ============================================================================
 ! update soil properties explicitly for time step.
@@ -2458,26 +2465,18 @@ end subroutine soil_data_beta
 ! integrate soil-heat conduction equation upward from bottom of soil
 ! to surface, delivering linearization of surface ground heat flux.
 subroutine soil_step_1 ( soil, vegn, diag, &
-                         soil_T, soil_uptake_T, soil_beta, soil_water_supply, &
-                         soil_E_min, soil_E_max, &
-                         soil_rh, soil_rh_psi, soil_liq, soil_ice, soil_subl, soil_tf, &
+                         soil_uptake_T, soil_beta, soil_water_supply, &
+                         soil_rh, soil_rh_psi, &
                          soil_G0, soil_DGDT )
   type(soil_tile_type), intent(inout) :: soil
   type(vegn_tile_type), intent(in)    :: vegn
   type(diag_buff_type), intent(inout) :: diag
   real, intent(out) :: &
-       soil_T, &    ! temperature of the upper layer of the soil, degK
        soil_uptake_T, & ! estimate of the temperature of the water taken up by transpiration
        soil_beta, &
        soil_water_supply, & ! supply of water to vegetation per unit total active root biomass, kg/m2
-       soil_E_min, &
-       soil_E_max, &
        soil_rh,   & ! soil surface relative humidity
        soil_rh_psi,& ! derivative of soil_rh w.r.t. soil surface matric head
-       soil_liq,  & ! amount of liquid water available for implicit freeze (=0)
-       soil_ice,  & ! amount of ice available for implicit melt (=0)
-       soil_subl, & ! part of sublimation in water vapor flux, dimensionless [0,1]
-       soil_tf,   & ! soil freezing temperature, degK
        soil_G0, soil_DGDT ! linearization of ground heat flux
   ! ---- local vars
   real :: bbb, denom, dt_e
@@ -2496,7 +2495,6 @@ subroutine soil_step_1 ( soil, vegn, diag, &
 ! of water availability, so that vapor fluxes will not exceed mass limits
 ! ----------------------------------------------------------------------------
 
-  soil_T = soil%T(1)
   call soil_data_beta ( soil, vegn, diag, soil_beta, soil_water_supply, soil_uptake_T, &
                         soil_rh, soil_rh_psi )
 
@@ -2504,25 +2502,12 @@ subroutine soil_step_1 ( soil, vegn, diag, &
      vlc(l) = max(0.0, soil%wl(l) / (dens_h2o * dz(l)))
      vsc(l) = max(0.0, soil%ws(l) / (dens_h2o * dz(l)))
   enddo
-  call soil_data_thermodynamics ( soil, vlc, vsc,  &
-                                  soil_E_max, thermal_cond )
-  if (.not.use_E_max) soil_E_max =  HUGE(soil_E_max)
-  soil_E_min = Eg_min
+  call soil_data_thermodynamics ( soil, vlc, vsc, thermal_cond )
 
   do l = 1, num_l
      heat_capacity(l) = soil%heat_capacity_dry(l) *dz(l) &
           + clw*soil%wl(l) + csw*soil%ws(l)
   enddo
-
-  soil_liq  = max(soil%wl(1), 0.)
-  soil_ice  = max(soil%ws(1), 0.)
-  if (soil_liq + soil_ice > 0) then
-     soil_subl = soil_ice / (soil_liq + soil_ice)
-  else
-     soil_subl = 0
-  endif
-  soil_liq = 0
-  soil_ice = 0
 
   if(num_l > 1) then
      do l = 1, num_l-1
@@ -2555,20 +2540,12 @@ subroutine soil_step_1 ( soil, vegn, diag, &
      soil_DGDT  = 1. / denom
   end if
 
-  ! set soil freezing temperature
-  soil_tf = soil%pars%tfreeze
-
   if(is_watch_point()) then
      write(*,*) '#### soil_step_1 checkpoint 1 ####'
      write(*,*) 'mask    ', .true.
-     write(*,*) 'T       ', soil_T
      write(*,*) 'uptake_T', soil_uptake_T
      write(*,*) 'beta    ', soil_beta
-     write(*,*) 'E_max   ', soil_E_max
      write(*,*) 'rh      ', soil_rh
-     write(*,*) 'liq     ', soil_liq
-     write(*,*) 'ice     ', soil_ice
-     write(*,*) 'subl    ', soil_subl
      write(*,*) 'G0      ', soil_G0
      write(*,*) 'DGDT    ', soil_DGDT
      __DEBUG1__(soil_water_supply)
@@ -2581,7 +2558,7 @@ end subroutine soil_step_1
 
 ! ============================================================================
 ! apply boundary flows to soil water and move soil water vertically.
-  subroutine soil_step_2 ( soil, vegn, diag, soil_subl, snow_lprec, snow_hlprec,  &
+  subroutine soil_step_2 ( soil, vegn, diag, snow_lprec, snow_hlprec,  &
                            vegn_uptk, &
                            subs_DT, subs_M_imp, subs_evap, &
                            use_tfreeze_in_grnd_latent, &
@@ -2591,8 +2568,6 @@ end subroutine soil_step_1
   type(soil_tile_type), intent(inout) :: soil
   type(vegn_tile_type), intent(in)    :: vegn
   type(diag_buff_type), intent(inout) :: diag
-  real, intent(in) :: & ! ZMS assign tentative annotations below with "??"
-       soil_subl     ! ?? solution for soil surface sublimation [mm/s]
   real, intent(in) :: &
        snow_lprec, & ! ?? solid / liquid throughfall infiltrating the snow [mm/s]
        snow_hlprec, & ! ?? heat associated with snow_lprec [W/m^2]
@@ -2651,6 +2626,7 @@ end subroutine soil_step_1
        lrunf_sc, & ! sub-column runoff [mm/s]
        frunf, & ! frozen runoff (due to sat excess) [mm/s]
        hfrunf, & ! heat from frozen runoff (due to sat excess) [W/m^2]
+       soil_subl, & ! fraction of water vapor that leaves surface as sublimation
        d_GW, &
        hlrunf_sn,hlrunf_ie,hlrunf_bf,hlrunf_if,hlrunf_al,hlrunf_nu,hlrunf_sc, & ! runoff heat fluxes [W/m^2]
        c0, c1, c2, Dpsi_min, Dpsi_max, &
@@ -2735,6 +2711,7 @@ end subroutine soil_step_1
 !  end if
 
   ! ---- record fluxes -----------------------------------------------------
+  soil_subl = soil_subl_frac(soil)
   soil_levap  = subs_evap*(1-soil_subl)
   soil_fevap  = subs_evap*   soil_subl
   soil_melt   = subs_M_imp / delta_time
@@ -3730,6 +3707,7 @@ end subroutine soil_step_1
   call send_tile_data(id_swc1_tile,soil%ws(1)/(1000.0*dz(1)), diag)
   call send_tile_data(id_swc2_tile,soil%ws(2)/(1000.0*dz(2)), diag)
   call send_tile_data(id_swc3_tile,soil%ws(3)/(1000.0*dz(3)), diag)
+  call send_tile_data(id_wt_2b_tile, depth_to_wt_2b, diag)
 
   ! std variables
   if (id_lwc_std > 0) call send_tile_data(id_lwc_std,  soil%wl/dz(1:num_l), diag)
@@ -5281,7 +5259,6 @@ subroutine init_soil_twc(soil, ref_soil_t, mwc)
    real, intent(in), dimension(num_l)  :: mwc  ! total water content to init [kg/m^3]
    integer :: l ! soil level
    real, dimension(num_l) :: vlc, vsc ! volumetric liquid and solid water contents [-]
-   real  :: soil_E_max ! not used
    real, dimension(num_l)  :: thermal_cond ! soil thermal conductivity [W/m/K]
    real  :: tres       ! thermal resistance [K / (W/m^2)]
 
@@ -5301,7 +5278,7 @@ subroutine init_soil_twc(soil, ref_soil_t, mwc)
    ! Initialize thermal conductivity
    vlc(:) = soil%wl(1:num_l)/ (dz(1:num_l)*dens_h2o*soil%pars%vwc_sat)
    vsc(:) = soil%ws(1:num_l)/ (dz(1:num_l)*dens_h2o*soil%pars%vwc_sat)
-   call soil_data_thermodynamics ( soil, vlc, vsc, soil_E_max, thermal_cond)
+   call soil_data_thermodynamics ( soil, vlc, vsc, thermal_cond)
 
    ! Walk down through soil and maintain geothermal heat flux profile.
    do l=2,num_l
@@ -5315,7 +5292,7 @@ subroutine init_soil_twc(soil, ref_soil_t, mwc)
          soil%ws(l:num_l) = 0.
          vlc(l:num_l) = soil%wl(l:num_l)/ (dz(l:num_l)*dens_h2o*soil%pars%vwc_sat)
          vsc(l:num_l) = soil%ws(l:num_l)/ (dz(l:num_l)*dens_h2o*soil%pars%vwc_sat)
-         call soil_data_thermodynamics ( soil, vlc, vsc, soil_E_max, thermal_cond)
+         call soil_data_thermodynamics ( soil, vlc, vsc, thermal_cond)
       end if
    end do
 

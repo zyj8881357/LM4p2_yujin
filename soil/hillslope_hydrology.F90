@@ -9,17 +9,15 @@ use fms_mod, only : error_mesg, FATAL, NOTE
 use soil_tile_mod, only : &
      soil_tile_type, clw, initval, soil_data_hydraulic_properties
 use land_tile_mod, only : land_tile_map, land_tile_type, land_tile_enum_type, &
-     first_elmt, tail_elmt, next_elmt, current_tile, operator(/=), nitems
-use fms_mod, only : write_version_number
-use land_data_mod, only : land_state_type, lnd, log_version
+     first_elmt, loop_over_tiles, operator(/=), nitems
+use land_data_mod, only : lnd, log_version
 use land_debug_mod, only : is_watch_point, set_current_point, get_current_point, &
                            check_conservation, is_watch_cell
 use hillslope_mod, only : do_hillslope_model, strm_depth_penetration, use_hlsp_aspect_in_gwflow, &
                           use_geohydrodata, stiff_do_explicit, dammed_strm_bc, simple_inundation, &
                           surf_flow_velocity, limit_intertile_flow, flow_ratio_limit, exp_inundation, &
                           tiled_DOC_flux
-use constants_mod,      only: tfreeze, &
-                              dens_h2o, epsln
+use constants_mod, only : tfreeze, dens_h2o, epsln
       ! Use global tfreeze in energy flux calculations, not local freezing-point-depression temperature.
 use fms_mod, only: error_mesg, FATAL
 use time_manager_mod, only : time_type, time_type_to_real
@@ -42,7 +40,6 @@ public :: stiff_explicit_gwupdate
 ! ==== module constants ======================================================
 character(len=*), parameter :: module_name = 'hillslope_hydrology'
 #include "../shared/version_variable.inc"
-character(len=*), parameter :: tagname = '$Name$'
 
 ! ---- diagnostic field IDs
 !integer :: id_gtos_hlsp, & ! ground to stream runoff for hillslope area
@@ -54,7 +51,7 @@ integer :: id_gtos, & !  groundwater divergence from tile to stream (mm/s)
            id_gtosh   !  heat flux associated with groundwater divergence to stream (W/m^2)
 integer :: id_gtdiv, & ! tracer flux associated with groundwater divergence (excl. to stream) (kg C/m^2/s)
            id_gtost    ! tracer flux from tile to stream (kg C/m^2/s)
-integer :: id_gtos_tile, id_gtosh_tile
+integer :: id_gtos_tile, id_gtosh_tile,id_gdiv_tile,id_ghdiv_tile
 
 ! ==== module variables ======================================================
 logical :: module_is_initialized =.FALSE.
@@ -71,7 +68,8 @@ subroutine hlsp_hydro_lev_init(num_l_in, dz_in, zfull_in)
        dz_in(:), &  ! layer thickness
        zfull_in(:)  ! layer centers
 
-  call log_version(version, module_name, __FILE__, tagname)
+  call log_version(version, module_name, &
+  __FILE__)
   module_is_initialized =.TRUE.
 
   num_l = num_l_in
@@ -189,7 +187,7 @@ subroutine hlsp_hydrology_1(num_species)
 
    integer ::     j,i,l,k,s
    type(land_tile_type), pointer :: tile, tile2 ! pointers to tile list elements
-   type(land_tile_enum_type)     :: te, ce, ce2  ! tail and current tile list elements
+   type(land_tile_enum_type)     :: ce, ce2  ! tail and current tile list elements
    type(soil_tile_type), pointer :: soil, soil2 ! pointers to soil tiles
 
    ! Tile fractional area sums, needed for normalizing flux into tile.
@@ -266,17 +264,11 @@ subroutine hlsp_hydrology_1(num_species)
    do j=lnd%js,lnd%je
       do i=lnd%is,lnd%ie
 
-         te = tail_elmt (land_tile_map(i,j))
-
          ! Initial loop over tile list
          ! ZMS for now this is an extra loop to calculate soil hydraulic props.
          ! This will need to be consolidated later.
          ce = first_elmt(land_tile_map(i,j))
-         k = 0
-         do while(ce /= te)
-            tile=>current_tile(ce)  ! get pointer to current tile
-            !tile%frac = 0.5 !HERE
-            ce = next_elmt(ce); k = k+1
+         do while(loop_over_tiles(ce,tile,k=k))
             if (.not.associated(tile%soil)) cycle
             soil => tile%soil
             call set_current_point(i,j,k)
@@ -315,10 +307,6 @@ subroutine hlsp_hydrology_1(num_species)
          ! ZMS Add diagnostic for hillslope-specific streamflow?
 !         area_stream = 0.
 
-         ! Get first pointer to tile list.
-         ce = first_elmt(land_tile_map(i,j))
-         k = 1
-
          ! Allocate and initialize gtos_bytile
          numtiles = nitems(land_tile_map(i,j))
          allocate(gtos_bytile(numtiles, num_l), gtosh_bytile(numtiles, num_l), &
@@ -327,14 +315,9 @@ subroutine hlsp_hydrology_1(num_species)
          gtosh_bytile(:,:) = 0.
          gtost_bytile(:,:,:) = 0.
 
-         do while(ce /= te)
-            tile=>current_tile(ce)  ! get pointer to current tile
-            ! advance position to the next tile at bottom of loop, as ce needed in comparison
-            if (.not.associated(tile%soil)) then
-               ce = next_elmt(ce)
-               k=k+1
-               cycle
-            end if
+         ce = first_elmt(land_tile_map(i,j))
+         do while(loop_over_tiles(ce,tile,k=k))
+            if (.not.associated(tile%soil)) cycle
 
             soil => tile%soil
 
@@ -363,17 +346,10 @@ subroutine hlsp_hydrology_1(num_species)
             tdiv_level(:,:) = 0.
             tdiv_below(:,:) = 0.
 
-            ! Get pointer to second tile list
-            ce2 = first_elmt(land_tile_map(i,j))
-
             ! Loop over second tile list, and calculate fluxes
-            do while (ce2 /= te)
-               tile2=>current_tile(ce2)
-               !tile2%frac = 0.5 !HERE
-               if (.not.associated(tile2%soil)) then
-                  ce2=next_elmt(ce2)
-                  cycle
-               end if
+            ce2 = first_elmt(land_tile_map(i,j))
+            do while (loop_over_tiles(ce2,tile2))
+               if (.not.associated(tile2%soil)) cycle
 
                soil2 => tile2%soil
 
@@ -576,8 +552,6 @@ subroutine hlsp_hydrology_1(num_species)
                   end if ! hidx_j
 
                end if ! hidx_k
-
-               ce2=next_elmt(ce2)
             end do ! loop over second tile list
 
             ! Initialize outputs
@@ -737,8 +711,8 @@ subroutine hlsp_hydrology_1(num_species)
             soil%div_hlsp_heat = div_hlsp_heat
             soil%div_hlsp_DOC = div_hlsp_DOC
 
-            ce=next_elmt(ce)
             k=k+1
+
          end do  ! loop over first tile list
 
          ! Normalize flows to stream
@@ -758,11 +732,7 @@ subroutine hlsp_hydrology_1(num_species)
          ebal = 0.
          tbal(:) = 0.
 
-         k = 0
-         do while(ce /= te)
-            k = k + 1
-            tile=>current_tile(ce)  ! get pointer to current tile
-            ce = next_elmt(ce)
+         do while(loop_over_tiles(ce,tile,k=k))
             if (.not.associated(tile%soil)) cycle
 
             do l=1,num_l
@@ -790,6 +760,8 @@ subroutine hlsp_hydrology_1(num_species)
             call send_tile_data(id_gtdiv, gtdiv, tile%diag)
             call send_tile_data(id_gtos_tile,sum(tile%soil%gtos(:)),tile%diag)
             call send_tile_data(id_gtosh_tile,sum(tile%soil%gtosh(:)),tile%diag)
+            call send_tile_data(id_gdiv_tile,sum(tile%soil%div_hlsp-tile%soil%gtos),tile%diag)
+            call send_tile_data(id_ghdiv_tile,sum(tile%soil%div_hlsp_heat-tile%soil%gtosh(:)),tile%diag)
 
          end do
 
@@ -864,6 +836,12 @@ subroutine hlsp_hydro_init (id_lon, id_lat, id_zfull, id_ptid)
        missing_value=-1.0e+20, sm=.False. )
    id_gtosh_tile = register_tiled_diag_field ( module_name, 'gtosh_tile', (/id_lon, id_lat,&
        id_ptid/),lnd%time, 'heat flux associated with groundwater divergence to stream',&
+       'W/m^2)', missing_value=-1.0e+20,sm=.False. )
+   id_gdiv_tile = register_tiled_diag_field ( module_name, 'gdiv_tile', (/id_lon, id_lat,&
+       id_ptid/),lnd%time, 'groundwater divergence out of tiles, excluding flow to stream (i.e., baseflow)',&
+        'mm/s', missing_value=-1.0e+20, sm=.False. )
+   id_ghdiv_tile = register_tiled_diag_field ( module_name, 'ghdiv_tile', (/id_lon, id_lat,&
+       id_ptid/),lnd%time, 'heat flux associated with groundwater divergence (excl. to stream)',&
        'W/m^2)', missing_value=-1.0e+20,sm=.False. )
 
 end subroutine hlsp_hydro_init

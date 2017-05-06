@@ -2,7 +2,7 @@ module cohort_io_mod
 
 use fms_mod,          only : error_mesg, FATAL, WARNING, get_mosaic_tile_file
 use fms_io_mod,       only : register_restart_axis, restart_file_type, get_instance_filename, &
-   get_field_size, register_restart_field, read_compressed
+   register_restart_field, read_compressed
 use mpp_mod,          only : mpp_pe, mpp_max, mpp_send, mpp_recv, mpp_sync, &
                              COMM_TAG_1, COMM_TAG_2
 use nf_utils_mod,     only : nfu_inq_dim, nfu_get_var, nfu_put_var, &
@@ -13,13 +13,10 @@ use land_tile_mod,    only : land_tile_map, land_tile_type, land_tile_list_type,
      land_tile_enum_type, first_elmt, tail_elmt, next_elmt, get_elmt_indices, &
      current_tile, operator(/=)
 
-use land_tile_io_mod, only: land_restart_type, &
-     init_land_restart, open_land_restart, save_land_restart, free_land_restart, &
-     add_restart_axis, add_tile_data, get_tile_data, &
-     get_tile_by_idx, sync_nc_files
+use land_tile_io_mod, only : land_restart_type, get_tile_by_idx, sync_nc_files
 
 use vegn_cohort_mod, only: vegn_cohort_type
-use land_data_mod, only : lnd, land_state_type
+use land_data_mod, only : lnd
 
 implicit none
 private
@@ -48,8 +45,7 @@ end interface assemble_cohorts
 
 ! ==== module constants ======================================================
 character(len=*), parameter :: module_name = 'cohort_io_mod'
-#include "../shared/version_variable.inc"
-
+! name of the "compressed" dimension (and dimension variable) in the output
 ! netcdf files -- that is, the dimensions written out using compression by
 ! gathering, as described in CF conventions.
 character(len=*),   parameter :: cohort_index_name   = 'cohort_index'
@@ -115,19 +111,20 @@ subroutine read_create_cohorts(restart)
         'cohort index not found in file "'//restart%filename//'"',FATAL)
      call read_create_cohorts_new(restart%cidx,restart%tile_dim_length)
   else
-     call read_create_cohorts_orig(restart%ncid)
+     call read_create_cohorts_orig(restart%ncid,restart%filename)
   endif
 end subroutine
 
 ! ============================================================================
-subroutine read_create_cohorts_orig(ncid)
+subroutine read_create_cohorts_orig(ncid, filename)
   integer, intent(in) :: ncid
+  character(*), intent(in) :: filename
 
   integer :: ncohorts ! total number of cohorts in restart file
   integer :: nlon, nlat, ntiles ! size of respective dimensions
 
   integer, allocatable :: idx(:)
-  integer :: i,j,t,k,m, n, nn, idxid
+  integer :: i,j,t,k,m, n, nn, idxid, ierr
   integer :: bufsize
   type(land_tile_enum_type) :: ce, te
   type(land_tile_type), pointer :: tile
@@ -135,11 +132,17 @@ subroutine read_create_cohorts_orig(ncid)
 
   ! get the size of dimensions
   nlon = lnd%nlon ; nlat = lnd%nlat
-  __NF_ASRT__(nfu_inq_dim(ncid,'tile',len=ntiles))
+  ierr = nfu_inq_dim(ncid,'tile',len=ntiles)
+  if (ierr/=NF_NOERR) call error_mesg('read_create_cohorts_orig', &
+              'dimension "tile" not found in file "'//trim(filename)//'"', FATAL)
 
   ! read the cohort index
-  __NF_ASRT__(nfu_inq_dim(ncid,cohort_index_name,len=ncohorts))
-  __NF_ASRT__(nfu_inq_var(ncid,cohort_index_name,id=idxid))
+  ierr = nfu_inq_dim(ncid,cohort_index_name,len=ncohorts)
+  if (ierr/=NF_NOERR) call error_mesg('read_create_cohorts_orig', &
+              'dimension "'//trim(cohort_index_name)//'" not found in file "'//trim(filename)//'"', FATAL)
+  ierr = nfu_inq_var(ncid,cohort_index_name,id=idxid)
+  if (ierr/=NF_NOERR) call error_mesg('read_create_cohorts_orig', &
+              'variable "'//trim(cohort_index_name)//'" not found in file "'//trim(filename)//'"', FATAL)
   bufsize = min(input_buf_size,ncohorts)
   allocate(idx(bufsize))
 

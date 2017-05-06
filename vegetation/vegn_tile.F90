@@ -1,15 +1,13 @@
 module vegn_tile_mod
 
-use fms_mod, only : &
-     write_version_number, stdlog, error_mesg, FATAL
-use constants_mod, only : &
-     tfreeze, hlf
+#include "../shared/debug.inc"
+
+use fms_mod,            only : error_mesg, FATAL
+use constants_mod,      only : tfreeze, hlf
 
 use land_constants_mod, only : NBANDS
-use land_io_mod, only : &
-     init_cover_field
-use land_tile_selectors_mod, only : &
-     tile_selector_type, SEL_VEGN
+use land_io_mod,        only : init_cover_field
+use land_tile_selectors_mod, only : tile_selector_type
 
 use vegn_data_mod, only : &
      NSPECIES, MSPECIES, NCMPT, C2B, &
@@ -154,7 +152,6 @@ real, public :: &
      csw = 2106.0    ! specific heat of water (ice)
 
 contains ! -=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-
-
 
 ! ============================================================================
 function vegn_tile_ctor(tag) result(ptr)
