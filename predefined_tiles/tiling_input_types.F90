@@ -101,6 +101,7 @@ type :: soil_predefined_type
  real,pointer,dimension(:) :: tile_hlsp_elev
  real,pointer,dimension(:) :: tile_hlsp_hpos
  real,pointer,dimension(:) :: tile_hlsp_width
+ real,pointer,dimension(:) :: tile_hlsp_frac
  integer,pointer,dimension(:) :: hidx_k
  integer,pointer,dimension(:) :: hidx_j
  !vegetation

@@ -366,10 +366,10 @@ subroutine hlsp_hydrology_1(num_species)
                      w2 = soil2%pars%tile_hlsp_width
 
                      if (soil%hidx_j == soil2%hidx_j - 1) then ! tile2 above tile
-                        area_above = area_above + tile2%frac
+                        area_above = area_above + tile2%soil%pars%tile_hlsp_frac
                         !area_above = area_above + L2*w2 HERE
                      else ! tile2 below tile
-                        area_below = area_below + tile2%frac
+                        area_below = area_below + tile2%soil%pars%tile_hlsp_frac
                         !area_below = area_below + L2*w2 HERE
                      end if
                      !L1 = 100 !HERE
@@ -386,7 +386,7 @@ subroutine hlsp_hydrology_1(num_species)
                      ! Debug
                      if (is_watch_cell()) then
                         write(*,*)'Water & energy fluxes to tile with area, hk, hj:', &
-                                  tile2%frac, soil2%hidx_k, soil2%hidx_j, '.'
+                                  tile2%soil%pars%tile_hlsp_frac, soil2%hidx_k, soil2%hidx_j, '.'
                      end if
 
                      if (tiled_DOC_flux) then
@@ -419,7 +419,7 @@ subroutine hlsp_hydrology_1(num_species)
                         !wflux0 = L2 * w2 / L1 / w1!tile2%frac/L1/w1
                         !wflux1 = k_hat * deltapsi/L_hat * dz(l) * w_hat
                         !wflux = wflux1 * wflux0
-                        wflux = k_hat * deltapsi/L_hat * dz(l) * tile2%frac / L1 * w_hat / w1
+                        wflux = k_hat * deltapsi/L_hat * dz(l) * tile2%soil%pars%tile_hlsp_frac / L1 * w_hat / w1
                         !wflux = k_hat * deltapsi/L_hat * dz(l) * L2 * w2 / L1 * w_hat / w1
                         !print*,k_hat,deltapsi,L_hat,dz(l),tile2%frac,L1,w_hat,w1
                         !print*,tile%frac,L1,w1,wflux,wflux/tile2%frac*tile%frac
@@ -477,8 +477,8 @@ subroutine hlsp_hydrology_1(num_species)
                   else if (soil%hidx_j == soil2%hidx_j .and. ce /= ce2) then
 
                      ! tile2 is in same level
-                     A1 = tile%frac
-                     A2 = tile2%frac
+                     A1 = tile%soil%pars%tile_hlsp_frac
+                     A2 = tile2%soil%pars%tile_hlsp_frac
                      area_level = area_level + A2
                      ! A1 will be added to area_level at bottom.
                      y = soil%pars%disturb_scale
@@ -486,7 +486,7 @@ subroutine hlsp_hydrology_1(num_species)
                      ! Debug
                      if (is_watch_cell()) then
                         write(*,*)'Water & energy fluxes to tile with area, hk, hj:', &
-                                  tile2%frac, soil2%hidx_k, soil2%hidx_j, '.'
+                                  tile2%soil%pars%tile_hlsp_frac, soil2%hidx_k, soil2%hidx_j, '.'
                      end if
 
                      if (tiled_DOC_flux) then
@@ -574,7 +574,7 @@ subroutine hlsp_hydrology_1(num_species)
             
             if (area_level > 0.) then
                ! Add current tile to area_level
-               area_level = area_level + tile%frac
+               area_level = area_level + tile%soil%pars%tile_hlsp_frac
                !print*,'level',div_level/area_level
                div_hlsp(:) = div_hlsp(:) + div_level(:) / area_level
                div_hlsp_heat(:) = div_hlsp_heat(:) + hdiv_level(:) / area_level
@@ -604,7 +604,7 @@ subroutine hlsp_hydrology_1(num_species)
             ! Calculate flows directly to stream
             if (soil%hidx_j == 1) then
             ! ZMS for now assume psi(stream) == 0.
-               A1 = tile%frac
+               A1 = tile%soil%pars%tile_hlsp_frac
 !               area_stream = area_stream + A1
                L1 = soil%pars%tile_hlsp_length
                L_hat = L1/2.
@@ -737,10 +737,10 @@ subroutine hlsp_hydrology_1(num_species)
 
             do l=1,num_l
                !print*,l,tile%soil%div_hlsp(l) * tile%frac
-               wbal = wbal + tile%soil%div_hlsp(l) * tile%frac
-               ebal = ebal + tile%soil%div_hlsp_heat(l) * tile%frac
+               wbal = wbal + tile%soil%div_hlsp(l) * tile%soil%pars%tile_hlsp_frac
+               ebal = ebal + tile%soil%div_hlsp_heat(l) * tile%soil%pars%tile_hlsp_frac
                do s=1,num_species
-                     tbal(s) = tbal(s) + tile%soil%div_hlsp_DOC(s,l) * tile%frac
+                     tbal(s) = tbal(s) + tile%soil%div_hlsp_DOC(s,l) * tile%soil%pars%tile_hlsp_frac
                end do
             end do
 

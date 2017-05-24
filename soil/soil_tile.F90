@@ -182,6 +182,7 @@ type :: soil_pars_type
   real disturb_scale    ! characteristic horizontal disturbance lengthscale within hillslope (m)
                         ! This will need to be set in transitions; otherwise, defaults to 1/2
                         ! tile_hlsp_width.
+  real tile_hlsp_frac   ! fraction of the hillslope (different from fraction of the grid cell
 
   real Qmax             ! Maximum carbon sorption capacity (kgC/m3 soil)
 end type soil_pars_type
@@ -1173,6 +1174,7 @@ subroutine soil_data_init_0d_predefined(soil,tile_parameters,itile)
   soil%pars%tile_hlsp_elev = tile_parameters%tile_hlsp_elev(itile)
   soil%pars%tile_hlsp_hpos = tile_parameters%tile_hlsp_hpos(itile)
   soil%pars%tile_hlsp_width = tile_parameters%tile_hlsp_width(itile)
+  soil%pars%tile_hlsp_frac = tile_parameters%tile_hlsp_frac(itile)
 
   !Print out the parameter values 
   if (is_watch_point()) then
