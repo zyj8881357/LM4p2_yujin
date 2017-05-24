@@ -576,7 +576,7 @@ subroutine retrieve_soil_parameters(tile_parameters,cid)
   !where(soil%tile_hlsp_length .lt. 0.001)soil%tile_hlsp_length = 100.0
   !where(soil%tile_hlsp_width .lt. 0.001)soil%tile_hlsp_width = 1.0
   where(isnan(soil%gw_soil_e_depth) .eq. .True.)soil%gw_soil_e_depth = 3.0
-  where(soil%dat_k_sat_ref .gt. 0.01)soil%dat_k_sat_ref = 0.01
+  !where(soil%dat_k_sat_ref .gt. 0.01)soil%dat_k_sat_ref = 0.01
 
   !Close access to the group
   call h5gclose_f(grpid,status)
