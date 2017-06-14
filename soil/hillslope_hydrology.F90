@@ -22,7 +22,7 @@ use constants_mod, only : tfreeze, dens_h2o, epsln
 use fms_mod, only: error_mesg, FATAL
 use time_manager_mod, only : time_type, time_type_to_real
 use land_tile_diag_mod, only : diag_buff_type, register_tiled_diag_field, &
-     send_tile_data, set_default_diag_filter
+     send_tile_data, set_default_diag_filter, OP_STD
 use soil_carbon_mod, only : retrieve_DOC
 
 implicit none
@@ -47,7 +47,7 @@ character(len=*), parameter :: module_name = 'hillslope_hydrology'
 !                           ! normalized to hillslope area (mm/s), (W/m^2), respectively
 integer :: id_gdiv, & !  groundwater divergence (excl. to stream) (mm/s)
            id_ghdiv   !  heat flux associated with groundwater divergence (excl. to stream) (W/m^2)
-integer :: id_gtos, & !  groundwater divergence from tile to stream (mm/s)
+integer :: id_gtos, id_gtos_std, & !  groundwater divergence from tile to stream (mm/s)
            id_gtosh   !  heat flux associated with groundwater divergence to stream (W/m^2)
 integer :: id_gtdiv, & ! tracer flux associated with groundwater divergence (excl. to stream) (kg C/m^2/s)
            id_gtost    ! tracer flux from tile to stream (kg C/m^2/s)
@@ -750,6 +750,7 @@ subroutine hlsp_hydrology_1(num_species)
             call send_tile_data(id_ghdiv, tile%soil%div_hlsp_heat - gtosh_bytile(k,:), &
                                          tile%diag)
             call send_tile_data(id_gtos, gtos_bytile(k,:), tile%diag)
+            call send_tile_data(id_gtos_std, gtos_bytile(k,:), tile%diag)
             call send_tile_data(id_gtosh, gtosh_bytile(k,:), tile%diag)
 
             do l=1,num_l
@@ -825,6 +826,9 @@ subroutine hlsp_hydro_init (id_lon, id_lat, id_zfull, id_ptid)
    id_gtos = register_tiled_diag_field ( module_name, 'grounddiv_to_stream', axes, &
        lnd%time, 'groundwater divergence out of tiles directly to stream', 'mm/s', &
        missing_value=initval )
+   id_gtos_std = register_tiled_diag_field ( module_name, 'grounddiv_to_stream_std', axes, &
+       lnd%time, 'groundwater divergence out of tiles directly to stream across tiles in grid cell', &
+       'mm/ss', missing_value=initval, op=OP_STD)
    id_gtosh = register_tiled_diag_field ( module_name, 'groundheatdiv_to_stream', axes, &
        lnd%time, 'heat flux associated with groundwater divergence to stream', 'W/m^2', missing_value=initval )
    id_gtdiv = register_tiled_diag_field ( module_name, 'groundwater_tracer_div', axes, &

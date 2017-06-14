@@ -163,7 +163,7 @@ real            :: dt_fast_yr      ! fast time step in years
 integer         :: vegn_phot_co2_option = -1 ! internal selector of co2 option
                                    ! used for photosynthesis
 ! diagnostic field ids
-integer :: id_vegn_type, id_temp, id_wl, id_ws, id_height, &
+integer :: id_vegn_type, id_temp, id_wl, id_ws, id_height, id_height_std, &
    id_lai, id_sai, id_lai_var, id_lai_std, id_leaf_size, &
    id_root_density, id_root_zeta, id_rs_min, id_leaf_refl, id_leaf_tran,&
    id_leaf_emis, id_snow_crit, id_stomatal, id_an_op, id_an_cl, &
@@ -736,6 +736,9 @@ subroutine vegn_diag_init ( id_lon, id_lat, id_band, id_ptid, time )
 
   id_height = register_tiled_diag_field ( module_name, 'height',  &
        (/id_lon,id_lat/), time, 'vegetation height', 'm', missing_value=-1.0 )
+  id_height_std = register_tiled_diag_field ( module_name, 'height_std',  &
+       (/id_lon,id_lat/), time, 'standard deviation of vegetation height across tiles in grid cell', &
+       'm2/m2', missing_value=-1.0, op=OP_STD)
   id_lai    = register_tiled_diag_field ( module_name, 'lai',  &
        (/id_lon,id_lat/), time, 'leaf area index', 'm2/m2', missing_value=-1.0 )
   id_lai_var = register_tiled_diag_field ( module_name, 'lai_var',  &
@@ -1515,6 +1518,7 @@ subroutine vegn_step_2 ( vegn, diag, &
   call send_tile_data(id_ws,     cohort%Ws, diag)
 
   call send_tile_data(id_height, cohort%height, diag)
+  call send_tile_data(id_height_std, cohort%height, diag)
   call send_tile_data(id_lai, cohort%lai, diag)
   call send_tile_data(id_lai_var, cohort%lai, diag)
   call send_tile_data(id_lai_std, cohort%lai, diag)

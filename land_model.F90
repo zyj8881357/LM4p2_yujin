@@ -165,6 +165,8 @@ logical :: print_remapping = .FALSE. ! if true, full land cover remapping
               ! information is printed on the cold start
 logical :: predefined_tiles= .FALSE. ! If true, the tiles for each grid cell for
               ! each grid cell are read from an external file
+logical :: update_hillslope = .TRUE. ! If true, the tiles along the hillslope are allowed 
+              ! to interact
 integer :: layout(2) = (/0,0/)
 integer :: io_layout(2) = (/0,0/)
   ! mask_table contains information for masking domain ( n_mask, layout and mask_list).
@@ -212,7 +214,7 @@ namelist /land_model_nml/ use_old_conservation_equations, &
                           use_coast_rough, coast_rough_mom, coast_rough_heat, &
                           max_coast_frac, use_coast_topo_rough, &
                           layout, io_layout, mask_table, &
-                          precip_warning_tol, predefined_tiles
+                          precip_warning_tol, predefined_tiles, update_hillslope
 
 ! ---- end of namelist -------------------------------------------------------
 
@@ -1270,7 +1272,7 @@ subroutine update_land_model_fast ( cplr2land, land2cplr )
   runoff = 0 ; runoff_c = 0
 
   ! Calculate groundwater and associated heat fluxes between tiles within each gridcell.
-  call hlsp_hydrology_1(n_c_types)
+  if (update_hillslope .eq. .True.)call hlsp_hydrology_1(n_c_types)
 
   ! main tile loop
 !$OMP parallel do schedule(dynamic) default(shared) private(i1,i,j,k,ce,tile,ISa_dn_dir,ISa_dn_dif)

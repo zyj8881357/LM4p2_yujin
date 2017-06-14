@@ -10,7 +10,7 @@ use time_manager_mod, only: time_type
 
 use land_constants_mod, only : seconds_per_year, mol_C
 use land_tile_diag_mod, only : register_tiled_diag_field, send_tile_data, &
-     set_default_diag_filter, diag_buff_type, cmor_name
+     set_default_diag_filter, diag_buff_type, cmor_name, OP_STD
 
 use vegn_data_mod, only : spdata, &
      CMPT_VLEAF, CMPT_SAPWOOD, CMPT_ROOT, CMPT_WOOD, CMPT_LEAF, LEAF_ON, LEAF_OFF, &
@@ -52,7 +52,8 @@ real    :: dt_fast_yr ! fast (physical) time step, yr (year is defined as 365 da
 
 ! diagnostic field IDs
 integer :: id_npp, id_nep, id_gpp, id_resp, id_resl, id_resr, id_resg, &
-    id_soilt, id_theta, id_litter
+    id_soilt, id_theta, id_litter, &
+    id_npp_std
 ! CMOR diagnostic field IDs
 integer :: id_gpp_cmor, id_npp_cmor, id_ra, id_rgrowth
 
@@ -81,6 +82,9 @@ subroutine vegn_dynamics_init(id_lon, id_lat, time, delta_time)
   id_npp = register_tiled_diag_field ( module_name, 'npp',  &
        (/id_lon,id_lat/), time, 'net primary productivity', 'kg C/(m2 year)', &
        missing_value=-100.0 )
+  id_npp_std = register_tiled_diag_field ( module_name, 'npp_std',  &
+       (/id_lon,id_lat/), time, 'standard deviation of net primary productivity of tiles in grid cell', &
+       'kg C/(m2 year)', missing_value=-100.0, op=OP_STD)
   id_nep = register_tiled_diag_field ( module_name, 'nep',  &
        (/id_lon,id_lat/), time, 'net ecosystem productivity', 'kg C/(m2 year)', &
        missing_value=-100.0 )
@@ -275,6 +279,7 @@ subroutine vegn_carbon_int(vegn, soil, soilt, theta, diag)
   ! ---- diagnostic section
   call send_tile_data(id_gpp,gpp,diag)
   call send_tile_data(id_npp,vegn%npp,diag)
+  call send_tile_data(id_npp_std,vegn%npp,diag)
   call send_tile_data(id_nep,vegn%nep,diag)
   call send_tile_data(id_litter,vegn%litter,diag)
   call send_tile_data(id_resp, resp, diag)
