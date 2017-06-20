@@ -11,21 +11,19 @@ use fms_mod, only: open_namelist_file
 
 use fms_mod, only : error_mesg, file_exist, check_nml_error, stdlog, close_file, &
      mpp_pe, mpp_root_pe, FATAL, NOTE
-use fms_io_mod, only : set_domain, nullify_domain
 
 use time_manager_mod,   only: time_type_to_real
 use diag_manager_mod,   only: diag_axis_init
-use constants_mod,      only: tfreeze, hlv, hlf, dens_h2o, PI
+use constants_mod,      only: tfreeze, hlv, hlf, dens_h2o
 
 use glac_tile_mod,      only: glac_tile_type, &
      read_glac_data_namelist, glac_data_thermodynamics, glac_data_hydraulics, &
      max_lev, cpw, clw, csw, use_brdf
 
-use land_constants_mod, only : NBANDS
 use land_tile_mod, only : land_tile_map, land_tile_type, land_tile_enum_type, &
      first_elmt, loop_over_tiles
-use land_tile_diag_mod, only : set_default_diag_filter, &
-     register_tiled_diag_field, send_tile_data, diag_buff_type
+use land_tile_diag_mod, only : register_tiled_diag_field, send_tile_data, diag_buff_type, &
+     set_default_diag_filter
 use land_data_mod, only : lnd, log_version
 use land_tile_io_mod, only: land_restart_type, &
      init_land_restart, open_land_restart, save_land_restart, free_land_restart, &
@@ -123,9 +121,8 @@ end subroutine read_glac_namelist
 
 ! ============================================================================
 ! initialize glacier model
-subroutine glac_init ( id_lon, id_lat )
-  integer, intent(in)  :: id_lon  ! ID of land longitude (X) axis
-  integer, intent(in)  :: id_lat  ! ID of land latitude (Y) axis
+subroutine glac_init (id_ug)
+  integer, intent(in)  :: id_ug !<Unstructured axis id.
 
   ! ---- local vars
   type(land_tile_enum_type)     :: ce   ! tile list enumerator
@@ -183,7 +180,7 @@ subroutine glac_init ( id_lon, id_lat )
           FATAL)
   endif
 
-  call glac_diag_init ( id_lon, id_lat, zfull(1:num_l), zhalf(1:num_l+1) )
+  call glac_diag_init (id_ug, zfull(1:num_l), zhalf(1:num_l+1) )
 
 end subroutine glac_init
 
@@ -206,7 +203,6 @@ subroutine save_glac_restart (tile_dim_length, timestamp)
 
   call error_mesg('glac_end','writing NetCDF restart',NOTE)
 ! must set domain so that io_domain is available
-  call set_domain(lnd%domain)
 ! Note that filename is updated for tile & rank numbers during file creation
   filename = trim(timestamp)//'glac.res.nc'
   call init_land_restart(restart, filename, glac_tile_exists, tile_dim_length)
@@ -220,7 +216,6 @@ subroutine save_glac_restart (tile_dim_length, timestamp)
   ! save performs io domain aggregation through mpp_io as with regular domain data
   call save_land_restart(restart)
   call free_land_restart(restart)
-  call nullify_domain()
 end subroutine save_glac_restart
 
 ! ============================================================================
@@ -790,14 +785,13 @@ ENDIF  !************************************************************************
 end subroutine glac_step_2
 
 ! ============================================================================
-subroutine glac_diag_init ( id_lon, id_lat, zfull, zhalf )
-  integer,         intent(in) :: id_lon  ! ID of land longitude (X) axis
-  integer,         intent(in) :: id_lat  ! ID of land longitude (X) axis
+subroutine glac_diag_init (id_ug, zfull, zhalf )
+  integer,         intent(in) :: id_ug   !<Unstructured axis id.
   real,            intent(in) :: zfull(:)! Full levels, m
   real,            intent(in) :: zhalf(:)! Half levels, m
 
   ! ---- local vars ----------------------------------------------------------
-  integer :: axes(3)
+  integer :: axes(2)
 
   ! define vertical axis
   id_zhalf = diag_axis_init ( &
@@ -807,7 +801,7 @@ subroutine glac_diag_init ( id_lon, id_lat, zfull, zhalf )
        edges=id_zhalf )
 
   ! define array of axis indices
-  axes = (/ id_lon, id_lat, id_zfull /)
+  axes = (/id_ug,id_zfull/)
 
   ! set the default sub-sampling filter for the fields below
   call set_default_diag_filter('glac')
@@ -820,17 +814,17 @@ subroutine glac_diag_init ( id_lon, id_lat, zfull, zhalf )
   id_temp  = register_tiled_diag_field ( module_name, 'glac_T',  axes,       &
        lnd%time, 'temperature',            'degK',  missing_value=-100.0 )
   if (.not.lm2) then
-     id_ie  = register_tiled_diag_field ( module_name, 'glac_rie',  axes(1:2),  &
+     id_ie  = register_tiled_diag_field ( module_name, 'glac_rie',  axes(1:1),  &
           lnd%time, 'inf exc runf',            'kg/(m2 s)',  missing_value=-100.0 )
-     id_sn  = register_tiled_diag_field ( module_name, 'glac_rsn',  axes(1:2),  &
+     id_sn  = register_tiled_diag_field ( module_name, 'glac_rsn',  axes(1:1),  &
           lnd%time, 'satn runf',            'kg/(m2 s)',  missing_value=-100.0 )
-     id_bf  = register_tiled_diag_field ( module_name, 'glac_rbf',  axes(1:2),  &
+     id_bf  = register_tiled_diag_field ( module_name, 'glac_rbf',  axes(1:1),  &
           lnd%time, 'baseflow',            'kg/(m2 s)',  missing_value=-100.0 )
-     id_hie  = register_tiled_diag_field ( module_name, 'glac_hie',  axes(1:2), &
+     id_hie  = register_tiled_diag_field ( module_name, 'glac_hie',  axes(1:1), &
           lnd%time, 'heat ie runf',            'W/m2',  missing_value=-100.0 )
-     id_hsn  = register_tiled_diag_field ( module_name, 'glac_hsn',  axes(1:2), &
+     id_hsn  = register_tiled_diag_field ( module_name, 'glac_hsn',  axes(1:1), &
           lnd%time, 'heat sn runf',            'W/m2',  missing_value=-100.0 )
-     id_hbf  = register_tiled_diag_field ( module_name, 'glac_hbf',  axes(1:2), &
+     id_hbf  = register_tiled_diag_field ( module_name, 'glac_hbf',  axes(1:1), &
           lnd%time, 'heat bf runf',            'W/m2',  missing_value=-100.0 )
   endif
 

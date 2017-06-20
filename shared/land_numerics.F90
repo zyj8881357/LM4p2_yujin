@@ -10,7 +10,7 @@ if(.NOT.(x))call my_error(mod_name,message,FATAL,thisfile,__LINE__)
 
 module land_numerics_mod
 
-use fms_mod, only: error_mesg, FATAL, NOTE, mpp_pe, stdout
+use fms_mod, only: error_mesg, FATAL, NOTE, mpp_pe, string, stdout
 use mpp_mod, only: mpp_npes, mpp_get_current_pelist, mpp_send, mpp_recv, &
      mpp_sync, mpp_sync_self, EVENT_RECV, COMM_TAG_1,  COMM_TAG_2,       &
      COMM_TAG_3,  COMM_TAG_4, COMM_TAG_5,  COMM_TAG_6, COMM_TAG_7,       &
@@ -20,7 +20,7 @@ use mpp_mod, only: mpp_npes, mpp_get_current_pelist, mpp_send, mpp_recv, &
 
 
 use mpp_domains_mod, only : domain2d, mpp_get_compute_domain, &
-     mpp_get_global_domain
+     mpp_get_global_domain, domainUG, mpp_get_ug_compute_domain
 
 use land_data_mod, only : log_version
 
@@ -30,7 +30,7 @@ private
 ! ==== public interfaces =====================================================
 public :: bisect    ! finds a position of point in array of bounds
 public :: lin_int   ! linear interpolation
-public :: ludcmp, lubksb ! LU decomposition and back substitution
+public :: ludcmp, lubksb, lubksb_and_improve ! LU decomposition and back substitution
 public :: tridiag   ! tri-diagonal system solver
 public :: nearest   ! nearest point search
 
@@ -38,6 +38,9 @@ public :: horiz_remap_type
 public :: horiz_remap_new, horiz_remap_del
 public :: horiz_remap_print
 public :: horiz_remap
+
+public :: gammaL, gammaU ! incomplete gamma
+public :: gamma ! because ifort 11 does not have built-in gamma
 
 public :: rank_descending ! rank the input array in descending order
 
@@ -55,7 +58,7 @@ interface lin_int
 end interface
 
 interface nearest
-   module procedure nearest1D, nearest2D
+   module procedure nearest1D, nearest2D, nearestUG
 end interface
 
 logical :: module_is_initialized =.FALSE.
@@ -71,11 +74,9 @@ character(len=*), parameter :: thisfile = __FILE__
 type :: horiz_remap_type
    integer :: n = 0 ! number of points that need remapping on this PE
    integer, pointer :: &
-       dst_i(:)=>NULL(), & ! x-indices of destination points
-       dst_j(:)=>NULL()    ! y-indices of destination points
+       dst_l(:)=>NULL()    ! unstructured grid indices of destination points
    integer, pointer :: &
-       src_i(:)=>NULL(), & ! x-indices of source points
-       src_j(:)=>NULL(), & ! y-indices of source points
+       src_l(:)=>NULL(), & ! unstructured grid indices of source points
        src_p(:)=>NULL()    ! processor number of source points
    ! data distribution map: for each processor pair that communicate
    ! (unidirectionally), an entry in the srcPE and dstPE arrays holds their
@@ -416,6 +417,56 @@ end subroutine lubksb
 
 
 ! ============================================================================
+! Calculates and improves a solution vector x(1:n) of the linear set of equations
+! A * X = B.
+! The matrix a(1:n,1:n), and the vectors b(1:n) and x(1:n) are input. Also input
+! is alud, the LU decomposition of a as returned by ludcmp, and the vector indx
+! also returned by that routine. On output, only x(1:n) is modified, to the
+! solution of the linear system, improved by iterative procedure if necessary.
+subroutine lubksb_and_improve(a,alud,indx,b,max_improv_steps,eps,x)
+  real, intent(in)    :: a(:,:)    ! original matrix
+  real, intent(in)    :: alud(:,:) ! LU-decomposition of original matrix
+  integer, intent(in) :: indx(:)   ! reshuffling indices
+  real, intent(in)    :: b(:)      ! right-hand side
+  integer, intent(in) :: max_improv_steps ! max. number of the improvement steps, 0 to turn improvement off
+  real, intent(in)    :: eps       ! absolute allowed error in the solution
+  real, intent(inout) :: x(:)      ! solution
+
+
+  integer :: i,j,n,step
+  real    :: r(size(b)), residual
+
+  ! TODO: check sizes
+  n = size(b)
+
+  ! calculate the initial solution of the system
+  do i = 1,n
+     x(i) = b(i)
+  enddo
+  call lubksb(alud,indx,x)
+
+  ! improve the solution, if necessary
+  do step = 1,max_improv_steps
+    residual = 0.0
+    do i=1,n
+      r(i)=-b(i)
+      do j=1,n
+        ! Calculate the right-hand side, accumulating the residual
+        r(i)=r(i)+a(i,j)*x(j)
+      enddo
+      residual = max(residual,abs(r(i)))
+    enddo
+    if (residual < eps) exit    ! from loop, mission accomplished
+    call lubksb(alud,indx,r) ! solve the system for the residuals
+    ! correct the solution
+    do i=1,n
+      x(i)=x(i)-r(i)
+    enddo
+  enddo
+end subroutine lubksb_and_improve
+
+
+! ============================================================================
 ! given values of the tri-diagonal matrix coefficients, computes a solution
 subroutine tridiag(a,b,c,r,u)
   real, intent(in)  :: a(:),b(:),c(:),r(:)
@@ -520,6 +571,37 @@ subroutine nearest2D(mask, lon, lat, plon, plat, iout, jout, dist)
   if (present(dist)) dist=r
 end subroutine nearest2D
 
+subroutine nearestUG(mask, lon, lat, plon, plat, lout, dist)
+  logical, intent(in) :: mask(:)  ! mask of valid input points (.true. if valid point)
+  real,    intent(in) :: lon(:)   ! longitudes of input grid central points, radian
+  real,    intent(in) :: lat(:)   ! latitudes of input grid central points, radian
+  real,    intent(in) :: plon, plat ! coordinates of destination point, radian
+  integer, intent(out):: lout       ! indices of nearest valid (unmasked) point
+  real, optional, intent(out):: dist! distance to the point
+
+  ! ---- local constants
+  character(*),parameter :: mod_name='nearestUG'
+  ! ---- local vars
+  integer :: l
+  real    :: r,r1
+
+  __ASSERT__(ALL(SHAPE(mask)==SHAPE(lon)),'shapes of "mask" and "lon" are different')
+  __ASSERT__(ALL(SHAPE(mask)==SHAPE(lat)),'shapes of "mask" and "lat" are different')
+
+  r = HUGE(r)  ! some value larger than any possible distance
+
+  do l = 1, size(mask(:))
+     if (.not.mask(l)) cycle
+     r1 = distance(plon,plat,lon(l),lat(l))
+     if ( r1 < r ) then
+        lout = l
+        r = r1
+     endif
+  enddo
+  if (present(dist)) dist=r
+end subroutine nearestUG
+
+
 ! ============================================================================
 ! private functions that calculates the distance between two points given their
 ! coordinates
@@ -546,10 +628,8 @@ subroutine horiz_remap_del(map)
    type(horiz_remap_type), intent(inout) :: map
 #define __DEALLOC__(x)\
 if (associated(x)) then; deallocate(x); x=>NULL(); endif
-   __DEALLOC__(map%dst_i)
-   __DEALLOC__(map%dst_j)
-   __DEALLOC__(map%src_i)
-   __DEALLOC__(map%src_j)
+   __DEALLOC__(map%dst_l)
+   __DEALLOC__(map%src_l)
    __DEALLOC__(map%src_p)
    map%n=0
 
@@ -569,10 +649,10 @@ subroutine horiz_remap_print(map, prefix)
 
    do k = 1, map%n
       write(*,100) prefix,&
-         map%src_i(k),map%src_j(k),map%src_p(k),&
-         map%dst_i(k),map%dst_j(k),mpp_pe()
+         map%src_l(k),map%src_p(k),&
+         map%dst_l(k),mpp_pe()
    enddo
-100 format(a,'(I:',i4.4,' J:',i4.4,' PE:',i4.4,') -> (I:',i4.4,' J:',i4.4,' PE:',i4.4,')')
+100 format(a,'(L:',i4.4,' PE:',i4.4,') -> (L:',i4.4,' PE:',i4.4,')')
 end subroutine
 
 ! ============================================================================
@@ -580,11 +660,11 @@ end subroutine
 ! the valid points, local arrays of coordinates, and the domain, returns the
 ! remapping information that can be used later to fill the data
 subroutine horiz_remap_new(invalid, valid, lon, lat, domain, pes, map)
-  logical, intent(in) :: invalid(:,:) ! mask of points to be filled
-  logical, intent(in) :: valid  (:,:) ! mask of valid input points
-  real,    intent(in) :: lon(:,:)   ! longitudes of input grid central points, radian
-  real,    intent(in) :: lat(:,:)   ! latitudes of input grid central points, radian
-  type(domain2d), intent(in) :: domain ! our domain
+  logical, intent(in) :: invalid(:) ! mask of points to be filled
+  logical, intent(in) :: valid  (:) ! mask of valid input points
+  real,    intent(in) :: lon(:)   ! longitudes of input grid central points, radian
+  real,    intent(in) :: lat(:)   ! latitudes of input grid central points, radian
+  type(domainUG), intent(in) :: domain ! our domain
   integer, intent(in) :: pes(:)     ! list of PEs
   type(horiz_remap_type), intent(out) :: map ! remapping information
 
@@ -593,37 +673,33 @@ subroutine horiz_remap_new(invalid, valid, lon, lat, domain, pes, map)
   character(*), parameter :: mod_name='horiz_remap_new'
   ! --- local vars
   integer :: ntot ! total number of missing points across all PEs
-  integer :: is,ie,js,je ! boundaries of our compute domain
+  integer :: ls,le ! boundaries of our compute domain
   integer :: npes ! total number of PEs
-  integer :: nlon ! longitudinal size of global grid
   integer :: root_pe ! root PE for this operation
   integer, allocatable :: np(:) ! number of missing points per processor
   integer :: p ! processor iterator
   real   , allocatable :: glon(:), glat(:) ! global arrays of missing point coordinates
   integer, allocatable :: from_pe(:) ! number of PE the missing points belong to
   real   , allocatable :: dist(:) ! distance to the missing points
-  integer, allocatable :: ii(:),jj(:) ! indices of the nearest points
-  integer, allocatable :: ibuf(:),jbuf(:) ! send/receive buffers for indices
+  integer, allocatable :: ll(:)   ! indices of the nearest points
+  integer, allocatable :: lbuf(:)  !send/receive buffers for indices
   real   , allocatable :: dbuf(:) ! send/receive buffer for distances
-  integer :: i,j,k,m,n1
+  integer :: k,m,n1,l
   integer :: k0
 
-  ! get the number of longitudes in global domain (only used to resolve ambiguities
-  ! in PE-count independent manner)
-  call mpp_get_global_domain(domain, xsize = nlon )
   ! get the size of our domain
-  call mpp_get_compute_domain(domain, is,ie,js,je)
+  call mpp_get_ug_compute_domain(domain, ls, le)
   ! check the input array shapes
-  if(size(invalid,1)/=ie-is+1.or.size(invalid,2)/=je-js+1) then
+  if(size(invalid(:))/=le-ls+1) then
     call my_error(mod_name,'shape of input array "'//'invalid'//'" must be the same as shape of compute domain',FATAL)
   endif
-  if(size(valid,1)/=ie-is+1.or.size(valid,2)/=je-js+1) then
+  if(size(valid(:))/=le-ls+1) then
     call my_error(mod_name,'shape of input array "'//'valid'//'" must be the same as shape of compute domain',FATAL)
   endif
-  if(size(lon,1)/=ie-is+1.or.size(lon,2)/=je-js+1) then
+  if(size(lon(:))/=le-ls+1) then
     call my_error(mod_name,'shape of input array "'//'lon'//'" must be the same as shape of compute domain',FATAL)
   endif
-  if(size(lat,1)/=ie-is+1.or.size(lat,2)/=je-js+1) then
+  if(size(lat(:))/=le-ls+1) then
     call my_error(mod_name,'shape of input array "'//'lat'//'" must be the same as shape of compute domain',FATAL)
   endif
 
@@ -658,21 +734,19 @@ subroutine horiz_remap_new(invalid, valid, lon, lat, domain, pes, map)
   if (ntot==0) return
 
   ! [x] allocate global buffers
-  allocate(glon(ntot),glat(ntot),from_pe(ntot),dist(ntot),ii(ntot),jj(ntot))
+  allocate(glon(ntot),glat(ntot),from_pe(ntot),dist(ntot),ll(ntot))
 
   ! allocate buffers for missing point indices and processors
-  allocate(map%dst_i(map%n), map%dst_j(map%n))
-  allocate(map%src_i(map%n), map%src_j(map%n), map%src_p(map%n))
+  allocate(map%dst_l(map%n))
+  allocate(map%src_l(map%n), map%src_p(map%n))
   ! and fill the coordinates of missing points for this PE
   k = 1
-  do j=1,size(invalid,2)
-  do i=1,size(invalid,1)
-     if (invalid(i,j)) then
-        glon(k)      = lon(i,j); glat(k)      = lat(i,j)
-        map%dst_i(k) = i+is-1  ; map%dst_j(k) = j+js-1
+  do l=1,size(invalid(:))
+     if (invalid(l)) then
+        glon(k)      = lon(l); glat(k)      = lat(l)
+        map%dst_l(k) = l+ls-1 
         k = k+1
      endif
-  enddo
   enddo
 
   ! [x] send the array of point coordinates to root PE and get the global
@@ -713,31 +787,29 @@ subroutine horiz_remap_new(invalid, valid, lon, lat, domain, pes, map)
 
   ! [x] find the nearest points in the domain
   do k = 1, ntot
-     call nearest(valid,lon,lat,glon(k),glat(k),ii(k),jj(k),dist=dist(k))
+     call nearest(valid,lon,lat,glon(k),glat(k),ll(k),dist=dist(k))
   enddo
   ! convert local domain indices to global
-  ii(:) = ii(:)+is-1; jj(:)=jj(:)+js-1
+  ll(:) = ll(:)+ls-1
 
   ! [5] send the data to root PE and let it calculate the points corresponding to
   ! the global minimum distance
   if (mpp_pe()/=root_pe) then
      ! non-root PE just sends the data
-     call mpp_send(ii(1)  ,plen=ntot,to_pe=root_pe, tag=COMM_TAG_8)
-     call mpp_send(jj(1)  ,plen=ntot,to_pe=root_pe, tag=COMM_TAG_9)
-     call mpp_send(dist(1),plen=ntot,to_pe=root_pe, tag=COMM_TAG_10)
+     call mpp_send(ll(1)  ,plen=ntot,to_pe=root_pe, tag=COMM_TAG_8)
+     call mpp_send(dist(1),plen=ntot,to_pe=root_pe, tag=COMM_TAG_9)
      ! and receives the updated data in response
      if(map%n>0) then
         ! receive the nearest point locations and PEs
-        call mpp_recv(map%src_i(1),glen=map%n,from_pe=root_pe, tag=COMM_TAG_11)
-        call mpp_recv(map%src_j(1),glen=map%n,from_pe=root_pe, tag=COMM_TAG_12)
-        call mpp_recv(map%src_p(1),glen=map%n,from_pe=root_pe, tag=COMM_TAG_13)
+        call mpp_recv(map%src_l(1),glen=map%n,from_pe=root_pe, tag=COMM_TAG_10)
+        call mpp_recv(map%src_p(1),glen=map%n,from_pe=root_pe, tag=COMM_TAG_11)
      endif
      ! receive communication map
-     call mpp_recv(map%mapSize,glen=1,from_pe=root_pe, tag=COMM_TAG_14)
+     call mpp_recv(map%mapSize,glen=1,from_pe=root_pe, tag=COMM_TAG_12)
      if (map%mapSize>0) then
         allocate (map%srcPE(map%mapSize),map%dstPE(map%mapSize))
-        call mpp_recv(map%srcPE(1),glen=map%mapSize,from_pe=root_pe, tag=COMM_TAG_15)
-        call mpp_recv(map%dstPE(1),glen=map%mapSize,from_pe=root_pe, tag=COMM_TAG_16)
+        call mpp_recv(map%srcPE(1),glen=map%mapSize,from_pe=root_pe, tag=COMM_TAG_13)
+        call mpp_recv(map%dstPE(1),glen=map%mapSize,from_pe=root_pe, tag=COMM_TAG_14)
      endif
   else
      ! root PE does the bulk of processing: it assembles all the data
@@ -745,27 +817,26 @@ subroutine horiz_remap_new(invalid, valid, lon, lat, domain, pes, map)
 
      ! receive data about domain-specific nearest points from PEs and select
      ! the globally nearest point among them
-     allocate(ibuf(ntot),jbuf(ntot),dbuf(ntot))
-     ! note that arrays ii,jj, and dist are initially filled with the
+     allocate(lbuf(ntot),dbuf(ntot))
+     ! note that arrays ll, and dist are initially filled with the
      ! nearest points information for the root PE own domain
      from_pe(:) = root_pe
      do p = 1,npes
         if (pes(p)==root_pe) cycle
-        call mpp_recv(ibuf(1),glen=ntot,from_pe=pes(p), tag=COMM_TAG_8)
-        call mpp_recv(jbuf(1),glen=ntot,from_pe=pes(p), tag=COMM_TAG_9)
-        call mpp_recv(dbuf(1),glen=ntot,from_pe=pes(p), tag=COMM_TAG_10)
+        call mpp_recv(lbuf(1),glen=ntot,from_pe=pes(p), tag=COMM_TAG_8)
+        call mpp_recv(dbuf(1),glen=ntot,from_pe=pes(p), tag=COMM_TAG_9)
         do k = 1,ntot
            ! to avoid dependence on the order of operations, give preference
            ! to the lowest leftmost point among the equidistant points
            if (dbuf(k)<dist(k).or.(&
-               dbuf(k)==dist(k).and.jbuf(k)*nlon+ibuf(k)<jj(k)*nlon+ii(k))) then
-              ii(k)=ibuf(k); jj(k)=jbuf(k); dist(k)=dbuf(k); from_pe(k)=pes(p)
+               dbuf(k)==dist(k).and.lbuf(k)<ll(k))) then
+              ll(k)=lbuf(k); dist(k)=dbuf(k); from_pe(k)=pes(p)
            endif
         enddo
      enddo
 
      ! release buffers
-     deallocate (ibuf,jbuf,dbuf)
+     deallocate (lbuf,dbuf)
 
      ! create a communication map: arrays srcPE and dstPE listing all pairs that
      ! communicate
@@ -786,8 +857,7 @@ subroutine horiz_remap_new(invalid, valid, lon, lat, domain, pes, map)
 
      ! simply assign the results for the root PE
      if (map%n>0) then
-        map%src_i(:) = ii(1:map%n)
-        map%src_j(:) = jj(1:map%n)
+        map%src_l(:) = ll(1:map%n)
         map%src_p(:) = from_pe(1:map%n)
      endif
      ! distribute the results among processors
@@ -796,15 +866,14 @@ subroutine horiz_remap_new(invalid, valid, lon, lat, domain, pes, map)
         if (pes(p)==root_pe) cycle
         if (np(p)>0) then
            ! send nearest point location
-           call mpp_send(ii(k),plen=np(p),to_pe=pes(p), tag=COMM_TAG_11)
-           call mpp_send(jj(k),plen=np(p),to_pe=pes(p), tag=COMM_TAG_12)
-           call mpp_send(from_pe(k),plen=np(p),to_pe=pes(p), tag=COMM_TAG_13)
+           call mpp_send(ll(k),plen=np(p),to_pe=pes(p), tag=COMM_TAG_10)
+           call mpp_send(from_pe(k),plen=np(p),to_pe=pes(p), tag=COMM_TAG_11)
         endif
         ! broadcast comm. map
-        call mpp_send(map%mapSize,plen=1,to_pe=pes(p), tag=COMM_TAG_14)
+        call mpp_send(map%mapSize,plen=1,to_pe=pes(p), tag=COMM_TAG_12)
         if (map%mapSize>0) then
-           call mpp_send(map%srcPE(1),plen=map%mapSize,to_pe=pes(p), tag=COMM_TAG_15)
-           call mpp_send(map%dstPE(1),plen=map%mapSize,to_pe=pes(p), tag=COMM_TAG_16)
+           call mpp_send(map%srcPE(1),plen=map%mapSize,to_pe=pes(p), tag=COMM_TAG_13)
+           call mpp_send(map%dstPE(1),plen=map%mapSize,to_pe=pes(p), tag=COMM_TAG_14)
         endif
         call mpp_sync_self()
         k = k+np(p)
@@ -814,11 +883,11 @@ subroutine horiz_remap_new(invalid, valid, lon, lat, domain, pes, map)
 
   call mpp_sync_self()
 
-  deallocate(glon,glat,from_pe,dist,ii,jj)
+  deallocate(glon,glat,from_pe,dist,ll)
 
   ! note that many communications in this routine can be sped up if the data
   ! are combined.
-  ! For example instead of sending ii,jj,and from_pe one can encode them
+  ! For example instead of sending ll and from_pe one can encode them
   ! in a single integer array [ a(i*3-2)=ii(i), a(i*3-1)=jj(i), a(i*3)=from_pe(i) ]
   ! and send that array.
 
@@ -827,29 +896,25 @@ end subroutine
 ! ============================================================================
 subroutine horiz_remap(map,domain,d)
   type(horiz_remap_type), intent(in)    :: map
-  type(domain2d)        , intent(in)    :: domain
-  real                  , intent(inout) :: d(:,:,:) ! field to fill
+  type(domainUG)        , intent(in)    :: domain
+  real                  , intent(inout) :: d(:,:) ! field to fill
 
   character(*),parameter :: mod_name='horiz_remap'
   ! ---- local vars
-  integer :: is,ie,js,je ! bounds of out compute domain
-  integer :: i,j,k,n
-  integer, allocatable :: ii(:),jj(:)
+  integer :: i,j,k,n,ls,le
+  integer :: is,ie,js,je
+  integer, allocatable :: ll(:)
   real   , allocatable :: buf(:,:)
   logical :: ltmp
 
-  ! get the boundaries of the compute domain, for global->local index
-  ! conversion
-  call mpp_get_compute_domain(domain, is,ie,js,je)
-
-  ltmp = size(d,1)==ie-is+1.or.size(d,2)==je-js+1
+  call mpp_get_ug_compute_domain(domain, ls, le)
+  ltmp = size(d,1)==le-ls+1
   __ASSERT__(ltmp,'shape of data must be the same as shape of compute domain')
 
   ! handle the local points
   do i = 1, map%n
      if (map%src_p(i)==mpp_pe()) then
-       d(map%dst_i(i)-is+1,map%dst_j(i)-js+1,:) = &
-       d(map%src_i(i)-is+1,map%src_j(i)-js+1,:)
+       d(map%dst_l(i)-ls+1,:) = d(map%src_l(i)-ls+1,:)
      endif
   enddo
 
@@ -857,48 +922,45 @@ subroutine horiz_remap(map,domain,d)
   do k = 1, map%mapSize
      if (map%srcPE(k)==mpp_pe()) then
         ! get the size of the data from the other PE
-        call mpp_recv(n,map%dstPE(k), tag=COMM_TAG_17)
-        allocate(ii(n),jj(n),buf(n,size(d,3)))
+        call mpp_recv(n,map%dstPE(k), tag=COMM_TAG_15)
+        allocate(ll(n),buf(n,size(d,2)))
         ! get the indices
-        call mpp_recv(ii(1),glen=n,from_pe=map%dstPE(k), tag=COMM_TAG_18)
-        call mpp_recv(jj(1),glen=n,from_pe=map%dstPE(k), tag=COMM_TAG_19)
+        call mpp_recv(ll(1),glen=n,from_pe=map%dstPE(k), tag=COMM_TAG_16)
         ! fill the buffer
         do i = 1,n
-           if(ii(i)<is.or.ii(i)>ie) call error_mesg('distr_fill','requested index i outside of domain', FATAL)
-           if(jj(i)<js.or.jj(i)>je) call error_mesg('distr_fill','requested index j outside of domain', FATAL)
-           buf(i,:) = d(ii(i)-is+1,jj(i)-js+1,:)
+           if(ll(i)<ls.or.ll(i)>le) call error_mesg('distr_fill','requested index l outside of domain', FATAL)
+           buf(i,:) = d(ll(i)-ls+1,:)
         enddo
         ! send the buffer
-        call mpp_send(buf(1,1),plen=size(buf),to_pe=map%dstPE(k), tag=COMM_TAG_20)
+        call mpp_send(buf(1,1),plen=size(buf),to_pe=map%dstPE(k), tag=COMM_TAG_17)
         call mpp_sync_self()
-        deallocate (ii,jj,buf)
+        deallocate (ll,buf)
      else if (map%dstPE(k)==mpp_pe()) then
         ! send data request
         n = count(map%src_p(:)==map%srcPE(k))
         ! alloacate and fill arrays of requested indices ii and jj
-        allocate(ii(n),jj(n),buf(n,size(d,3)))
+        allocate(ll(n),buf(n,size(d,2)))
         j = 1
         do i = 1, map%n
            if (map%src_p(i)==map%srcPE(k)) then
-              ii(j) = map%src_i(i); jj(j) = map%src_j(i) ; j = j+1
+              ll(j) = map%src_l(i); j = j+1
            endif
         enddo
         ! send the data request
-        call mpp_send(n,map%srcPE(k), tag=COMM_TAG_17)
-        call mpp_send(ii(1),plen=n,to_pe=map%srcPE(k), tag=COMM_TAG_18)
-        call mpp_send(jj(1),plen=n,to_pe=map%srcPE(k), tag=COMM_TAG_19)
+        call mpp_send(n,map%srcPE(k), tag=COMM_TAG_15)
+        call mpp_send(ll(1),plen=n,to_pe=map%srcPE(k), tag=COMM_TAG_16)
 
         ! get the response
-        call mpp_recv(buf(1,1),glen=size(buf),from_pe=map%srcPE(k), tag=COMM_TAG_20)
+        call mpp_recv(buf(1,1),glen=size(buf),from_pe=map%srcPE(k), tag=COMM_TAG_17)
         ! fill the data
         j = 1
         do i = 1,map%n
            if (map%src_p(i)==map%srcPE(k)) then
-              d(map%dst_i(i)-is+1,map%dst_j(i)-js+1,:) = buf(j,:) ; j = j+1
+              d(map%dst_l(i)-ls+1,:) = buf(j,:) ; j = j+1
            endif
         enddo
         call mpp_sync_self()
-        deallocate (ii,jj,buf)
+        deallocate (ll,buf)
      endif
   enddo
 
@@ -978,6 +1040,530 @@ recursive subroutine mergerank(x,a,n,t)
      call merge(x,t,na,a(na+1),nb,a,n)
   endif
 end subroutine mergerank
+
+
+! Gamma functions from
+! http://people.sc.fsu.edu/~jburkardt/f_src/asa239/asa239.html
+
+function alngam ( xvalue, ifault )
+
+!*****************************************************************************80
+!
+!! ALNGAM computes the logarithm of the gamma function.
+!
+!  Modified:
+!
+!    13 January 2008
+!
+!  Author:
+!
+!    Original FORTRAN77 version by Allan Macleod.
+!    FORTRAN90 version by John Burkardt.
+!
+!  Reference:
+!
+!    Allan Macleod,
+!    Algorithm AS 245,
+!    A Robust and Reliable Algorithm for the Logarithm of the Gamma Function,
+!    Applied Statistics,
+!    Volume 38, Number 2, 1989, pages 397-402.
+!
+!  Parameters:
+!
+!    Input, real XVALUE, the argument of the Gamma function.
+!
+!    Output, integer IFAULT, error flag.
+!    0, no error occurred.
+!    1, XVALUE is less than or equal to 0.
+!    2, XVALUE is too big.
+!
+!    Output, real ALNGAM, the logarithm of the gamma function of X.
+!
+  implicit none
+
+  real :: alngam
+  real, parameter :: alr2pi = 0.918938533204673D+00
+  integer :: ifault
+  real, dimension ( 9 ) :: r1 = (/ &
+    -2.66685511495D+00, &
+    -24.4387534237D+00, &
+    -21.9698958928D+00, &
+     11.1667541262D+00, &
+     3.13060547623D+00, &
+     0.607771387771D+00, &
+     11.9400905721D+00, &
+     31.4690115749D+00, &
+     15.2346874070D+00 /)
+  real, dimension ( 9 ) :: r2 = (/ &
+    -78.3359299449D+00, &
+    -142.046296688D+00, &
+     137.519416416D+00, &
+     78.6994924154D+00, &
+     4.16438922228D+00, &
+     47.0668766060D+00, &
+     313.399215894D+00, &
+     263.505074721D+00, &
+     43.3400022514D+00 /)
+  real, dimension ( 9 ) :: r3 = (/ &
+    -2.12159572323D+05, &
+     2.30661510616D+05, &
+     2.74647644705D+04, &
+    -4.02621119975D+04, &
+    -2.29660729780D+03, &
+    -1.16328495004D+05, &
+    -1.46025937511D+05, &
+    -2.42357409629D+04, &
+    -5.70691009324D+02 /)
+  real, dimension ( 5 ) :: r4 = (/ &
+     0.279195317918525D+00, &
+     0.4917317610505968D+00, &
+     0.0692910599291889D+00, &
+     3.350343815022304D+00, &
+     6.012459259764103D+00 /)
+  real :: x, x1, x2, xvalue, y
+  real, parameter :: xlge = 5.10D+05
+  real, parameter :: xlgst = 1.0D+30
+
+  x = xvalue
+  alngam = 0.0D+00
+!
+!  Check the input.
+!
+  if ( xlgst <= x ) then
+    ifault = 2
+    return
+  end if
+
+  if ( x <= 0.0D+00 ) then
+    ifault = 1
+    return
+  end if
+
+  ifault = 0
+!
+!  Calculation for 0 < X < 0.5 and 0.5 <= X < 1.5 combined.
+!
+  if ( x < 1.5D+00 ) then
+
+    if ( x < 0.5D+00 ) then
+
+      alngam = - log ( x )
+      y = x + 1.0D+00
+!
+!  Test whether X < machine epsilon.
+!
+      if ( y == 1.0D+00 ) then
+        return
+      end if
+
+    else
+
+      alngam = 0.0D+00
+      y = x
+      x = ( x - 0.5D+00 ) - 0.5D+00
+
+    end if
+
+    alngam = alngam + x * (((( &
+        r1(5)   * y &
+      + r1(4) ) * y &
+      + r1(3) ) * y &
+      + r1(2) ) * y &
+      + r1(1) ) / (((( &
+                  y &
+      + r1(9) ) * y &
+      + r1(8) ) * y &
+      + r1(7) ) * y &
+      + r1(6) )
+
+    return
+
+  end if
+!
+!  Calculation for 1.5 <= X < 4.0.
+!
+  if ( x < 4.0D+00 ) then
+
+    y = ( x - 1.0D+00 ) - 1.0D+00
+
+    alngam = y * (((( &
+        r2(5)   * x &
+      + r2(4) ) * x &
+      + r2(3) ) * x &
+      + r2(2) ) * x &
+      + r2(1) ) / (((( &
+                  x &
+      + r2(9) ) * x &
+      + r2(8) ) * x &
+      + r2(7) ) * x &
+      + r2(6) )
+!
+!  Calculation for 4.0 <= X < 12.0.
+!
+  else if ( x < 12.0D+00 ) then
+
+    alngam = (((( &
+        r3(5)   * x &
+      + r3(4) ) * x &
+      + r3(3) ) * x &
+      + r3(2) ) * x &
+      + r3(1) ) / (((( &
+                  x &
+      + r3(9) ) * x &
+      + r3(8) ) * x &
+      + r3(7) ) * x &
+      + r3(6) )
+!
+!  Calculation for 12.0 <= X.
+!
+  else
+
+    y = log ( x )
+    alngam = x * ( y - 1.0D+00 ) - 0.5D+00 * y + alr2pi
+
+    if ( x <= xlge ) then
+
+      x1 = 1.0D+00 / x
+      x2 = x1 * x1
+
+      alngam = alngam + x1 * ( ( &
+             r4(3)   * &
+        x2 + r4(2) ) * &
+        x2 + r4(1) ) / ( ( &
+        x2 + r4(5) ) * &
+        x2 + r4(4) )
+
+    end if
+
+  end if
+
+  return
+end function alngam
+
+function alnorm ( x, upper )
+
+!*****************************************************************************80
+!
+!! ALNORM computes the cumulative density of the standard normal distribution.
+!
+!  Modified:
+!
+!    13 January 2008
+!
+!  Author:
+!
+!    Original FORTRAN77 version by David Hill.
+!    FORTRAN90 version by John Burkardt.
+!
+!  Reference:
+!
+!    David Hill,
+!    Algorithm AS 66:
+!    The Normal Integral,
+!    Applied Statistics,
+!    Volume 22, Number 3, 1973, pages 424-427.
+!
+!  Parameters:
+!
+!    Input, real X, is one endpoint of the semi-infinite interval
+!    over which the integration takes place.
+!
+!    Input, logical UPPER, determines whether the upper or lower
+!    interval is to be integrated:
+!    .TRUE.  => integrate from X to + Infinity;
+!    .FALSE. => integrate from - Infinity to X.
+!
+!    Output, real ALNORM, the integral of the standard normal
+!    distribution over the desired interval.
+!
+  implicit none
+
+  real, parameter :: a1 = 5.75885480458D+00
+  real, parameter :: a2 = 2.62433121679D+00
+  real, parameter :: a3 = 5.92885724438D+00
+  real :: alnorm
+  real, parameter :: b1 = -29.8213557807D+00
+  real, parameter :: b2 = 48.6959930692D+00
+  real, parameter :: c1 = -0.000000038052D+00
+  real, parameter :: c2 = 0.000398064794D+00
+  real, parameter :: c3 = -0.151679116635D+00
+  real, parameter :: c4 = 4.8385912808D+00
+  real, parameter :: c5 = 0.742380924027D+00
+  real, parameter :: c6 = 3.99019417011D+00
+  real, parameter :: con = 1.28D+00
+  real, parameter :: d1 = 1.00000615302D+00
+  real, parameter :: d2 = 1.98615381364D+00
+  real, parameter :: d3 = 5.29330324926D+00
+  real, parameter :: d4 = -15.1508972451D+00
+  real, parameter :: d5 = 30.789933034D+00
+  real, parameter :: ltone = 7.0D+00
+  real, parameter :: p = 0.398942280444D+00
+  real, parameter :: q = 0.39990348504D+00
+  real, parameter :: r = 0.398942280385D+00
+  logical :: up, upper
+  real, parameter :: utzero = 18.66D+00
+  real :: x, y, z
+
+  up = upper
+  z = x
+
+  if ( z < 0.0D+00 ) then
+    up = .not. up
+    z = - z
+  end if
+
+  if ( ltone < z .and. ( ( .not. up ) .or. utzero < z ) ) then
+
+    if ( up ) then
+      alnorm = 0.0D+00
+    else
+      alnorm = 1.0D+00
+    end if
+
+    return
+
+  end if
+
+  y = 0.5D+00 * z * z
+
+  if ( z <= con ) then
+
+    alnorm = 0.5D+00 - z * ( p - q * y &
+      / ( y + a1 + b1 &
+      / ( y + a2 + b2 &
+      / ( y + a3 ))))
+
+  else
+
+    alnorm = r * exp ( - y ) &
+      / ( z + c1 + d1 &
+      / ( z + c2 + d2 &
+      / ( z + c3 + d3 &
+      / ( z + c4 + d4 &
+      / ( z + c5 + d5 &
+      / ( z + c6 ))))))
+
+  end if
+
+  if ( .not. up ) then
+    alnorm = 1.0D+00 - alnorm
+  end if
+
+  return
+
+end function alnorm
+
+
+function gammaL ( x, p )
+
+!*****************************************************************************80
+!
+!! gammaL computes the Lower Incomplete Gamma Integral
+!
+!  Auxiliary functions:
+!
+!    ALOGAM = logarithm of the gamma function,
+!    ALNORM = algorithm AS66
+!
+!  Modified:
+!
+!    20 January 2008
+!
+!  Author:
+!
+!    Original FORTRAN77 version by B Shea.
+!    FORTRAN90 version by John Burkardt.
+!
+!  Reference:
+!
+!    B Shea,
+!    Algorithm AS 239:
+!    Chi-squared and Incomplete Gamma Integral,
+!    Applied Statistics,
+!    Volume 37, Number 3, 1988, pages 466-473.
+!
+!  Parameters:
+!
+!    Input, real X, P, the parameters of the incomplete
+!    gamma ratio.  0 <= X, and 0 < P.
+!
+!    Output, integer IFAULT, error flag.
+!    0, no error.
+!    1, X < 0 or P <= 0.
+!
+!    Output, real gammaL, the value of the lower incomplete
+!    Gamma integral.
+!
+  implicit none
+
+  real :: a, an, arg, b, c, gammaL
+  real :: p, pn1, pn2, pn3, pn4, pn5, pn6, rn, x
+  real, parameter :: elimit = - 88.0D+00
+  real, parameter :: oflo = 1.0D+37
+  real, parameter :: plimit = 1000.0D+00
+  real, parameter :: tol = 1.0D-14
+  real, parameter :: xbig = 1.0D+08
+  integer :: ifault
+  logical upper
+
+  gammaL = 0.0D+00
+!
+!  Check the input.
+!
+  if ( x < 0.0D+00 ) then
+    ifault = 1
+    return
+  end if
+
+  if ( p <= 0.0D+00 ) then
+    ifault = 1
+    return
+  end if
+
+  ifault = 0
+
+  if ( x == 0.0D+00 ) then
+    gammaL = 0.0D+00
+    return
+  end if
+!
+!  If P is large, use a normal approximation.
+!
+  if ( plimit < p ) then
+
+    pn1 = 3.0D+00 * sqrt ( p ) * ( ( x / p )**( 1.0D+00 / 3.0D+00 ) &
+    + 1.0D+00 / ( 9.0D+00 * p ) - 1.0D+00 )
+
+    upper = .false.
+    gammaL = alnorm ( pn1, upper )
+    return
+
+  end if
+!
+!  If X is large set gammaL = 1.
+!
+  if ( xbig < x ) then
+    gammaL = 1.0D+00
+    return
+  end if
+!
+!  Use Pearson's series expansion.
+!  (Note that P is not large enough to force overflow in ALOGAM).
+!  No need to test IFAULT on exit since P > 0.
+!
+  if ( x <= 1.0D+00 .or. x < p ) then
+
+    arg = p * log ( x ) - x - alngam ( p + 1.0D+00, ifault )
+    c = 1.0D+00
+    gammaL = 1.0D+00
+    a = p
+
+    do
+
+      a = a + 1.0D+00
+      c = c * x / a
+      gammaL = gammaL + c
+
+      if ( c <= tol ) then
+        exit
+      end if
+
+    end do
+
+    arg = arg + log ( gammaL )
+
+    if ( elimit <= arg ) then
+      gammaL = exp ( arg )
+    else
+      gammaL = 0.0D+00
+    end if
+!
+!  Use a continued fraction expansion.
+!
+  else
+
+    arg = p * log ( x ) - x - alngam ( p, ifault )
+    a = 1.0D+00 - p
+    b = a + x + 1.0D+00
+    c = 0.0D+00
+    pn1 = 1.0D+00
+    pn2 = x
+    pn3 = x + 1.0D+00
+    pn4 = x * b
+    gammaL = pn3 / pn4
+
+    do
+
+      a = a + 1.0D+00
+      b = b + 2.0D+00
+      c = c + 1.0D+00
+      an = a * c
+      pn5 = b * pn3 - an * pn1
+      pn6 = b * pn4 - an * pn2
+
+      if ( pn6 /= 0.0D+00 ) then
+
+        rn = pn5 / pn6
+
+        if ( abs ( gammaL - rn ) <= min ( tol, tol * rn ) ) then
+          exit
+        end if
+
+        gammaL = rn
+
+      end if
+
+      pn1 = pn3
+      pn2 = pn4
+      pn3 = pn5
+      pn4 = pn6
+!
+!  Re-scale terms in continued fraction if terms are large.
+!
+      if ( oflo <= abs ( pn5 ) ) then
+        pn1 = pn1 / oflo
+        pn2 = pn2 / oflo
+        pn3 = pn3 / oflo
+        pn4 = pn4 / oflo
+      end if
+
+    end do
+
+    arg = arg + log ( gammaL )
+
+    if ( elimit <= arg ) then
+      gammaL = 1.0D+00 - exp ( arg )
+    else
+      gammaL = 1.0D+00
+    end if
+
+  end if
+
+  return
+end function gammaL
+
+function gammaU ( x, p )
+
+  real :: x, p, gammaU
+
+  gammaU = 1.0D+00 - gammaL ( x, p )
+
+  return
+end function gammaU
+
+! ==============================================================================
+! Returns the value Gamma(xx) for xx > 0.
+function gamma(xx)
+  real :: gamma
+  real, intent(in) :: xx
+  integer :: ierr
+
+  gamma = exp(alngam(xx,ierr))
+  if (ierr.ne.0) call error_mesg('land_niumerics', 'argument of gamma function ('&
+                                //trim(string(xx))//') is out of accepted range',&
+                                FATAL)
+
+end function gamma
 
 ! ==============================================================================
 ! Reports error, including file name and line.

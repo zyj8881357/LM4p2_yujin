@@ -2,7 +2,13 @@ module vegn_photosynthesis_mod
 
 #include "../shared/debug.inc"
 
-use fms_mod,            only : error_mesg, FATAL
+#ifdef INTERNAL_FILE_NML
+use mpp_mod, only: input_nml_file
+#else
+use fms_mod, only: open_namelist_file
+#endif
+use fms_mod, only: error_mesg, FATAL, file_exist, close_file, check_nml_error, stdlog, &
+      mpp_pe, mpp_root_pe, lowercase
 use constants_mod,      only : TFREEZE
 use sphum_mod,          only : qscomp
 
@@ -25,29 +31,90 @@ public :: vegn_photosynthesis
 character(len=*), parameter :: module_name = 'vegn_photosynthesis_mod'
 #include "../shared/version_variable.inc"
 
+! values for selector of CO2 option used for photosynthesis
+integer, public, parameter :: &
+    VEGN_PHOT_CO2_PRESCRIBED  = 1, &
+    VEGN_PHOT_CO2_INTERACTIVE = 2
+
 ! values for internal vegetation photosynthesis option selector
-integer, parameter :: VEGN_PHOT_SIMPLE  = 1 ! zero photosynthesis
-integer, parameter :: VEGN_PHOT_LEUNING = 2 ! photosynthesis according to simplified Leuning model
+integer, parameter :: &
+    VEGN_PHOT_SIMPLE  = 1, & ! zero photosynthesis
+    VEGN_PHOT_LEUNING = 2    ! photosynthesis according to simplified Leuning model
+
+! values for internal vegetation respiration option selector
+integer, parameter :: &
+    VEGN_RESP_LM3      = 1, &
+    VEGN_RESP_GAUTHIER = 2
 
 ! ==== module variables ======================================================
 integer :: vegn_phot_option = -1 ! selector of the photosynthesis option
+integer :: vegn_resp_option = -1 ! selector of the photosynthesis option
 
+character(32) :: photosynthesis_to_use = 'simple' ! or 'leuning'
+character(32) :: respiration_to_use = 'lm3' ! or 'gauthier'
+
+logical       :: Kok_effect  = .FALSE. ! if TRUE, Kok effect is taken in photosynthesis
+real          :: light_kok   = 0.00004 !mol_of_quanta/(m^2s) PAR
+real          :: Inib_factor = 0.5
+
+real :: TmaxP=45.0, ToptP=35.0,  tshrP=0.6, tshlP=1.4 ! Parameters of T-response for photosynthesis
+real :: TmaxR=65.0, ToptR=47.0,  tshrR=1.4, tshlR=1.0 ! Parameters of T-response for respiration
+
+character(32) :: co2_to_use_for_photosynthesis = 'prescribed' ! or 'interactive'
+   ! specifies what co2 concentration to use for photosynthesis calculations:
+   ! 'prescribed'  : a prescribed value is used, equal to co2_for_photosynthesis
+   !      specified below.
+   ! 'interactive' : concentration of co2 in canopy air is used
+real, public, protected :: co2_for_photosynthesis = 350.0e-6 ! concentration of co2 for
+   ! photosynthesis calculations, mol/mol. Ignored if co2_to_use_for_photosynthesis is
+   ! not 'prescribed'
+
+namelist /photosynthesis_nml/ &
+    photosynthesis_to_use, respiration_to_use, &
+    Kok_effect, light_kok, Inib_factor, &
+    TmaxP, ToptP,  tshrP, tshlP, &
+    TmaxR, ToptR,  tshrR, tshlR, &
+    co2_to_use_for_photosynthesis, co2_for_photosynthesis
+
+integer, public, protected :: vegn_phot_co2_option = -1 ! selector of co2 option used for photosynthesis
 
 contains
 
-
 ! ============================================================================
-subroutine vegn_photosynthesis_init(photosynthesis_to_use)
-  character(*), intent(in) :: photosynthesis_to_use
+subroutine vegn_photosynthesis_init()
+  ! ---- local vars
+  integer :: unit         ! unit for namelist i/o
+  integer :: io           ! i/o status for the namelist
+  integer :: ierr         ! error code, returned by i/o routines
 
   call log_version(version, module_name, &
   __FILE__)
+#ifdef INTERNAL_FILE_NML
+    read (input_nml_file, nml=photosynthesis_nml, iostat=io)
+    ierr = check_nml_error(io, 'photosynthesis_nml')
+#else
+  if (file_exist('input.nml')) then
+     unit = open_namelist_file()
+     ierr = 1;
+     do while (ierr /= 0)
+        read (unit, nml=photosynthesis_nml, iostat=io, end=10)
+        ierr = check_nml_error (io, 'photosynthesis_nml')
+     enddo
+10   continue
+     call close_file (unit)
+  endif
+#endif
+
+  unit=stdlog()
+  if (mpp_pe() == mpp_root_pe()) then
+     write(unit, nml=photosynthesis_nml)
+  endif
 
   ! convert symbolic names of photosynthesis options into numeric IDs to
   ! speed up selection during run-time
-  if (trim(photosynthesis_to_use)=='simple') then
+  if (trim(lowercase(photosynthesis_to_use))=='simple') then
      vegn_phot_option = VEGN_PHOT_SIMPLE
-  else if (trim(photosynthesis_to_use)=='leuning') then
+  else if (trim(lowercase(photosynthesis_to_use))=='leuning') then
      vegn_phot_option = VEGN_PHOT_LEUNING
   else
      call error_mesg('vegn_photosynthesis_init',&
@@ -56,6 +123,29 @@ subroutine vegn_photosynthesis_init(photosynthesis_to_use)
           FATAL)
   endif
 
+  ! convert symbolic names of photosynthesis CO2 options into numeric IDs to
+  ! speed up selection during run-time
+  if (trim(lowercase(co2_to_use_for_photosynthesis))=='prescribed') then
+     vegn_phot_co2_option = VEGN_PHOT_CO2_PRESCRIBED
+  else if (trim(lowercase(co2_to_use_for_photosynthesis))=='interactive') then
+     vegn_phot_co2_option = VEGN_PHOT_CO2_INTERACTIVE
+  else
+     call error_mesg('vegn_photosynthesis_init',&
+          'vegetation photosynthesis option co2_to_use_for_photosynthesis="'//&
+          trim(co2_to_use_for_photosynthesis)//'" is invalid, use "prescribed" or "interactive"',&
+          FATAL)
+  endif
+
+  if (trim(lowercase(respiration_to_use))=='lm3') then
+     vegn_resp_option = VEGN_RESP_LM3
+  else if (trim(lowercase(respiration_to_use))=='gauthier') then
+     vegn_resp_option = VEGN_RESP_GAUTHIER
+  else
+     call error_mesg('vegn_photosynthesis_init',&
+          'vegetation photosynthesis option respiration_to_use="'//&
+          trim(co2_to_use_for_photosynthesis)//'" is invalid, use "lm3" or "gauthier"',&
+          FATAL)
+  endif
 end subroutine vegn_photosynthesis_init
 
 
@@ -198,16 +288,11 @@ subroutine gs_Leuning(rad_top, rad_net, tl, ea, lai, leaf_age, &
   real :: dum2;
   real, parameter :: light_crit = 0;
   real, parameter :: gs_lim = 0.25;
-  
-  !Parameter for Respiration in the light
-  real, parameter :: light_kok = 0.00004;!mol_of_quanta/(m^2s) PAR
-  real, parameter :: Inib_factor=0.5;
-  real :: Par_dn_kok; 
-  
+
   !#### MODIFIED BY PPG 2016-12-01
   real :: Ag_layer
   real :: layer_light
-    
+
   ! new average computations
   real :: lai_eq;
   real, parameter :: rad_phot = 0.0000046 ! PAR conversion factor of J -> mol of quanta
@@ -224,18 +309,10 @@ subroutine gs_Leuning(rad_top, rad_net, tl, ea, lai, leaf_age, &
   real, parameter :: p_sea = 1.0e5 ! sea level pressure, Pa
   ! soil water stress
   real :: an_w,gs_w;
-  
+
   !########MODIFIED BY PPG 2016-12-05
   real :: TempFactP
-  real :: TmaxP 
-  real :: ToptP 
-  real :: tshrP
-  real :: tshlP
   real :: TempFactR
-  real :: TmaxR 
-  real :: ToptR 
-  real :: tshrR
-  real :: tshlR
 
   if (is_watch_point()) then
      write(*,*) '####### gs_leuning input #######'
@@ -259,22 +336,11 @@ subroutine gs_Leuning(rad_top, rad_net, tl, ea, lai, leaf_age, &
   if (pft < 2) do1=0.15;
 
   !######MODIFIED BY PPG 2016-12-05
-  !Parameters T-response for Photosynthesis
-  TmaxP=45.0; 
-  ToptP=35.0; 
   TempFactP=(TmaxP-(tl-273.15))/(TmaxP-ToptP);
   if (TempFactP < 0.) TempFactP=0.;
-  tshrP=0.6; 
-  tshlP=1.4;
-  
-  
-  !Parameters T-response for Respiration 
-  TmaxR=65.0; 
-  ToptR=47.0; 
+
   TempFactR=(TmaxR-(tl-273.15))/(TmaxR-ToptR);
   if (TempFactR < 0.) TempFactR=0.;
-  tshrR=1.4; 
-  tshlR=1;
   !#########
 
   ! Convert Solar influx from W/(m^2s) to mol_of_quanta/(m^2s) PAR,
@@ -291,7 +357,7 @@ subroutine gs_Leuning(rad_top, rad_net, tl, ea, lai, leaf_age, &
   ko=0.25   *exp(1400.0*(1.0/288.2-1.0/tl))*p_sea/p_surf;
   kc=0.00015*exp(6000.0*(1.0/288.2-1.0/tl))*p_sea/p_surf;
   vm=spdata(pft)%Vmax*exp(3000.0*(1.0/288.2-1.0/tl));
-  
+
   !decrease Vmax due to aging of temperate deciduous leaves
   !(based on Wilson, Baldocchi and Hanson (2001)."Plant,Cell, and Environment", vol 24, 571-583)
   if (spdata(pft)%leaf_age_tau>0 .and. leaf_age>spdata(pft)%leaf_age_onset) then
@@ -301,28 +367,34 @@ subroutine gs_Leuning(rad_top, rad_net, tl, ea, lai, leaf_age, &
   capgam=0.5*kc/ko*0.21*0.209; ! Farquhar & Caemmerer 1982
 
   ! Find respiration for the whole canopy layer
-
-  !Resp=spdata(pft)%gamma_resp*vm*lai;
-  !Resp=Resp/((1.0+exp(0.4*(5.0-tl+TFREEZE)))*(1.0+exp(0.4*(tl-45.0-TFREEZE))));
-
+  if (light_top>light_kok) then
+     lai_kok=min(log(light_top/light_kok)/kappa,lai)
+  else
+     lai_kok = 0.0
+  endif
+  if (Kok_effect) then
+     ! modify vm for Vmax later and add a temperature function to it.
+     Resp=(1-Inib_factor)*spdata(pft)%gamma_resp*vm*lai_kok+spdata(pft)%gamma_resp*vm*(lai-lai_kok)
+  else
+     Resp=spdata(pft)%gamma_resp*vm*lai
+  endif
+  select case (vegn_resp_option)
+  case(VEGN_RESP_LM3)
+     Resp=Resp/((1.0+exp(0.4*(5.0-tl+TFREEZE)))*(1.0+exp(0.4*(tl-45.0-TFREEZE))))
+  case(VEGN_RESP_GAUTHIER)
+     Resp=Resp*((TempFactR**tshrR)*exp((tshrR/tshlR)*(1.-(TempFactR**tshlR))))
+  end select
+  Anlayer=(-spdata(pft)%gamma_resp*vm*(layer)/((1.0+exp(0.4*(5.0-tl+TFREEZE)))*(1.0+exp(0.4*(tl-45.0-TFREEZE)))))/0.01
 
   ! ignore the difference in concentrations of CO2 near
   !  the leaf and in the canopy air, rb=0.
-  !######MODIFIED BY PPG 2016-11-30
-  lai_kok=min(max(-log(light_kok/light_top)/kappa,0.0),lai)
-  Resp=(1-Inib_factor)*spdata(pft)%gamma_resp*vm*lai_kok+spdata(pft)%gamma_resp*vm*(lai-lai_kok); !modify vm for Vmax later and add a temperature function to it.
-  !Resp=Resp/((1.0+exp(0.4*(5.0-tl+TFREEZE)))*(1.0+exp(0.4*(tl-45.0-TFREEZE)))); ! This function limit resp between 5 and 45C other wise it is null.
-  Anlayer=(-spdata(pft)%gamma_resp*vm*(layer)/((1.0+exp(0.4*(5.0-tl+TFREEZE)))*(1.0+exp(0.4*(tl-45.0-TFREEZE)))))/0.01
-  
-  !#####MODIFIED PPG 2016-12-05
-  Resp=Resp*((TempFactR**tshrR)*exp((tshrR/tshlR)*(1.-(TempFactR**tshlR))))
-  
+
   Ag_l=0.;
   Ag_rb=0.;
   Ag=0.;
   anbar=-Resp/lai;
   gsbar=b;
-  
+
   ! find the LAI level at which gross photosynthesis rates are equal
   ! only if PAR is positive
   if ( light_top > light_crit ) then
@@ -345,19 +417,23 @@ subroutine gs_Leuning(rad_top, rad_net, tl, ea, lai, leaf_age, &
            ! gross photosynthesis for rubisco-limited part of the canopy
            Ag_rb  = dum2*lai_eq
 
-           !Ag=(Ag_l+Ag_rb)/((1.0+exp(0.4*(5.0-tl+TFREEZE)))*(1.0+exp(0.4*(tl-45.0-TFREEZE))));
-           !#####MODIFIED BY PPG 2016-12-05
-           Ag=(Ag_l+Ag_rb)*((TempFactP**tshrP)*exp((tshrP/tshlP)*(1.-TempFactP**tshlP)))
-           !write(*,*) ((TempFactP**tshrP)*exp((tshrP/tshlP)*(1.-TempFactP**tshlP)))
-           
+           select case (vegn_resp_option)
+           case(VEGN_RESP_LM3)
+              Ag=(Ag_l+Ag_rb)/((1.0+exp(0.4*(5.0-tl+TFREEZE)))*(1.0+exp(0.4*(tl-45.0-TFREEZE))))
+           case(VEGN_RESP_GAUTHIER)
+              !#####MODIFIED BY PPG 2016-12-05
+              Ag=(Ag_l+Ag_rb)*((TempFactP**tshrP)*exp((tshrP/tshlP)*(1.-TempFactP**tshlP)))
+              !write(*,*) ((TempFactP**tshrP)*exp((tshrP/tshlP)*(1.-TempFactP**tshlP)))
+           end select
+
            An=Ag-Resp;
            anbar=An/lai;
-           
+
            !#### MODIFIED BY PPG 2016-12-01
            !write(*,*) 'par_net', par_net
            layer_light=par_net*(exp(-kappa*lai)-exp(-kappa*(lai+layer)))/(1-exp(-(lai+layer)*kappa))
-		   !write(*,*) 'layer light', layer_light
-		   Ag_layer= spdata(pft)%alpha_phot * (ci-capgam)/(ci+2.*capgam) * layer_light
+           !write(*,*) 'layer light', layer_light
+           Ag_layer= spdata(pft)%alpha_phot * (ci-capgam)/(ci+2.*capgam) * layer_light
            Anlayer=((Ag_layer-spdata(pft)%gamma_resp*vm*(layer))/((1.0+exp(0.4*(5.0-tl+TFREEZE)))*(1.0+exp(0.4*(tl-45.0-TFREEZE)))))/0.01
 
 
@@ -383,18 +459,22 @@ subroutine gs_Leuning(rad_top, rad_net, tl, ea, lai, leaf_age, &
                 * (exp(-lai_eq*kappa)-exp(-lai*kappa))/(1-exp(-lai*kappa))
            ! gross photosynthesis for rubisco-limited part of the canopy
            Ag_rb  = dum2*lai_eq
-           
+
            !#### Modified by PPG 2016-12-01
            !write(*,*) 'par_net', par_net
            layer_light=par_net*(exp(-kappa*lai)-exp(-kappa*(lai+layer)))/(1-exp(-(lai+layer)*kappa))
-		   !write(*,*) 'layer light', layer_light
-		   Ag_layer= spdata(pft)%alpha_phot * (ci-capgam)/(ci+2.*capgam) * layer_light
+           !write(*,*) 'layer light', layer_light
+           Ag_layer= spdata(pft)%alpha_phot * (ci-capgam)/(ci+2.*capgam) * layer_light
            Anlayer=((Ag_layer-spdata(pft)%gamma_resp*vm*(layer))/((1.0+exp(0.4*(5.0-tl+TFREEZE)))*(1.0+exp(0.4*(tl-45.0-TFREEZE)))))/0.01
 
-           !Ag=(Ag_l+Ag_rb)/((1.0+exp(0.4*(5.0-tl+TFREEZE)))*(1.0+exp(0.4*(tl-45.0-TFREEZE))));
-           !#####MODIFIED BY PPG 2016-12-05
-           Ag=(Ag_l+Ag_rb)*((TempFactP**tshrP)*exp((tshrP/tshlP)*(1.-TempFactP**tshlP)))
-           
+           select case (vegn_resp_option)
+           case(VEGN_RESP_LM3)
+              Ag=(Ag_l+Ag_rb)/((1.0+exp(0.4*(5.0-tl+TFREEZE)))*(1.0+exp(0.4*(tl-45.0-TFREEZE))))
+           case(VEGN_RESP_GAUTHIER)
+              !#####MODIFIED BY PPG 2016-12-05
+              Ag=(Ag_l+Ag_rb)*((TempFactP**tshrP)*exp((tshrP/tshlP)*(1.-TempFactP**tshlP)))
+           end select
+
            An=Ag-Resp;
            anbar=An/lai;
            if (isnan(anbar) .eq. .True.)anbar = 0.0
@@ -405,8 +485,8 @@ subroutine gs_Leuning(rad_top, rad_net, tl, ea, lai, leaf_age, &
         endif ! ci>capgam
      endif
   endif ! light is available for photosynthesis
-  
-  
+
+
   an_w=anbar;
   if (an_w > 0.) then
      an_w=an_w*(1-spdata(pft)%wet_leaf_dreg*leaf_wet);

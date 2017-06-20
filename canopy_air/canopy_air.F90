@@ -13,7 +13,6 @@ use fms_mod, only: open_namelist_file
 
 use fms_mod, only : error_mesg, FATAL, NOTE, file_exist, &
      close_file, check_nml_error, mpp_pe, mpp_root_pe, stdlog, string
-use fms_io_mod, only : set_domain, nullify_domain
 use constants_mod, only : VONKARM
 use sphum_mod, only : qscomp
 use field_manager_mod, only : parse, MODEL_ATMOS, MODEL_LAND
@@ -26,11 +25,10 @@ use cana_tile_mod, only : cana_tile_type, &
      canopy_air_mass, canopy_air_mass_for_tracers, cpw
 use land_tile_mod, only : land_tile_map, land_tile_type, land_tile_enum_type, &
      first_elmt, loop_over_tiles
-use land_data_mod, only : lnd, log_version
+use land_data_mod, only : log_version
 use land_tile_io_mod, only: land_restart_type, &
      init_land_restart, open_land_restart, save_land_restart, free_land_restart, &
      add_tile_data, get_tile_data, field_exists
-use land_debug_mod, only : is_watch_point, check_temp_range
 
 implicit none
 private
@@ -64,10 +62,12 @@ logical :: save_qco2     = .TRUE.
 logical :: allow_small_z0 = .FALSE. ! to use z0 provided by lake and glac modules
 real :: lai_min_turb = 0.0 ! fudge to desensitize Tv to SW/cosz inconsistency
 real :: bare_rah_sca     = 0.01     ! bare-ground resistance between ground and canopy air, s/m
+logical :: sai_turb      = .FALSE.  ! if true, SAI is taken into account for con_v_h and 
+                                    ! con_v_v calculations
 namelist /cana_nml/ &
   init_T, init_T_cold, init_q, init_co2, turbulence_to_use, &
   canopy_air_mass, canopy_air_mass_for_tracers, cpw, save_qco2, &
-  allow_small_z0, lai_min_turb, bare_rah_sca
+  allow_small_z0, lai_min_turb, bare_rah_sca, sai_turb
 !---- end of namelist --------------------------------------------------------
 
 logical :: module_is_initialized =.FALSE.
@@ -108,9 +108,7 @@ end subroutine read_cana_namelist
 
 ! ============================================================================
 ! initialize canopy air
-subroutine cana_init ( id_lon, id_lat )
-  integer, intent(in) :: id_lon  ! ID of land longitude (X) axis
-  integer, intent(in) :: id_lat  ! ID of land latitude (Y) axis
+subroutine cana_init()
 
   ! ---- local vars ----------------------------------------------------------
   type(land_tile_enum_type)     :: ce   ! tile list enumerator
@@ -221,8 +219,6 @@ subroutine save_cana_restart (tile_dim_length, timestamp)
   integer :: tr
 
   call error_mesg('cana_end','writing NetCDF restart',NOTE)
-! must set domain so that io_domain is available
-  call set_domain(lnd%domain)
 ! Note that filename is updated for tile & rank numbers during file creation
   filename = trim(timestamp)//'cana.res.nc'
   call init_land_restart(restart, filename, cana_tile_exists, tile_dim_length)
@@ -236,7 +232,6 @@ subroutine save_cana_restart (tile_dim_length, timestamp)
   enddo
   call save_land_restart(restart)
   call free_land_restart(restart)
-  call nullify_domain()
 end subroutine save_cana_restart
 
 ! ============================================================================
@@ -263,16 +258,21 @@ subroutine cana_turbulence (u_star,&
   real :: height   ! effective height of vegetation
   real :: wind     ! normalized wind on top of canopy, m/s
   real :: Kh_top   ! turbulent exchange coefficient on top of the canopy
-  real :: vegn_idx ! total vegetation index = LAI+SAI
+  real :: vegn_idx ! total vegetation index for turbulence calculations
   real :: rah_sca  ! ground-SCA resistance
 
-  vegn_idx = vegn_lai+vegn_sai  ! total vegetation index
+  if (sai_turb) then
+     vegn_idx = max(vegn_lai,vegn_sai,lai_min_turb)
+  else
+     vegn_idx = max(vegn_lai,lai_min_turb)
+  endif
+  
   select case(turbulence_option)
   case(TURB_LM3W)
      if(vegn_cover > 0) then
         wind  = u_star/VONKARM*log((vegn_height-land_d)/land_z0m) ! normalized wind on top of the canopy
         a     = vegn_cover*a_max
-        con_v_h = (2*max(vegn_lai,lai_min_turb)*leaf_co*(1-exp(-a/2))/a)*sqrt(wind/vegn_d_leaf)
+        con_v_h = (2*vegn_idx*leaf_co*(1-exp(-a/2))/a)*sqrt(wind/vegn_d_leaf)
         con_g_h = u_star*a*VONKARM*(1-land_d/vegn_height) &
              / (exp(a*(1-grnd_z0s/vegn_height)) - exp(a*(1-(land_z0s+land_d)/vegn_height)))
      else
@@ -284,9 +284,9 @@ subroutine cana_turbulence (u_star,&
      a = a_max
      wind=u_star/VONKARM*log((height-land_d)/land_z0m) ! normalized wind on top of the canopy
 
-     con_v_h = (2*max(vegn_lai,lai_min_turb)*leaf_co*(1-exp(-a/2))/a)*sqrt(wind/vegn_d_leaf)
+     con_v_h = (2*vegn_idx*leaf_co*(1-exp(-a/2))/a)*sqrt(wind/vegn_d_leaf)
 
-     if (land_d > 0.06 .and. vegn_idx > 0.25) then
+     if (land_d > 0.06 .and. vegn_lai+vegn_sai > 0.25) then
         Kh_top = VONKARM*u_star*(height-land_d)
         rah_sca = height/a/Kh_top * &
              (exp(a*(1-grnd_z0s/height)) - exp(a*(1-(land_z0m+land_d)/height)))

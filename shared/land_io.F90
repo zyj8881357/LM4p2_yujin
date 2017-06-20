@@ -22,13 +22,12 @@ use fms_mod, only: open_namelist_file
 
 
 use horiz_interp_mod,  only : horiz_interp_type, &
-     horiz_interp_new, horiz_interp_del, &
-     horiz_interp
+     horiz_interp_new, horiz_interp_del, horiz_interp
 
 use land_numerics_mod, only : nearest, bisect
 use nf_utils_mod,      only : nfu_validtype, nfu_get_dim, nfu_get_dim_bounds, &
      nfu_get_valid_range, nfu_is_valid, nfu_inq_var, nfu_get_var
-use land_data_mod, only : log_version
+use land_data_mod, only : log_version, horiz_interp_ug
 
 implicit none
 private
@@ -119,10 +118,10 @@ subroutine init_cover_field( &
   real            , intent(in) :: lonb(:,:), latb(:,:) ! boundaries of the grid cells
   integer         , intent(in) :: uniform_cover
   integer         , intent(in) :: input_cover_types(:)
-  real            , intent(out):: frac(:,:,:) ! output-global map of soil fractional coverage
+  real            , intent(out):: frac(:,:) ! output-global map of soil fractional coverage
 
   ! ---- local vars ---------------------------------------------------------
-  integer :: i,j,k     ! iterators
+  integer :: l, k     ! iterators
   integer :: cover_id
   real    :: maxfrac, total
 
@@ -135,32 +134,28 @@ subroutine init_cover_field( &
      call read_cover_field(filename,cover_field_name,frac_field_name,lonb,latb,input_cover_types,frac)
   else if (cover_to_use=='single-tile') then
      call read_cover_field(filename,cover_field_name,frac_field_name,lonb,latb,input_cover_types,frac)
-     do j = 1,size(frac,2)
-     do i = 1,size(frac,1)
-        total = sum(frac(i,j,:))
+     do l = 1,size(frac,1)
+        total = sum(frac(l,:))
         if (total <= 0) cycle ! operate on valid input data points only
         maxfrac=0 ; cover_id=1
-        do k = 1,size(frac,3)
-           if(frac(i,j,k).gt.maxfrac) then
-              maxfrac=frac(i,j,k)
+        do k = 1,size(frac,2)
+           if(frac(l,k).gt.maxfrac) then
+              maxfrac=frac(l,k)
               cover_id=k
            endif
         enddo
         ! set all fractions except dominant fraction to zero
-        frac(i,j,:) = 0.0
-        frac(i,j,cover_id) = total
-     enddo
+        frac(l,:) = 0.0
+        frac(l,cover_id) = total
      enddo
   else if (cover_to_use == 'uniform') then
      call read_cover_field(filename,cover_field_name,frac_field_name,lonb,latb,input_cover_types,frac)
-     do j = 1,size(frac,2)
-     do i = 1,size(frac,1)
-        total = sum(frac(i,j,:))
+     do l = 1,size(frac,1)
+        total = sum(frac(l,:))
         if (total <= 0) cycle ! operate on valid input data points only
         ! set all fractions except dominant fraction to zero
-        frac(i,j,:) = 0.0
-        frac(i,j,uniform_cover) = total
-     enddo
+        frac(l,:) = 0.0
+        frac(l,uniform_cover) = total
      enddo
   else
      call error_mesg ( module_name,'illegal value of cover_to_use '//cover_to_use, FATAL )
@@ -175,7 +170,7 @@ subroutine read_cover_field(file, cover_field_name, frac_field_name,&
   character(len=*)  , intent(in)  :: file            ! file to read from
   character(len=*)  , intent(in)  :: cover_field_name, frac_field_name
   real              , intent(in)  :: lonb(:,:),latb(:,:) ! boundaries of the model grid
-  real              , intent(out) :: frac(:,:,:)     ! resulting fractions
+  real              , intent(out) :: frac(:,:)     ! resulting fractions
   integer, optional , intent(in)  :: input_cover_types(:)
 
   ! --- local vars
@@ -239,7 +234,7 @@ subroutine do_read_cover_field(input_unit, field, lonb, latb, input_cover_types,
   type(fieldtype), intent(in) :: field
   real   , intent(in)  :: lonb(:,:),latb(:,:)
   integer, intent(in)  :: input_cover_types(:)
-  real   , intent(out) :: frac(:,:,:)
+  real   , intent(out) :: frac(:,:)
 
   ! ---- local vars
   integer :: nlon, nlat, k
@@ -269,6 +264,7 @@ subroutine do_read_cover_field(input_unit, field, lonb, latb, input_cover_types,
   call mpp_get_axis_data(axis_bounds, in_lonb)
   call get_axis_bounds(axes_centers(2), axis_bounds, axes_centers)
   call mpp_get_axis_data(axis_bounds, in_latb)
+  in_lonb = in_lonb*PI/180; in_latb = in_latb*PI/180
 
   ! to minimize the i/o and work done by horiz_interp, find the boundaries
   ! of latitude belt in input data that covers the entire latb array
@@ -325,7 +321,7 @@ subroutine do_read_cover_field(input_unit, field, lonb, latb, input_cover_types,
   do k = 1,size(input_cover_types(:))
      x=0
      where(mpp_is_valid(r_in_cover,v).and.in_cover==input_cover_types(k)) x = 1
-     call horiz_interp(interp,x,frac(:,:,k))
+     call horiz_interp_ug(interp,x,frac(:,k))
   enddo
 
   call horiz_interp_del(interp)
@@ -342,7 +338,7 @@ end subroutine do_read_cover_field
   type(fieldtype), intent(in) :: field
   real   , intent(in)  :: lonb(:,:),latb(:,:)
   integer, intent(in)  :: input_cover_types(:)
-  real   , intent(out) :: frac(:,:,:)
+  real   , intent(out) :: frac(:,:)
 
   ! ---- local vars
   integer :: nlon, nlat, ntypes, k, cover
@@ -440,7 +436,7 @@ end subroutine do_read_cover_field
         cycle ! skip all invalid indices in the array of input cover types
      endif
 
-     call horiz_interp(interp,in_frac(:,:,cover),frac(:,:,k))
+     call horiz_interp_ug(interp,in_frac(:,:,cover),frac(:,k))
   enddo
 
   ! clean up memory
@@ -453,19 +449,19 @@ end subroutine do_read_fraction_field
 subroutine read_field_N_2D_int(filename, varname, lon, lat, data, interp, mask)
   character(len=*), intent(in) :: filename
   character(len=*), intent(in) :: varname
-  real, intent(in)  :: lon(:,:),lat(:,:)
-  integer, intent(out) :: data(:,:)
+  real, intent(in)  :: lon(:),lat(:)
+  integer, intent(out) :: data(:)
   character(len=*), intent(in), optional :: interp
-  logical, intent(out), optional :: mask(:,:)
+  logical, intent(out), optional :: mask(:)
 
   ! ---- local vars ----------------------------------------------------------
-  real    :: data3(size(data,1),size(data,2),1)
-  logical :: mask3(size(data,1),size(data,2),1)
+  real    :: data3(size(data,1),1)
+  logical :: mask3(size(data,1),1)
 
   call read_field_N_3D(filename, varname, lon, lat, data3, interp, mask3)
-  data = nint(data3(:,:,1))
+  data = nint(data3(:,1))
   if (present(mask)) &
-     mask = mask3(:,:,1)
+     mask = mask3(:,1)
 
 end subroutine read_field_N_2D_int
 
@@ -473,16 +469,16 @@ end subroutine read_field_N_2D_int
 subroutine read_field_N_3D_int(filename, varname, lon, lat, data, interp, mask)
   character(len=*), intent(in) :: filename
   character(len=*), intent(in) :: varname
-  real, intent(in)  :: lon(:,:),lat(:,:)
-  integer, intent(out) :: data(:,:,:)
+  real, intent(in)  :: lon(:),lat(:)
+  integer, intent(out) :: data(:,:)
   character(len=*), intent(in), optional :: interp
-  logical, intent(out), optional :: mask(:,:,:)
+  logical, intent(out), optional :: mask(:,:)
 
   ! ---- local vars ----------------------------------------------------------
-  real    :: data3(size(data,1),size(data,2),size(data,3))
+  real    :: data3(size(data,1),size(data,2))
 
   call read_field_N_3D(filename, varname, lon, lat, data3, interp, mask)
-  data = nint(data3(:,:,:))
+  data = nint(data3(:,:))
 
 end subroutine read_field_N_3D_int
 
@@ -490,17 +486,17 @@ end subroutine read_field_N_3D_int
 subroutine read_field_I_2D_int(ncid, varname, lon, lat, data, interp, mask)
   integer, intent(in) :: ncid
   character(len=*), intent(in) :: varname
-  real, intent(in) :: lon(:,:),lat(:,:)
-  integer, intent(out) :: data(:,:)
+  real, intent(in) :: lon(:),lat(:)
+  integer, intent(out) :: data(:)
   character(len=*), intent(in), optional  :: interp
-  logical, intent(out), optional :: mask(:,:)
+  logical, intent(out), optional :: mask(:)
   ! ---- local vars
-  real    :: data3(size(data,1),size(data,2),1)
-  logical :: mask3(size(data,1),size(data,2),1)
+  real    :: data3(size(data,1),1)
+  logical :: mask3(size(data,1),1)
 
   call read_field_I_3D(ncid, varname, lon, lat, data3, interp, mask3)
-  data = nint(data3(:,:,1))
-  if (present(mask)) mask = mask3(:,:,1)
+  data = nint(data3(:,1))
+  if (present(mask)) mask = mask3(:,1)
 
 end subroutine read_field_I_2D_int
 
@@ -508,15 +504,15 @@ end subroutine read_field_I_2D_int
 subroutine read_field_I_3D_int(ncid, varname, lon, lat, data, interp, mask)
   integer, intent(in) :: ncid
   character(len=*), intent(in) :: varname
-  real, intent(in) :: lon(:,:),lat(:,:)
-  integer, intent(out) :: data(:,:,:)
+  real, intent(in) :: lon(:),lat(:)
+  integer, intent(out) :: data(:,:)
   character(len=*), intent(in), optional  :: interp
-  logical, intent(out), optional :: mask(:,:,:)
+  logical, intent(out), optional :: mask(:,:)
   ! ---- local vars
-  real    :: data3(size(data,1),size(data,2),size(data,3))
+  real    :: data3(size(data,1),size(data,2))
 
   call read_field_I_3D(ncid, varname, lon, lat, data3, interp, mask)
-  data = nint(data3(:,:,:))
+  data = nint(data3(:,:))
 
 end subroutine read_field_I_3D_int
 
@@ -524,18 +520,18 @@ end subroutine read_field_I_3D_int
 subroutine read_field_N_2D(filename, varname, lon, lat, data, interp, mask)
   character(len=*), intent(in) :: filename
   character(len=*), intent(in) :: varname
-  real, intent(in)  :: lon(:,:),lat(:,:)
-  real, intent(out) :: data(:,:)
+  real, intent(in)  :: lon(:),lat(:)
+  real, intent(out) :: data(:)
   character(len=*), intent(in), optional :: interp
-  logical, intent(out), optional :: mask(:,:)
+  logical, intent(out), optional :: mask(:)
 
   ! ---- local vars ----------------------------------------------------------
-  real    :: data3(size(data,1),size(data,2),1)
-  logical :: mask3(size(data,1),size(data,2),1)
+  real    :: data3(size(data,1),1)
+  logical :: mask3(size(data,1),1)
 
   call read_field_N_3D(filename, varname, lon, lat, data3, interp, mask3)
-  data = data3(:,:,1)
-  if (present(mask)) mask = mask3(:,:,1)
+  data = data3(:,1)
+  if (present(mask)) mask = mask3(:,1)
 
 end subroutine read_field_N_2D
 
@@ -543,10 +539,10 @@ end subroutine read_field_N_2D
 subroutine read_field_N_3D(filename, varname, lon, lat, data, interp, mask)
   character(len=*), intent(in) :: filename
   character(len=*), intent(in) :: varname
-  real, intent(in)  :: lon(:,:),lat(:,:)
-  real, intent(out) :: data(:,:,:)
+  real, intent(in)  :: lon(:),lat(:)
+  real, intent(out) :: data(:,:)
   character(len=*), intent(in), optional :: interp
-  logical, intent(out), optional :: mask(:,:,:)
+  logical, intent(out), optional :: mask(:,:)
 
   ! ---- local vars ----------------------------------------------------------
   integer :: ierr, input_unit
@@ -565,18 +561,18 @@ end subroutine read_field_N_3D
 subroutine read_field_I_2D(ncid, varname, lon, lat, data, interp, mask)
   integer, intent(in) :: ncid
   character(len=*), intent(in) :: varname
-  real, intent(in) :: lon(:,:),lat(:,:)
-  real, intent(out) :: data(:,:)
+  real, intent(in) :: lon(:),lat(:)
+  real, intent(out) :: data(:)
   character(len=*), intent(in), optional  :: interp
-  logical, intent(out), optional :: mask(:,:)
+  logical, intent(out), optional :: mask(:)
 
   ! ---- local vars
-  real    :: data3(size(data,1),size(data,2),1)
-  logical :: mask3(size(data,1),size(data,2),1)
+  real    :: data3(size(data,1),1)
+  logical :: mask3(size(data,1),1)
 
   call read_field_I_3D(ncid, varname, lon, lat, data3, interp, mask3)
-  data = data3(:,:,1)
-  if (present(mask)) mask = mask3(:,:,1)
+  data = data3(:,1)
+  if (present(mask)) mask = mask3(:,1)
 
 end subroutine read_field_I_2D
 
@@ -584,10 +580,10 @@ end subroutine read_field_I_2D
 subroutine read_field_I_3D(input_unit, varname, lon, lat, data, interp, mask)
   integer, intent(in) :: input_unit
   character(len=*), intent(in) :: varname
-  real, intent(in) :: lon(:,:),lat(:,:)
-  real, intent(out) :: data(:,:,:)
+  real, intent(in) :: lon(:),lat(:)
+  real, intent(out) :: data(:,:)
   character(len=*), intent(in), optional  :: interp
-  logical, intent(out), optional :: mask(:,:,:)
+  logical, intent(out), optional :: mask(:,:)
 
   ! ---- local vars ----------------------------------------------------------
   integer :: nlon, nlat, nlev ! size of input grid
@@ -597,9 +593,9 @@ subroutine read_field_I_3D(input_unit, varname, lon, lat, data, interp, mask)
   real,    allocatable :: x(:,:,:) ! input buffer
   logical, allocatable :: imask(:,:,:) ! mask of valid input values
   real,    allocatable :: rmask(:,:,:) ! real mask for interpolator
-  real    :: omask(size(data,1),size(data,2),size(data,3)) ! mask of valid output data
+  real    :: omask(size(data,1),size(data,2)) ! mask of valid output data
   character(len=20) :: interpolation
-  integer :: i,j,k,imap,jmap
+  integer :: i,j,k,imap,jmap,l
   type(validtype) :: v
   type(horiz_interp_type) :: hinterp
   integer :: ndim,nvar,natt,nrec
@@ -610,7 +606,8 @@ subroutine read_field_I_3D(input_unit, varname, lon, lat, data, interp, mask)
   character(len=256) :: file_name
   real    :: minlat, maxlat
   integer :: jstart, jend, start(4), count(4)
-
+  real    :: lon_2D(size(lon(:)),1), lat_2D(size(lat(:)),1) 
+  real    :: data2(size(data,1),1)
   interpolation = "bilinear"
   if(present(interp)) interpolation = interp
 
@@ -637,10 +634,10 @@ subroutine read_field_I_3D(input_unit, varname, lon, lat, data, interp, mask)
   nlon = dimlens(1) ; nlat = dimlens(2)
   nlev = 1;
   if (varndims==3) nlev=dimlens(3)
-  if(nlev/=size(data,3)) then
+  if(nlev/=size(data,2)) then
      call error_mesg('read_field','3rd dimension length of the variable "'&
           //trim(varname)//'" ('//trim(string(nlev))//') in file "'//trim(file_name)//&
-          '" is different from the expected size of data ('// trim(string(size(data,3)))//')', &
+          '" is different from the expected size of data ('// trim(string(size(data,2)))//')', &
           FATAL)
   endif
 
@@ -664,13 +661,14 @@ subroutine read_field_I_3D(input_unit, varname, lon, lat, data, interp, mask)
      ! read input data
      call mpp_read(input_unit, fld, x)
      imask = mpp_is_valid(x,v)
-     do k = 1,size(data,3)
-     do j = 1,size(data,2)
-     do i = 1,size(data,1)
-        call nearest (imask(:,:,k), in_lon, in_lat, lon(i,j), lat(i,j), imap, jmap)
-        data(i,j,k) = x(imap,jmap,k)
-     enddo
-     enddo
+     do k = 1,size(data,2)
+       do l = 1,size(data,1)
+          call nearest (imask(:,:,k), in_lon, in_lat, lon(l), lat(l), imap, jmap)
+        if(imap <0 .or. jmap<0) then
+           call error_mesg('read_field', 'imap or jamp is negative' ,FATAL)
+        endif
+           data(l,k) = x(imap,jmap,k)
+        enddo
      enddo
      deallocate(x,imask)
   case default
@@ -705,12 +703,14 @@ subroutine read_field_I_3D(input_unit, varname, lon, lat, data, interp, mask)
      imask = mpp_is_valid(x,v)
      rmask = 1.0
      where(.not.imask) rmask = 0.0
-
-     call horiz_interp_new(hinterp, in_lonb, in_latb(jstart:jend+1), lon, lat, interp_method=interpolation)
-     do k = 1,size(data,3)
-        call horiz_interp(hinterp,x(:,:,k),data(:,:,k),mask_in=rmask(:,:,k), mask_out=omask(:,:,k))
+     lon_2D(:,1) = lon
+     lat_2D(:,1) = lat
+     call horiz_interp_new(hinterp, in_lonb, in_latb(jstart:jend+1), lon_2D, lat_2D, interp_method=interpolation)
+     do k = 1,size(data,2)
+        call horiz_interp(hinterp,x(:,:,k),data2(:,:),mask_in=rmask(:,:,k), mask_out=omask(:,k:k))
+        data(:,k) = data2(:,1)
      enddo
-     if (present(mask)) mask(:,:,:) = (omask(:,:,:)/=0.0)
+     if (present(mask)) mask(:,:) = (omask(:,:)/=0.0)
      call horiz_interp_del(hinterp)
      deallocate(x,imask, rmask)
   end select

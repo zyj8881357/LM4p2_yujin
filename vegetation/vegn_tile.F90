@@ -15,7 +15,7 @@ use vegn_data_mod, only : &
      vegn_to_use,  input_cover_types, &
      mcv_min, mcv_lai, &
      vegn_index_constant, &
-     agf_bs, BSEED, LU_NTRL, LU_SCND, N_HARV_POOLS, &
+     agf_bs, BSEED, LU_NTRL, LU_SCND, LU_PSL, N_HARV_POOLS, &
      LU_SEL_TAG, SP_SEL_TAG, NG_SEL_TAG, &
      SP_C3GRASS, SP_C4GRASS, &
      scnd_biomass_bins
@@ -146,7 +146,7 @@ type :: vegn_tile_type
 end type vegn_tile_type
 
 ! ==== module data ===========================================================
-real, public :: &
+real, public :: & ! not protected because vegetation.F90 reads them from the namelist
      cpw = 1952.0, & ! specific heat of water vapor at constant pressure
      clw = 4218.0, & ! specific heat of water (liquid)
      csw = 2106.0    ! specific heat of water (ice)
@@ -484,11 +484,11 @@ end subroutine vegn_add_bliving
 ! ============================================================================
 function vegn_cover_cold_start(land_mask, lonb, latb) result (vegn_frac)
 ! creates and initializes a field of fractional vegn coverage
-  logical, intent(in) :: land_mask(:,:)    ! land mask
+  logical, intent(in) :: land_mask(:)    ! land mask
   real,    intent(in) :: lonb(:,:), latb(:,:)! boundaries of the grid cells
-  real,    pointer    :: vegn_frac (:,:,:) ! output: map of vegn fractional coverage
+  real,    pointer    :: vegn_frac (:,:) ! output: map of vegn fractional coverage
 
-  allocate( vegn_frac(size(land_mask,1),size(land_mask,2),MSPECIES))
+  allocate( vegn_frac(size(land_mask(:)),MSPECIES))
 
   call init_cover_field(vegn_to_use, 'INPUT/cover_type.nc', 'cover','frac', &
        lonb, latb, vegn_index_constant, input_cover_types, vegn_frac)
@@ -504,7 +504,11 @@ function vegn_is_selected(vegn, sel)
 
   select case (sel%idata1)
   case (LU_SEL_TAG)
-     vegn_is_selected = (sel%idata2 == vegn%landuse)
+     if (sel%idata2 == LU_PSL) then
+        vegn_is_selected = ((vegn%landuse == LU_NTRL).or.(vegn%landuse == LU_SCND))
+     else
+        vegn_is_selected = (sel%idata2 == vegn%landuse)
+     endif
   case (SP_SEL_TAG)
      if (.not.associated(vegn%cohorts)) then
         vegn_is_selected = .FALSE.

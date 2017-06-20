@@ -6,7 +6,7 @@ use land_constants_mod, only: NBANDS, mol_h2o, mol_air
 use vegn_data_mod, only : spdata, &
    use_mcm_masking, use_bucket, critical_root_density, &
    tg_c4_thresh, tg_c3_thresh, l_fract, fsc_liv, &
-   phen_ev1, phen_ev2, cmc_eps
+   phen_ev1, phen_ev2, cmc_eps, use_light_saber, sai_cover
 use vegn_data_mod, only : PT_C3, PT_C4, CMPT_ROOT, CMPT_LEAF, &
    SP_C4GRASS, SP_C3GRASS, SP_TEMPDEC, SP_TROPICAL, SP_EVERGR, &
    LEAF_OFF, LU_CROP, PHEN_EVERGREEN, PHEN_DECIDIOUS
@@ -109,7 +109,7 @@ type :: vegn_cohort_type
   !#### MODIFIED BY PPG 2016-12-01
   real :: Anlayer_acm = 0.0
   real :: bl_previous = 0.0
-  
+
   ! used in fast time scale calculations
   real :: npp_previous_day     = 0.0
   real :: npp_previous_day_tmp = 0.0
@@ -130,6 +130,7 @@ type :: vegn_cohort_type
                             ! retirement rate of sapwood into wood
   real :: extinct = 0.0     ! light extinction coefficient in the canopy for photosynthesis calculations
 
+  integer :: layer = 1      ! the layer of this cohort (always 1 in LM3)
 ! in LM3V the cohort structure has a handy pointer to the tile it belongs to;
 ! so operations on cohort can update tile-level variables. In this code, it is
 ! probably impossible to have this pointer here: it needs to be of type
@@ -244,7 +245,11 @@ subroutine vegn_data_cover ( cohort, snow_depth, vegn_cover, &
   real, intent(out) :: vegn_cover
   real, intent(out) :: vegn_cover_snow_factor
 
-  cohort%cover = 1 - exp(-cohort%lai)
+  if(sai_cover) then
+     cohort%cover = 1 - exp(-max(cohort%lai, cohort%sai))
+  else
+     cohort%cover = 1 - exp(-cohort%lai)
+  endif
   if (use_mcm_masking) then
      vegn_cover_snow_factor =  &
            (1 - min(1., 0.5*sqrt(max(snow_depth,0.)/cohort%snow_crit)))
@@ -524,25 +529,15 @@ subroutine update_biomass_pools(c)
      c%bl  = 0;
      c%br  = 0;
   else
-     !write(*,*) 'cohort', c%Anlayer_acm
-  	 if (c%Anlayer_acm>0) then
-  	    !write(*,*) 'yes'
-     	c%blv = 0;
-     	c%bl  = c%Pl*c%bliving;
-     	c%br  = c%Pr*c%bliving;
-	 else
-	    !write(*,*) 'no'
-	    c%blv =0
-	    c%br  = c%Pr*c%bliving
-	    if (c%bl_previous>0) then
-	    	c%bsw = c%Psw*c%bliving + c%Pl*c%bliving - c%bl_previous
-    		c%bl= c%bl_previous
-    	else 
-     		c%bl  = c%Pl*c%bliving;
-     	endif
+     c%blv = 0
+     c%br  = c%Pr*c%bliving
+     if (use_light_saber .and. c%Anlayer_acm<=0 .and. c%bl_previous>0) then
+        c%bl  = max(min(c%bl_previous,c%Pl*c%bliving),0.0)
+        c%bsw = c%Psw*c%bliving + c%Pl*c%bliving - c%bl
+     else
+        c%bl  = c%Pl*c%bliving
      endif
   endif
-  !write(*,*) 'bl', c%bl, 'bl_previous', c%bl_previous
   c%lai = lai_from_biomass(c%bl,c%species)
   c%sai = 0.035*c%height ! Federer and Lash,1978
 end subroutine
