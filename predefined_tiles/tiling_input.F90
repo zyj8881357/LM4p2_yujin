@@ -144,7 +144,7 @@ subroutine land_cover_cold_start_0d_predefined_tiles(tiles,lnd,l,h5id)
   integer(hid_t), intent(in) :: h5id
   type(land_state_type),intent(inout) :: lnd
   type(land_tile_type), pointer :: tile
-  integer :: itile,tid,is,js,status
+  integer :: itile,tid,i_index,j_index,status
   !integer :: parent_id = 0
   integer(hid_t) :: varid,grpid,dimid,cell_grpid,cellid,dstid,cid,dsid
   !real*8 :: h5tmp(1,1)
@@ -160,15 +160,15 @@ subroutine land_cover_cold_start_0d_predefined_tiles(tiles,lnd,l,h5id)
   integer(size_t) :: buf_len
   character(kind=c_char),allocatable,dimension(:),target :: image_ptr
 
-  is = lnd%i_index(l)
-  js = lnd%j_index(l)
+  i_index = lnd%i_index(l)
+  j_index = lnd%j_index(l)
   lon = 180.0*lnd%ug_lon(l)/pi
   lat = 180.0*lnd%ug_lat(l)/pi
   !Print out the current lat and lon
   print*,"Initializing: ",lat,lon
 
   !Retrieve buffer and buffer length of desired group (I/O core)
-  call load_group_into_memory(lnd%ug_face,is,js,h5id,buf_ptr,buf_len,image_ptr)
+  call load_group_into_memory(lnd%ug_face,i_index,j_index,h5id,buf_ptr,buf_len,image_ptr)
 
   !Use buffer and buffer length to open new image file (Land model core)
   call open_image_file(buf_ptr,buf_len,image_ptr,dstid)
@@ -196,17 +196,23 @@ subroutine land_cover_cold_start_0d_predefined_tiles(tiles,lnd,l,h5id)
     case(1)
      tile => new_land_tile_predefined(frac=tile_parameters%metadata%frac(itile),&
             glac=tid,glacier_predefined=tile_parameters%glacier,&
-            itile=tid)
+            itile=tid,pid=tile_parameters%metadata%tile(itile)+1,&
+            i_index=i_index,j_index=j_index,face=lnd%ug_face,ttype=1,&
+            l_index=l)
     case(2)
      tile => new_land_tile_predefined(frac=tile_parameters%metadata%frac(itile),&
             lake=tid,lake_predefined=tile_parameters%lake,&
-            itile=tid)
+            itile=tid,pid=tile_parameters%metadata%tile(itile)+1,&
+            i_index=i_index,j_index=j_index,face=lnd%ug_face,ttype=2,&
+            l_index=l)
     case(3)
       tile => new_land_tile_predefined(frac=tile_parameters%metadata%frac(itile),&
            soil=1,vegn=tile_parameters%soil%vegn(tid),&
            htag_j=tile_parameters%soil%hidx_j(tid),&
            htag_k=tile_parameters%soil%hidx_k(tid),&
-           soil_predefined=tile_parameters%soil,itile=tid)
+           soil_predefined=tile_parameters%soil,itile=tid,pid=tile_parameters%metadata%tile(itile)+1,&
+           i_index=i_index,j_index=j_index,face=lnd%ug_face,ttype=3,&
+           l_index=l)
    end select
    call insert(tile,tiles)
   enddo
@@ -220,14 +226,15 @@ subroutine land_cover_cold_start_0d_predefined_tiles(tiles,lnd,l,h5id)
 
 end subroutine
 
-subroutine land_cover_warm_start_0d_predefined_tiles(tiles,lnd,l,h5id,warm_tiles,warm_vegn)
+subroutine land_cover_warm_start_0d_predefined_tiles(tiles,lnd,l,h5id,warm_tiles,warm_vegn,&
+           i_index,j_index,face)
 
   type(land_tile_list_type),intent(inout) :: tiles
   integer, intent(in) :: l,warm_tiles(:),warm_vegn(:)
   integer(hid_t), intent(in) :: h5id
   type(land_state_type),intent(inout) :: lnd
   type(land_tile_type), pointer :: tile
-  integer :: itile,tid,is,js,status
+  integer :: itile,tid,i_index,j_index,face,status
   integer(hid_t) :: varid,grpid,dimid,cell_grpid,cellid,dstid,cid,dsid
   integer :: max_npt,k,warm_tile
   real :: lat,lon,t0,t1
@@ -237,8 +244,8 @@ subroutine land_cover_warm_start_0d_predefined_tiles(tiles,lnd,l,h5id,warm_tiles
   integer(size_t) :: buf_len
   character(kind=c_char),allocatable,dimension(:),target :: image_ptr
 
-  is = lnd%i_index(l)
-  js = lnd%j_index(l)
+  i_index = lnd%i_index(l)
+  j_index = lnd%j_index(l)
   lon = 180.0*lnd%ug_lon(l)/pi
   lat = 180.0*lnd%ug_lat(l)/pi
 
@@ -246,7 +253,7 @@ subroutine land_cover_warm_start_0d_predefined_tiles(tiles,lnd,l,h5id,warm_tiles
   print*,"Initializing: ",lat,lon
 
   !Retrieve buffer and buffer length of desired group (I/O core)
-  call load_group_into_memory(lnd%ug_face,is,js,h5id,buf_ptr,buf_len,image_ptr)
+  call load_group_into_memory(lnd%ug_face,i_index,j_index,h5id,buf_ptr,buf_len,image_ptr)
 
   !Use buffer and buffer length to open new image file (Land model core)
   call open_image_file(buf_ptr,buf_len,image_ptr,dstid)
@@ -275,17 +282,23 @@ subroutine land_cover_warm_start_0d_predefined_tiles(tiles,lnd,l,h5id,warm_tiles
     case(1)
      tile => new_land_tile_predefined(frac=tile_parameters%metadata%frac(itile),&
             glac=tid,glacier_predefined=tile_parameters%glacier,&
-            itile=tid)
+            itile=tid,pid=tile_parameters%metadata%tile(itile)+1,&
+            i_index=i_index,j_index=j_index,face=lnd%ug_face,ttype=1,&
+            l_index=l)
     case(2)
      tile => new_land_tile_predefined(frac=tile_parameters%metadata%frac(itile),&
             lake=tid,lake_predefined=tile_parameters%lake,&
-            itile=tid)
+            itile=tid,pid=tile_parameters%metadata%tile(itile)+1,&
+            i_index=i_index,j_index=j_index,face=lnd%ug_face,ttype=2,&
+            l_index=l)
     case(3)
       tile => new_land_tile_predefined(frac=tile_parameters%metadata%frac(itile),&
            soil=1,vegn=warm_vegn(warm_tile),&
            htag_j=tile_parameters%soil%hidx_j(tid),&
            htag_k=tile_parameters%soil%hidx_k(tid),&
-           soil_predefined=tile_parameters%soil,itile=tid)
+           soil_predefined=tile_parameters%soil,itile=tid,pid=tile_parameters%metadata%tile(itile)+1,&
+           i_index=i_index,j_index=j_index,face=lnd%ug_face,ttype=3,&
+           l_index=l)
    end select
    call insert(tile,tiles)
   enddo
@@ -524,7 +537,9 @@ subroutine retrieve_soil_parameters(tile_parameters,cid)
   !where(soil%tile_hlsp_length .lt. 0.001)soil%tile_hlsp_length = 100.0
   !where(soil%tile_hlsp_width .lt. 0.001)soil%tile_hlsp_width = 1.0
   where(isnan(soil%gw_soil_e_depth) .eq. .True.)soil%gw_soil_e_depth = 3.0
-  !where(soil%dat_k_sat_ref .gt. 0.01)soil%dat_k_sat_ref = 0.01
+  where(soil%dat_k_sat_ref .gt. 0.01)soil%dat_k_sat_ref = 0.01 !HACK
+  where(soil%dat_psi_sat_ref .gt. -0.001)soil%dat_psi_sat_ref = -0.001 !HACK
+  where(isnan(soil%dat_k_sat_ref) .eq. .True.)soil%dat_k_sat_ref = 0.003 !HACK
 
   !Close access to the group
   call h5gclose_f(grpid,status)

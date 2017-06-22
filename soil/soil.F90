@@ -401,7 +401,11 @@ subroutine soil_init (predefined_tiles, id_ug,id_band,id_zfull,id_ptid)
   i_river_DOC  = river_tracer_index('doc')
 
   ! -------- initialize soil model diagnostic fields
-  call soil_diag_init(id_ug,id_band,id_zfull)
+  if (predefined_tiles) then
+   call soil_diag_init(id_ug,id_band,id_zfull,id_ptid)
+  else
+   call soil_diag_init(id_ug,id_band,id_zfull)
+  endif
 
   if (predefined_tiles) then
      ! Initialize the soil derived parameters

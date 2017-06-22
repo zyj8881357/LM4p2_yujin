@@ -931,7 +931,7 @@ subroutine dump_tile_diag_fields(land_tile_map,time)
         if ((fields(ifld)%sm .eq. .True.))then
         call dump_diag_field_with_sel (land_tile_map, fields(ifld)%ids(isel), &
              fields(ifld), selectors(isel), time )
-        else 
+        else
           call dump_diag_field_with_sel_full (land_tile_map, fields(ifld)%ids(isel), &
              fields(ifld), selectors(isel), time )
         endif

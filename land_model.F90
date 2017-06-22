@@ -651,8 +651,9 @@ subroutine land_model_restart(timestamp)
   call add_int_tile_data(restart,'soil',soil_tag_ptr,'tag of soil tiles')
   call add_int_tile_data(restart,'vegn',vegn_tag_ptr,'tag of vegetation tiles')
   call add_int_tile_data(restart,'pid',tile_pid_ptr,'parent id of the tiles')
-  call add_int_tile_data(restart,'is',tile_is_ptr,'i position of the cell')
-  call add_int_tile_data(restart,'js',tile_js_ptr,'j position of the cell')
+  call add_int_tile_data(restart,'i_index',tile_i_index_ptr,'i index of the cell')
+  call add_int_tile_data(restart,'j_index',tile_j_index_ptr,'j index of the cell')
+  call add_int_tile_data(restart,'l_index',tile_l_index_ptr,'l index of the cell')
   call add_int_tile_data(restart,'face',tile_face_ptr,'face of the cell')
   ! write the upward long-wave flux
   call add_tile_data(restart,'lwup',land_lwup_ptr,'upward long-wave flux')
@@ -976,10 +977,10 @@ subroutine land_cover_warm_start_predefined(restart)
 
  type(land_restart_type), intent(in) :: restart
  ! ---- local vars
- integer, allocatable :: pid(:),is(:),js(:),faces(:),itiles(:),vegn(:)
- integer, allocatable :: pids(:),iss(:),jss(:),facess(:),vegns(:)
+ integer, allocatable :: pid(:),i_index(:),j_index(:),l_index(:),faces(:),itiles(:),vegn(:)
+ integer, allocatable :: pid_sd(:),i_index_sd(:),j_index_sd(:),l_index_sd(:),faces_sd(:),vegn_sd(:)
  real,    allocatable :: frac(:) ! fraction of land covered by tile
- real,    allocatable :: fracs(:) ! fraction of land covered by tile
+ real,    allocatable :: frac_sd(:) ! fraction of land covered by tile
  integer :: ntiles    ! total number of land tiles in the input file
  integer :: ntiless
  integer :: i,j,k,it,h5id,nt,face,first,last,g,l
@@ -987,7 +988,8 @@ subroutine land_cover_warm_start_predefined(restart)
  type(land_tile_type), pointer :: tile
 
  ntiles = size(restart%tidx)
- allocate(pid(ntiles),is(ntiles),js(ntiles),faces(ntiles),vegn(ntiles),frac(ntiles))
+ allocate(pid(ntiles),i_index(ntiles),j_index(ntiles),l_index(ntiles),&
+          faces(ntiles),vegn(ntiles),frac(ntiles))
 
  !call read_compressed(restart%basename,'frac',frac,domain=lnd%domain, timelevel=1)
  !call read_compressed(restart%basename,'vegn',vegn,domain=lnd%domain, timelevel=1)
@@ -998,9 +1000,10 @@ subroutine land_cover_warm_start_predefined(restart)
  call fms_io_unstructured_read(restart%basename, "frac", frac, lnd%ug_domain, timelevel=1)
  call fms_io_unstructured_read(restart%basename, "vegn", vegn, lnd%ug_domain, timelevel=1)
  call fms_io_unstructured_read(restart%basename, "pid", pid, lnd%ug_domain, timelevel=1)
- call fms_io_unstructured_read(restart%basename, "is", is, lnd%ug_domain, timelevel=1)
- call fms_io_unstructured_read(restart%basename, "js", js, lnd%ug_domain, timelevel=1)
- call fms_io_unstructured_read(restart%basename, "faces", faces, lnd%ug_domain, timelevel=1)
+ call fms_io_unstructured_read(restart%basename, "i_index", i_index, lnd%ug_domain, timelevel=1)
+ call fms_io_unstructured_read(restart%basename, "j_index", j_index, lnd%ug_domain, timelevel=1)
+ call fms_io_unstructured_read(restart%basename, "l_index", l_index, lnd%ug_domain, timelevel=1)
+ call fms_io_unstructured_read(restart%basename, "face", faces, lnd%ug_domain, timelevel=1)
 
  ! Open access to model input database
  call open_database_predefined_tiles(h5id)
@@ -1022,58 +1025,63 @@ subroutine land_cover_warm_start_predefined(restart)
 
  if (ntiless .gt. 0)then
   !Extract the info for the subdomain
-  allocate(pids(ntiless),iss(ntiless),jss(ntiless),facess(ntiless),vegns(ntiless),fracs(ntiless))
+  allocate(pid_sd(ntiless),i_index_sd(ntiless),j_index_sd(ntiless),faces_sd(ntiless),&
+           vegn_sd(ntiless),frac_sd(ntiless),l_index_sd(ntiless))
   itt = 1
   do it = 1,ntiles
    k = restart%tidx(it)
    if (k<0) cycle ! skip negative indices
    !i = modulo(k,lnd%nlon)+1; k = k/lnd%nlon
    !j = modulo(k,lnd%nlat)+1; k = k/lnd%nlat
+   g = modulo(k,lnd%nlon*lnd%nlat)+1
    if (g<lnd%gs.or.g>lnd%ge) cycle
    !if (i<lnd%is.or.i>lnd%ie) cycle
    ! if (j<lnd%js.or.j>lnd%je) cycle
    k = k + 1
-   pids(itt) = pid(it)
-   iss(itt) = is(it)
-   jss(itt) = js(it)
-   facess(itt) = faces(it)
-   vegns(itt) = vegn(it)
-   fracs(itt) = frac(it)
+   pid_sd(itt) = pid(it)
+   i_index_sd(itt) = i_index(it)
+   j_index_sd(itt) = j_index(it)
+   l_index_sd(itt) = l_index(it)
+   faces_sd(itt) = faces(it)
+   vegn_sd(itt) = vegn(it)
+   frac_sd(itt) = frac(it)
    itt = itt + 1
   enddo
  
   ! Create tiles
-  i = iss(1)
-  j = jss(1)
-  face = facess(1)
+  i = i_index_sd(1)
+  j = j_index_sd(1)
+  l = l_index_sd(1)
+  face = faces_sd(1)
   first = 1
   last = 0
   do itt = 1,ntiless
-   if ((itt+1 .gt. ntiless) .or. (iss(itt+1) .ne. i) .or. (jss(itt+1) .ne. j) &
-      .or. (facess(itt+1) .ne. face))then
+   if ((itt+1 .gt. ntiless) .or. (i_index_sd(itt+1) .ne. i) .or. (j_index_sd(itt+1) .ne. j) &
+      .or. (faces_sd(itt+1) .ne. face))then
     last = itt
     !Create all the tiles for this cell
     !call land_cover_warm_start_0d_predefined_tiles(land_tile_map(l),&
     !     lnd,i,j,h5id,pids(first:last),vegns(first:last))
     call land_cover_warm_start_0d_predefined_tiles(land_tile_map(l),lnd,l,h5id,&
-         pids(first:last),vegns(first:last))
+         pid_sd(first:last),vegn_sd(first:last),i,j,face)
     !Update the parameters
     first = itt+1
-    i = iss(first) 
-    j = jss(first)
-    face = facess(first)
+    i = i_index_sd(first) 
+    j = j_index_sd(first)
+    l = l_index_sd(first)
+    face = faces_sd(first)
    else
     last = last + 1
    endif
   enddo
   !deallocate the subset
-  deallocate(pids, iss, jss, facess, vegns, fracs)
+  deallocate(pid_sd, i_index_sd, j_index_sd, faces_sd, vegn_sd, frac_sd, l_index_sd)
  endif
 
  ! Close access to model input database
  call close_database_predefined_tiles(h5id)
 
- deallocate(pid, is, js, faces, vegn, frac)
+ deallocate(pid, i_index, j_index, faces, vegn, frac, l_index)
 
 end subroutine land_cover_warm_start_predefined
 
@@ -4229,8 +4237,9 @@ then;if (associated(t)) p=>t%x;endif;\
 end subroutine
 
 DEFINE_PID_ACCESSOR(pid)
-DEFINE_PID_ACCESSOR(is)
-DEFINE_PID_ACCESSOR(js)
+DEFINE_PID_ACCESSOR(i_index)
+DEFINE_PID_ACCESSOR(j_index)
+DEFINE_PID_ACCESSOR(l_index)
 DEFINE_PID_ACCESSOR(face)
 
 end module land_model_mod
