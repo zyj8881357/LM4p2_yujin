@@ -639,6 +639,11 @@ subroutine hlsp_init(id_ug)
 
      if (.not.associated(tile%soil)) cycle
 
+     !NWC Note: Set the hillslope fraction to the grid cell fraction. The parameter tile_hlsp_frac
+     !has been added with the predefined tiles. However, for the baseline case it can be seen
+     !simply as the grid cell fraction
+     tile%soil%pars%tile_hlsp_frac = tile%frac
+
      hj = tile%soil%hidx_j
      hk = tile%soil%hidx_k
      ! ZMS Note: To allow multiple instances of each topo hillslope, add check here to see if
