@@ -25,16 +25,24 @@ module predefined_tiles_mod
 
 contains
 
-subroutine open_database_predefined_tiles(h5id)
+subroutine open_database_predefined_tiles(h5id,lnd)
 
+  type(land_state_type),intent(in) :: lnd
   integer(hid_t), intent(out) :: h5id
   integer :: status
+  character(100) :: filename,fid
 
   !Initialize the fortran library
   call h5open_f(status)
 
+  !Define the file
+  write(fid,'(I10)') lnd%ug_face
+  filename = trim(trim(adjustl('INPUT/ptiles.face')) // trim(adjustl(fid)) // trim(adjustl('.h5')))
+  !print*,filename
+
   !Open access to the model input database
-  CALL h5fopen_f('INPUT/land_model_input_database.h5',H5F_ACC_RDONLY_F,h5id, status)
+  CALL h5fopen_f(filename,H5F_ACC_RDONLY_F,h5id, status)
+  !CALL h5fopen_f('INPUT/land_model_input_database.h5',H5F_ACC_RDONLY_F,h5id, status)
   !CALL h5fopen_f('INPUT/land_model_input_database.nc',H5F_ACC_RDONLY_F,h5id, status)
 
 end subroutine open_database_predefined_tiles
@@ -165,7 +173,7 @@ subroutine land_cover_cold_start_0d_predefined_tiles(tiles,lnd,l,h5id)
   lon = 180.0*lnd%ug_lon(l)/pi
   lat = 180.0*lnd%ug_lat(l)/pi
   !Print out the current lat and lon
-  print*,"Initializing: ",lat,lon
+  !print*,"Initializing: ",lat,lon
 
   !Retrieve buffer and buffer length of desired group (I/O core)
   call load_group_into_memory(lnd%ug_face,i_index,j_index,h5id,buf_ptr,buf_len,image_ptr)
@@ -222,7 +230,7 @@ subroutine land_cover_cold_start_0d_predefined_tiles(tiles,lnd,l,h5id)
   call h5fclose_f(dstid,status)
 
   !Define the maximum number of parent tiles
-  lnd%max_npt = tile_parameters%metadata%max_npt(1)
+  lnd%max_npt = tile_parameters%metadata%ntile!tile_parameters%metadata%max_npt(1)
 
 end subroutine
 
@@ -250,7 +258,7 @@ subroutine land_cover_warm_start_0d_predefined_tiles(tiles,lnd,l,h5id,warm_tiles
   lat = 180.0*lnd%ug_lat(l)/pi
 
   !Print out the current lat and lon
-  print*,"Initializing: ",lat,lon
+  !print*,"Initializing: ",lat,lon
 
   !Retrieve buffer and buffer length of desired group (I/O core)
   call load_group_into_memory(lnd%ug_face,i_index,j_index,h5id,buf_ptr,buf_len,image_ptr)
@@ -308,7 +316,8 @@ subroutine land_cover_warm_start_0d_predefined_tiles(tiles,lnd,l,h5id,warm_tiles
   call h5fclose_f(dstid,status)
 
   !Define the maximum number of parent tiles
-  lnd%max_npt = tile_parameters%metadata%max_npt(1)
+  lnd%max_npt = tile_parameters%metadata%ntile!tile_parameters%metadata%max_npt(1)
+  !lnd%max_npt = tile_parameters%metadata%max_npt(1)
   
 end subroutine
 
@@ -537,6 +546,8 @@ subroutine retrieve_soil_parameters(tile_parameters,cid)
   !where(soil%tile_hlsp_length .lt. 0.001)soil%tile_hlsp_length = 100.0
   !where(soil%tile_hlsp_width .lt. 0.001)soil%tile_hlsp_width = 1.0
   where(isnan(soil%gw_soil_e_depth) .eq. .True.)soil%gw_soil_e_depth = 3.0
+  where(soil%gw_soil_e_depth .lt. 1.0)soil%gw_soil_e_depth = 1.0
+  where(isnan(soil%gw_perm) .eq. .True.)soil%gw_perm = 2e-13 !HACK
   where(soil%dat_k_sat_ref .gt. 0.01)soil%dat_k_sat_ref = 0.01 !HACK
   where(soil%dat_psi_sat_ref .gt. -0.001)soil%dat_psi_sat_ref = -0.001 !HACK
   where(isnan(soil%dat_k_sat_ref) .eq. .True.)soil%dat_k_sat_ref = 0.003 !HACK

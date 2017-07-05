@@ -536,6 +536,8 @@ subroutine land_model_init &
   ! mask error checking
   do l=lnd%ls,lnd%le
      if(lnd%ug_landfrac(l)>0.neqv.ANY(land2cplr%mask(l,:))) then
+        print*,lnd%ug_landfrac(l),land2cplr%mask(l,:)
+        print*,lnd%ug_face,'i',lnd%i_index(l),'j',lnd%j_index(l)
         call error_mesg('land_model_init','land masks from grid spec and from land restart do not match',FATAL)
      endif
   enddo
@@ -837,7 +839,7 @@ subroutine land_cover_cold_start_predefined()
   integer(hid_t) :: h5id
 
   ! Open access to model input database
-  call open_database_predefined_tiles(h5id)
+  call open_database_predefined_tiles(h5id,lnd)
 
   do l = lnd%ls, lnd%le
     if(.not.lnd%ug_area(l)>0) cycle ! skip ocean points
@@ -1006,7 +1008,7 @@ subroutine land_cover_warm_start_predefined(restart)
  call fms_io_unstructured_read(restart%basename, "face", faces, lnd%ug_domain, timelevel=1)
 
  ! Open access to model input database
- call open_database_predefined_tiles(h5id)
+ call open_database_predefined_tiles(h5id,lnd)
 
  !Calculate the number of tiles in the subdomain
  ntiless = 0
