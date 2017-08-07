@@ -76,6 +76,7 @@ type :: vegn_tile_type
    integer :: tag ! kind of the tile
    integer :: landuse = LU_NTRL
    integer :: irrigation = 0 ! 0=no irrigation/1=irrigation
+   real :: br,bsw,bwood,bl !for predefined values for the tile
 
    integer :: n_cohorts = 0
    type(vegn_cohort_type), pointer :: cohorts(:)=>NULL()
@@ -172,6 +173,10 @@ function vegn_tile_ctor_predefined(tile_parameters,itile) result(ptr)
   ptr%tag = tile_parameters%vegn(itile)
   ptr%landuse = tile_parameters%landuse(itile)
   ptr%irrigation = tile_parameters%irrigation(itile)
+  ptr%bwood = tile_parameters%bwood(itile)
+  ptr%br = tile_parameters%br(itile)
+  ptr%bsw = tile_parameters%bsw(itile)
+  ptr%bl = tile_parameters%bl(itile)
 
 end function vegn_tile_ctor_predefined
 

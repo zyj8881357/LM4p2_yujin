@@ -393,6 +393,7 @@ subroutine gs_Leuning(rad_top, rad_net, tl, ea, lai, leaf_age, &
   Ag_rb=0.;
   Ag=0.;
   anbar=-Resp/lai;
+  if (isnan(anbar) .eq. .True.)anbar = 0.0
   gsbar=b;
 
   ! find the LAI level at which gross photosynthesis rates are equal
@@ -428,6 +429,7 @@ subroutine gs_Leuning(rad_top, rad_net, tl, ea, lai, leaf_age, &
 
            An=Ag-Resp;
            anbar=An/lai;
+           if (isnan(anbar) .eq. .True.)anbar = 0.0
 
            !#### MODIFIED BY PPG 2016-12-01
            !write(*,*) 'par_net', par_net

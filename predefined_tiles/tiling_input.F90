@@ -230,7 +230,8 @@ subroutine land_cover_cold_start_0d_predefined_tiles(tiles,lnd,l,h5id)
   call h5fclose_f(dstid,status)
 
   !Define the maximum number of parent tiles
-  lnd%max_npt = tile_parameters%metadata%ntile!tile_parameters%metadata%max_npt(1)
+  lnd%max_npt = max(lnd%max_npt,tile_parameters%metadata%ntile)
+  !lnd%max_npt = tile_parameters%metadata%ntile!tile_parameters%metadata%max_npt(1)
 
 end subroutine
 
@@ -316,7 +317,8 @@ subroutine land_cover_warm_start_0d_predefined_tiles(tiles,lnd,l,h5id,warm_tiles
   call h5fclose_f(dstid,status)
 
   !Define the maximum number of parent tiles
-  lnd%max_npt = tile_parameters%metadata%ntile!tile_parameters%metadata%max_npt(1)
+  lnd%max_npt = max(lnd%max_npt,tile_parameters%metadata%ntile)
+  !lnd%max_npt = tile_parameters%metadata%ntile!tile_parameters%metadata%max_npt(1)
   !lnd%max_npt = tile_parameters%metadata%max_npt(1)
   
 end subroutine
@@ -541,16 +543,28 @@ subroutine retrieve_soil_parameters(tile_parameters,cid)
   call get_parameter_data(grpid,"vegn",nsoil,soil%vegn)
   call get_parameter_data(grpid,"landuse",nsoil,soil%landuse)
   call get_parameter_data(grpid,"irrigation",nsoil,soil%irrigation)
+  call get_parameter_data(grpid,"bl",nsoil,soil%bl)
+  call get_parameter_data(grpid,"bsw",nsoil,soil%bsw)
+  call get_parameter_data(grpid,"bwood",nsoil,soil%bwood)
+  call get_parameter_data(grpid,"br",nsoil,soil%br)
 
   !Do some basic QC (should be done in the preprocessing...)
-  !where(soil%tile_hlsp_length .lt. 0.001)soil%tile_hlsp_length = 100.0
-  !where(soil%tile_hlsp_width .lt. 0.001)soil%tile_hlsp_width = 1.0
   where(isnan(soil%gw_soil_e_depth) .eq. .True.)soil%gw_soil_e_depth = 3.0
-  where(soil%gw_soil_e_depth .lt. 1.0)soil%gw_soil_e_depth = 1.0
+  !where(soil%gw_soil_e_depth .lt. 1.0)soil%gw_soil_e_depth = 1.0
   where(isnan(soil%gw_perm) .eq. .True.)soil%gw_perm = 2e-13 !HACK
-  where(soil%dat_k_sat_ref .gt. 0.01)soil%dat_k_sat_ref = 0.01 !HACK
-  where(soil%dat_psi_sat_ref .gt. -0.001)soil%dat_psi_sat_ref = -0.001 !HACK
+  where(soil%dat_k_sat_ref .gt. 0.035)soil%dat_k_sat_ref = 0.035 !HACK
+  where(soil%dat_psi_sat_ref .gt. -0.01)soil%dat_psi_sat_ref = -0.01 !HACK
+  where(soil%dat_chb .lt. 2.0)soil%dat_chb = 2.0 !HACK
+  !where(soil%dat_k_sat_ref .gt. 0.01)soil%dat_k_sat_ref = 0.01 !HACK
+  !where(soil%dat_k_sat_ref .gt. 0.025)soil%dat_k_sat_ref = 0.0 !HACK
+  !Correct psi_sat_ref
+  !soil%dat_psi_sat_ref = 10*soil%dat_psi_sat_ref !Need to move back to original
+  !where(soil%dat_psi_sat_ref .gt. -0.01)soil%dat_psi_sat_ref = -0.01 !HACK
   where(isnan(soil%dat_k_sat_ref) .eq. .True.)soil%dat_k_sat_ref = 0.003 !HACK
+  where(isnan(soil%bl) .eq. .True.)soil%bl = 0.0
+  where(isnan(soil%br) .eq. .True.)soil%br = 0.0
+  where(isnan(soil%bsw) .eq. .True.)soil%bsw = 0.0
+  where(isnan(soil%bwood) .eq. .True.)soil%bwood = 0.0
 
   !Close access to the group
   call h5gclose_f(grpid,status)

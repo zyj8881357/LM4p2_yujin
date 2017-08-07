@@ -108,6 +108,10 @@ type :: soil_predefined_type
  integer,pointer,dimension(:) :: vegn
  integer,pointer,dimension(:) :: landuse
  integer,pointer,dimension(:) :: irrigation
+ real,pointer,dimension(:) :: bl
+ real,pointer,dimension(:) :: br
+ real,pointer,dimension(:) :: bsw
+ real,pointer,dimension(:) :: bwood
 
 end type soil_predefined_type
 

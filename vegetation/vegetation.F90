@@ -417,11 +417,20 @@ subroutine vegn_init(id_ug,id_band,id_ptid,predefined_tiles)
      cohort%Ws      = init_Ws
      cohort%Tv      = init_Tv
 
-     cohort%bl      = init_cohort_bl
+     if (predefined_tiles)then
+      !Initialize biomass components from predefined data
+      cohort%bl = tile%vegn%bl
+      cohort%br = tile%vegn%br
+      cohort%bsw = tile%vegn%bsw
+      cohort%bwood = tile%vegn%bwood
+     else
+      cohort%bl      = init_cohort_bl
+      cohort%br      = init_cohort_br
+      cohort%bsw     = init_cohort_bsw
+      cohort%bwood   = init_cohort_bwood
+     endif
+
      cohort%blv     = init_cohort_blv
-     cohort%br      = init_cohort_br
-     cohort%bsw     = init_cohort_bsw
-     cohort%bwood   = init_cohort_bwood
      cohort%bliving = cohort%bl+cohort%br+cohort%blv+cohort%bsw
      cohort%npp_previous_day = 0.0
      cohort%status  = LEAF_ON
