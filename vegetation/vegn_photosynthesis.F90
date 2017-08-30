@@ -69,12 +69,15 @@ real, public, protected :: co2_for_photosynthesis = 350.0e-6 ! concentration of 
    ! photosynthesis calculations, mol/mol. Ignored if co2_to_use_for_photosynthesis is
    ! not 'prescribed'
 
+real :: lai_eps = 0.0 ! threshold for switching to linear approximation for Ag_l
+
 namelist /photosynthesis_nml/ &
     photosynthesis_to_use, respiration_to_use, &
     Kok_effect, light_kok, Inib_factor, &
     TmaxP, ToptP,  tshrP, tshlP, &
     TmaxR, ToptR,  tshrR, tshlR, &
-    co2_to_use_for_photosynthesis, co2_for_photosynthesis
+    co2_to_use_for_photosynthesis, co2_for_photosynthesis, &
+    lai_eps
 
 integer, public, protected :: vegn_phot_co2_option = -1 ! selector of co2 option used for photosynthesis
 
@@ -155,7 +158,7 @@ subroutine vegn_photosynthesis ( vegn, &
      PAR_dn, PAR_net, cana_q, cana_co2, p_surf, drag_q, &
      soil_beta, soil_water_supply, &
      evap_demand, stomatal_cond, psyn, resp, &
-     lai_kok, Anlayer)
+     lai_kok, Anlayer,lai_light)
   type(vegn_tile_type), intent(in) :: vegn
   real, intent(in)  :: PAR_dn   ! downward PAR at the top of the canopy, W/m2
   real, intent(in)  :: PAR_net  ! net PAR absorbed by the canopy, W/m2
@@ -172,6 +175,9 @@ subroutine vegn_photosynthesis ( vegn, &
   real, intent(out) :: resp     ! leaf respiration, mol C/(m2 s)
   real, intent(out) :: lai_kok  ! LAI value for light inhibition m2/m2
   real, intent(out) :: Anlayer
+  real, intent(out) :: lai_light ! LAI at which Ag=Resp
+
+
   ! ---- local constants
   real, parameter :: res_scaler = 20.0    ! scaling factor for water supply
 
@@ -181,6 +187,13 @@ subroutine vegn_photosynthesis ( vegn, &
   real    :: water_supply ! water supply, mol H2O per m2 of leaves per second
   real    :: Ed ! evaporative demand, mol H2O per m2 of leaves per second
   real    :: fw, fs ! wet and snow-covered fraction of leaves
+
+
+  ! set the default values for outgoing parameters, overriden by the calculations
+  ! in gs_leuning
+  lai_kok   = 0.0
+  Anlayer   = 0.0
+  lai_light = 0.0
 
   ! get the pointer to the first (and, currently, the only) cohort
   cohort => vegn%cohorts(1)
@@ -207,8 +220,8 @@ subroutine vegn_photosynthesis ( vegn, &
         call gs_Leuning(PAR_dn, PAR_net, cohort%Tv, cana_q, cohort%lai, &
              cohort%leaf_age, p_surf, water_supply, sp, cohort%pt, cana_co2, &
              cohort%extinct, fs+fw, stomatal_cond, psyn, resp, Ed, &
-             lai_kok, Anlayer)
-        ! store the calculated photosythesis and fotorespiration for future use
+             lai_kok, Anlayer,lai_light)
+        ! store the calculated photosynthesis and fotorespiration for future use
         ! in carbon_int
         cohort%An_op  = psyn * seconds_per_year
         cohort%An_cl  = resp * seconds_per_year
@@ -243,18 +256,18 @@ subroutine gs_Leuning(rad_top, rad_net, tl, ea, lai, leaf_age, &
                    p_surf, ws, pft, pt, ca, &
                    kappa, leaf_wet,  &
                    gs, apot, acl, Ed, &
-                   lai_kok, Anlayer)
-  real,    intent(in)    :: rad_top ! PAR dn on top of the canopy, w/m2
-  real,    intent(in)    :: rad_net ! PAR net on top of the canopy, w/m2
+                   lai_kok, Anlayer, lai_light)
+  real,    intent(in)    :: rad_top ! PAR dn on top of the canopy, W/m2
+  real,    intent(in)    :: rad_net ! Net canopy PAR to the canopy, W/m2
   real,    intent(in)    :: tl   ! leaf temperature, degK
   real,    intent(in)    :: ea   ! specific humidity in the canopy air (?), kg/kg
   real,    intent(in)    :: lai  ! leaf area index
-  real,    intent(in)    :: leaf_age ! age of leaf since budburst (deciduos), days
+  real,    intent(in)    :: leaf_age ! age of leaf since budburst (deciduous), days
   real,    intent(in)    :: p_surf ! surface pressure, Pa
   real,    intent(in)    :: ws   ! water supply, mol H2O/(m2 of leaf s)
   integer, intent(in)    :: pft  ! species
   integer, intent(in)    :: pt   ! physiology type (C3 or C4)
-  real,    intent(in)    :: ca   ! concentartion of CO2 in the canopy air space, mol CO2/mol dry air
+  real,    intent(in)    :: ca   ! concentration of CO2 in the canopy air space, mol CO2/mol dry air
   real,    intent(in)    :: kappa! canopy extinction coefficient (move inside f(pft))
   real,    intent(in)    :: leaf_wet ! fraction of leaf that's wet or snow-covered
   ! note that the output is per area of leaf; to get the quantities per area of
@@ -266,6 +279,7 @@ subroutine gs_Leuning(rad_top, rad_net, tl, ea, lai, leaf_age, &
   real,    intent(out)   :: lai_kok ! Lai at which kok effect is considered
   !#### Modified by PPG 2016-12-01
   real,    intent(out)   :: Anlayer
+  real,    intent(out)   :: lai_light ! Lai at which Ag=Resp
 
   ! ---- local vars
   ! photosynthesis
@@ -284,10 +298,11 @@ subroutine gs_Leuning(rad_top, rad_net, tl, ea, lai, leaf_age, &
   real :: hl;  ! saturated specific humidity at the leaf temperature, kg/kg
   real :: do1;
 
-  ! misceleneous
+  ! miscellaneous
   real :: dum2;
   real, parameter :: light_crit = 0;
   real, parameter :: gs_lim = 0.25;
+  real, parameter :: dLAI = 0.01 ! small LAI increment for Anlayer calculations
 
   !#### MODIFIED BY PPG 2016-12-01
   real :: Ag_layer
@@ -313,6 +328,8 @@ subroutine gs_Leuning(rad_top, rad_net, tl, ea, lai, leaf_age, &
   !########MODIFIED BY PPG 2016-12-05
   real :: TempFactP
   real :: TempFactR
+  real :: TempFuncP
+  real :: TempFuncR
 
   if (is_watch_point()) then
      write(*,*) '####### gs_leuning input #######'
@@ -334,14 +351,6 @@ subroutine gs_Leuning(rad_top, rad_net, tl, ea, lai, leaf_age, &
   b=0.01;
   do1=0.09 ; ! kg/kg
   if (pft < 2) do1=0.15;
-
-  !######MODIFIED BY PPG 2016-12-05
-  TempFactP=(TmaxP-(tl-273.15))/(TmaxP-ToptP);
-  if (TempFactP < 0.) TempFactP=0.;
-
-  TempFactR=(TmaxR-(tl-273.15))/(TmaxR-ToptR);
-  if (TempFactR < 0.) TempFactR=0.;
-  !#########
 
   ! Convert Solar influx from W/(m^2s) to mol_of_quanta/(m^2s) PAR,
   ! empirical relationship from McCree is light=rn*0.0000046
@@ -380,11 +389,19 @@ subroutine gs_Leuning(rad_top, rad_net, tl, ea, lai, leaf_age, &
   endif
   select case (vegn_resp_option)
   case(VEGN_RESP_LM3)
-     Resp=Resp/((1.0+exp(0.4*(5.0-tl+TFREEZE)))*(1.0+exp(0.4*(tl-45.0-TFREEZE))))
+     TempFuncR=(1.0+exp(0.4*(5.0-tl+TFREEZE)))*(1.0+exp(0.4*(tl-45.0-TFREEZE)))
+     TempFuncP=(1.0+exp(0.4*(5.0-tl+TFREEZE)))*(1.0+exp(0.4*(tl-45.0-TFREEZE)))
   case(VEGN_RESP_GAUTHIER)
-     Resp=Resp*((TempFactR**tshrR)*exp((tshrR/tshlR)*(1.-(TempFactR**tshlR))))
+     TempFactP=(TmaxP-(tl-TFREEZE))/(TmaxP-ToptP)
+     if (TempFactP < 0.) TempFactP=0.
+
+     TempFactR=(TmaxR-(tl-TFREEZE))/(TmaxR-ToptR)
+     if (TempFactR < 0.) TempFactR=0.
+     TempFuncR=1/((TempFactR**tshrR)*exp((tshrR/tshlR)*(1.-(TempFactR**tshlR))))
+     TempFuncP=1/((TempFactP**tshrP)*exp((tshrP/tshlP)*(1.-(TempFactP**tshlP))))
   end select
-  Anlayer=(-spdata(pft)%gamma_resp*vm*(layer)/((1.0+exp(0.4*(5.0-tl+TFREEZE)))*(1.0+exp(0.4*(tl-45.0-TFREEZE)))))/0.01
+  Resp=Resp/TempFuncR
+  Anlayer=(-spdata(pft)%gamma_resp*vm*(layer)/TempFuncR)/dLAI
 
   ! ignore the difference in concentrations of CO2 near
   !  the leaf and in the canopy air, rb=0.
@@ -395,10 +412,11 @@ subroutine gs_Leuning(rad_top, rad_net, tl, ea, lai, leaf_age, &
   anbar=-Resp/lai;
   if (isnan(anbar) .eq. .True.)anbar = 0.0
   gsbar=b;
+  lai_light = 0.0
 
   ! find the LAI level at which gross photosynthesis rates are equal
   ! only if PAR is positive
-  if ( light_top > light_crit ) then
+  if ( light_top > light_crit .and. par_net > 0) then
      if (pt==PT_C4) then ! C4 species
         coef0=(1+ds/do1)/spdata(pft)%m_cond;
         ci=(ca+1.6*coef0*capgam)/(1+1.6*coef0);
@@ -413,34 +431,48 @@ subroutine gs_Leuning(rad_top, rad_net, tl, ea, lai, leaf_age, &
            lai_eq = min(max(0.0,lai_eq),lai) ! limit lai_eq to physically possible range
 
            ! gross photosynthesis for light-limited part of the canopy
-           Ag_l   = spdata(pft)%alpha_phot * par_net &
-                * (exp(-lai_eq*kappa)-exp(-lai*kappa))/(1-exp(-lai*kappa))
+           if (lai>lai_eps) then
+              Ag_l = spdata(pft)%alpha_phot * par_net &
+                   * (exp(-lai_eq*kappa)-exp(-lai*kappa))/(1-exp(-lai*kappa))
+           else
+              ! approximation for very small LAI: needed because the general formula above
+              ! produces division by zero if LAI is very close to zero
+              Ag_l = spdata(pft)%alpha_phot * par_net &
+                   * (lai-lai_eq)/lai
+           endif
+
+           !#### MODIFIED BY PPG 2017-06-10
+           ! find the LAI at which Ag_l equal Resp - This part is optional
+           lai_light= log((light_top*kappa*spdata(pft)%alpha_phot * (ci-capgam))/ &
+                            (spdata(pft)%gamma_resp*vm*(ci+2*capgam)))/kappa
+           lai_light = min(max(0.0,lai_light),lai)
+
            ! gross photosynthesis for rubisco-limited part of the canopy
            Ag_rb  = dum2*lai_eq
 
-           select case (vegn_resp_option)
-           case(VEGN_RESP_LM3)
-              Ag=(Ag_l+Ag_rb)/((1.0+exp(0.4*(5.0-tl+TFREEZE)))*(1.0+exp(0.4*(tl-45.0-TFREEZE))))
-           case(VEGN_RESP_GAUTHIER)
-              !#####MODIFIED BY PPG 2016-12-05
-              Ag=(Ag_l+Ag_rb)*((TempFactP**tshrP)*exp((tshrP/tshlP)*(1.-TempFactP**tshlP)))
-              !write(*,*) ((TempFactP**tshrP)*exp((tshrP/tshlP)*(1.-TempFactP**tshlP)))
-           end select
+           !#### MODIFIED BY PPG 2017-06-13
+           !Correct gross photosynthesis for Temperature Response
+           Ag=(Ag_l+Ag_rb)/TempFuncP
 
            An=Ag-Resp;
            anbar=An/lai;
            if (isnan(anbar) .eq. .True.)anbar = 0.0
 
-           !#### MODIFIED BY PPG 2016-12-01
-           !write(*,*) 'par_net', par_net
-           layer_light=par_net*(exp(-kappa*lai)-exp(-kappa*(lai+layer)))/(1-exp(-(lai+layer)*kappa))
-           !write(*,*) 'layer light', layer_light
-           Ag_layer= spdata(pft)%alpha_phot * (ci-capgam)/(ci+2.*capgam) * layer_light
-           Anlayer=((Ag_layer-spdata(pft)%gamma_resp*vm*(layer))/((1.0+exp(0.4*(5.0-tl+TFREEZE)))*(1.0+exp(0.4*(tl-45.0-TFREEZE)))))/0.01
-
-
            if(anbar>0.0) then
                gsbar=anbar/(ci-capgam)/coef0;
+           endif
+
+           !#### MODIFIED BY PPG 2016-12-01
+           !Calculate the amount of light reaching a fine extra layer of leaves
+           layer_light=par_net*(exp(-kappa*lai)-exp(-kappa*(lai+layer)))/(1-exp(-(lai+layer)*kappa))
+           !Calculate photosynthesis for the specific layer
+           Ag_layer= spdata(pft)%alpha_phot * (ci-capgam)/(ci+2.*capgam) * layer_light
+
+           !Calculate Net Photosynthesis in the layer
+           if (Kok_effect .and. layer_light > light_kok) then
+              Anlayer=(Ag_layer/TempFuncP-(1-Inib_factor)*spdata(pft)%gamma_resp*vm*layer/TempFuncR)/dLAI
+           else
+              Anlayer=(Ag_layer/TempFuncP-spdata(pft)%gamma_resp*vm*layer/TempFuncR)/dLAI
            endif
         endif ! ci>capgam
      else ! C3 species
@@ -451,31 +483,34 @@ subroutine gs_Leuning(rad_top, rad_net, tl, ea, lai, leaf_age, &
         f3=vm/2.;
         dum2=min(f2,f3);
         if (ci>capgam) then
-           ! find LAI level at which rubisco limited rate is equal to light limited rate
+                      ! find LAI level at which rubisco limited rate is equal to light limited rate
            lai_eq=-log(dum2*(ci+2.*capgam)/(ci-capgam)/ &
                        (spdata(pft)%alpha_phot*light_top*kappa))/kappa;
            lai_eq = min(max(0.0,lai_eq),lai) ! limit lai_eq to physically possible range
 
+           !#### MODIFIED BY PPG 2017-06-10
+           ! find the LAI at which Ag_l equal Resp - This part is optional
+           lai_light= log((light_top*kappa*spdata(pft)%alpha_phot * (ci-capgam))/ &
+                            (spdata(pft)%gamma_resp*vm*(ci+2*capgam)))/kappa
+           lai_light = min(max(0.0,lai_light),lai)
+
            ! gross photosynthesis for light-limited part of the canopy
-           Ag_l   = spdata(pft)%alpha_phot * (ci-capgam)/(ci+2.*capgam) * par_net &
-                * (exp(-lai_eq*kappa)-exp(-lai*kappa))/(1-exp(-lai*kappa))
+           if (lai>lai_eps) then
+              Ag_l = spdata(pft)%alpha_phot * (ci-capgam)/(ci+2.*capgam) * par_net &
+                   * (exp(-lai_eq*kappa)-exp(-lai*kappa))/(1-exp(-lai*kappa))
+           else
+              ! approximation for very small LAI: needed because the general formula above
+              ! produces division by zero if LAI is very close to zero
+              Ag_l = spdata(pft)%alpha_phot * (ci-capgam)/(ci+2.*capgam) * par_net &
+                   * (lai-lai_eq)/lai
+           endif
+
            ! gross photosynthesis for rubisco-limited part of the canopy
            Ag_rb  = dum2*lai_eq
 
-           !#### Modified by PPG 2016-12-01
-           !write(*,*) 'par_net', par_net
-           layer_light=par_net*(exp(-kappa*lai)-exp(-kappa*(lai+layer)))/(1-exp(-(lai+layer)*kappa))
-           !write(*,*) 'layer light', layer_light
-           Ag_layer= spdata(pft)%alpha_phot * (ci-capgam)/(ci+2.*capgam) * layer_light
-           Anlayer=((Ag_layer-spdata(pft)%gamma_resp*vm*(layer))/((1.0+exp(0.4*(5.0-tl+TFREEZE)))*(1.0+exp(0.4*(tl-45.0-TFREEZE)))))/0.01
-
-           select case (vegn_resp_option)
-           case(VEGN_RESP_LM3)
-              Ag=(Ag_l+Ag_rb)/((1.0+exp(0.4*(5.0-tl+TFREEZE)))*(1.0+exp(0.4*(tl-45.0-TFREEZE))))
-           case(VEGN_RESP_GAUTHIER)
-              !#####MODIFIED BY PPG 2016-12-05
-              Ag=(Ag_l+Ag_rb)*((TempFactP**tshrP)*exp((tshrP/tshlP)*(1.-TempFactP**tshlP)))
-           end select
+           !#### MODIFIED BY PPG 2017-06-13
+           !Correct gross photosynthesis for Temperature Response
+           Ag=(Ag_l+Ag_rb)/TempFuncP
 
            An=Ag-Resp;
            anbar=An/lai;
@@ -483,6 +518,19 @@ subroutine gs_Leuning(rad_top, rad_net, tl, ea, lai, leaf_age, &
 
            if(anbar>0.0) then
                gsbar=anbar/(ci-capgam)/coef0;
+           endif
+
+           !#### MODIFIED BY PPG 2016-12-01
+           ! Calculate the amount of light reaching a fine extra layer of leaves
+           layer_light=par_net*(exp(-kappa*lai)-exp(-kappa*(lai+layer)))/(1-exp(-(lai+layer)*kappa))
+           ! Calculate photosynthesis for the specific layer
+           Ag_layer= spdata(pft)%alpha_phot * (ci-capgam)/(ci+2.*capgam) * layer_light
+
+           ! Calculate Net Photosynthesis in the layer
+           if (Kok_effect .and. layer_light > light_kok) then
+              Anlayer=(Ag_layer/TempFuncP-(1-Inib_factor)*spdata(pft)%gamma_resp*vm*layer/TempFuncR)/dLAI
+           else
+              Anlayer=(Ag_layer/TempFuncP-spdata(pft)%gamma_resp*vm*layer/TempFuncR)/dLAI
            endif
         endif ! ci>capgam
      endif

@@ -55,10 +55,10 @@ use vegetation_mod, only : read_vegn_namelist, vegn_init, vegn_end, vegn_get_cov
      update_vegn_slow, save_vegn_restart
 use cana_tile_mod, only : canopy_air_mass, canopy_air_mass_for_tracers, cana_tile_heat
 use canopy_air_mod, only : read_cana_namelist, cana_init, cana_end, cana_state,&
-     cana_step_2, cana_roughness, &
-     save_cana_restart
+     cana_roughness, save_cana_restart
 use river_mod, only : river_init, river_end, update_river, river_stock_pe, &
-     save_river_restart, river_tracers_init, num_river_tracers, river_tracer_index
+     save_river_restart, river_tracers_init, num_river_tracers, river_tracer_index,&
+     get_river_water
 use topo_rough_mod, only : topo_rough_init, topo_rough_end, update_topo_rough
 use soil_tile_mod, only : soil_tile_stock_pe, soil_tile_heat, soil_roughness, &
      soil_radiation
@@ -291,7 +291,7 @@ integer, allocatable :: id_cana_tr(:)
 ! diag IDs of CMOR variables
 integer :: id_sftlf, id_sftgif
 integer :: id_pcp, id_prra, id_prveg, id_tran, id_evspsblveg, id_evspsblsoi, id_nbp, &
-           id_snw, id_snd, id_snc, id_lwsnl, id_snm, id_sweLut, id_cLand, &
+           id_snw, id_snd, id_snc, id_lwsnl, id_snm, id_tws, id_sweLut, id_cLand, &
            id_hflsLut, id_rlusLut, id_rsusLut, id_tslsiLut
 integer :: id_cropFrac, id_cropFracC3, id_cropFracC4, id_pastureFrac, id_residualFrac, &
            id_grassFrac, id_grassFracC3, id_grassFracC4, &
@@ -669,7 +669,7 @@ subroutine land_model_restart(timestamp)
   call save_land_restart(restart)
   call free_land_restart(restart)
 
-  ! [6] save component models' restarts
+  ! [6] save component models restarts
   call save_land_transitions_restart(timestamp_)
   call save_glac_restart(tile_dim_length,timestamp_)
   call save_lake_restart(tile_dim_length,timestamp_)
@@ -1243,6 +1243,7 @@ subroutine update_land_model_fast ( cplr2land, land2cplr )
   real, allocatable :: phot_co2_data(:)    ! buffer for data
   logical           :: phot_co2_overridden ! flag indicating successful override
   integer           :: iwatch,jwatch,kwatch,face
+  real :: twsr_sg(lnd%is:lnd%ie,lnd%js:lnd%je), tws(lnd%ls:lnd%le)
 
   ! start clocks
   call mpp_clock_begin(landClock)
@@ -1300,7 +1301,7 @@ subroutine update_land_model_fast ( cplr2land, land2cplr )
         ! convenience: the compute domain-level 2d and 3d vars are generally not
         ! available inside update_land_model_fast_0d, so the diagnostics for those
         ! was left here.
-        call send_tile_data(id_area, tile%frac*lnd%ug_area(l),        tile%diag)
+        call send_tile_data(id_area, tile%frac*lnd%ug_area(l),     tile%diag)
         call send_tile_data(id_z0m,  land2cplr%rough_mom(l,k),     tile%diag)
         call send_tile_data(id_z0s,  land2cplr%rough_heat(l,k),    tile%diag)
         call send_tile_data(id_Trad, land2cplr%t_surf(l,k),        tile%diag)
@@ -1318,13 +1319,19 @@ subroutine update_land_model_fast ( cplr2land, land2cplr )
 
   call get_watch_point(iwatch,jwatch,kwatch,face)
   if (face==lnd%sg_face.and.(lnd%is<=iwatch.and.iwatch<=lnd%ie).and.&
-                            (lnd%js<=jwatch.and.jwatch<=lnd%je)) then
+                            (lnd%js<=jwatch.and.jwatch<=lnd%je).and.&
+                            is_watch_time()) then
      __DEBUG1__(runoff_sg(iwatch,jwatch))
      __DEBUG1__(runoff_c_sg(iwatch,jwatch,:))
   endif
 
   !--- update river state
   call update_river(runoff_sg, runoff_c_sg, land2cplr)
+
+  if(id_tws>0) then
+     call get_river_water(twsr_sg)
+     call mpp_pass_SG_to_UG(lnd%ug_domain, twsr_sg, tws)
+  endif
 
   ce = first_elmt(land_tile_map, ls=lbound(cplr2land%t_flux,1) )
   do while(loop_over_tiles(ce,tile,l,k))
@@ -1401,7 +1408,14 @@ subroutine update_land_model_fast ( cplr2land, land2cplr )
      ! factor 1000.0 kg/m3 is the liquid water density; it converts mass of water into depth
      call send_tile_data(id_sweLut, max(snow_FMASS+snow_LMASS,0.0)/1000.0, tile%diag)
 
+     if (id_tws>0) then
+         ! note that subs_LMASS and subs_FMASS are reused here to hold total water masses
+         ! alos note that reported value does not include river storage
+         call get_tile_water(tile, subs_LMASS, subs_FMASS)
+         tws(l) = tws(l) + (subs_LMASS+subs_FMASS)*tile%frac
+     endif
   enddo
+  if (id_tws>0) used = send_data(id_tws, tws, lnd%time)
 
   ! advance land model time
   lnd%time = lnd%time + lnd%dt_fast
@@ -1525,10 +1539,10 @@ subroutine update_land_model_fast_0d(tile, l, k, land2cplr, &
        cana_co2_mol, & ! co2 dry mixing ratio in canopy air, mol CO2/mol dry air
        fswg, evapg, sensg, &
        subs_G, subs_G2, Mg_imp, snow_G_Z, snow_G_TZ, &
-       snow_avrg_T, delta_T_snow,  & ! vertically-average snow temperature and it's change due to s
+       snow_avrg_T, delta_T_snow,  & ! vertically-average snow temperature and its change due to s
        vegn_ovfl_l,  vegn_ovfl_s,  & ! overflow of liquid and solid water from the canopy
        vegn_ovfl_Hl, vegn_ovfl_Hs, & ! heat flux from canopy due to overflow
-       delta_fprec, & ! correction of below-canopy solid precip in case it's average T > tfreeze
+       delta_fprec, & ! correction of below-canopy solid precip in case its average T > tfreeze
 
        hprec,              & ! sensible heat flux carried by precipitation
        hevap,              & ! sensible heat flux carried by total evapotranspiration
@@ -1997,7 +2011,10 @@ subroutine update_land_model_fast_0d(tile, l, k, land2cplr, &
      if (.not.redo_leaf_water) exit ! from loop
   enddo ! canopy_water_step
 
-  call cana_step_2 ( tile%cana, delta_Tc, delta_qc )
+  ! [*] start of step_2 updates
+  ! update canopy air temperature and specific humidity
+  tile%cana%T = tile%cana%T + delta_Tc
+  tile%cana%tr(isphum) = tile%cana%tr(isphum) + delta_qc
 
   if(associated(tile%vegn)) then
      call vegn_step_2 ( tile%vegn, tile%diag, &
@@ -2192,7 +2209,7 @@ subroutine update_land_model_fast_0d(tile, l, k, land2cplr, &
      call send_tile_data(id_carbon_cons, (cmass1-v0)/delta_time, tile%diag)
 
      heat1  = land_tile_heat(tile)
-     ! latent heat is missing below, and it's not trivial to add, because there are
+     ! latent heat is missing below, and it is not trivial to add, because there are
      ! multiple components with their own vaporization heat
    !  call check_conservation (tag,'heat content', &
    !      heat0+(hprec-land_sens-hevap &
@@ -2842,7 +2859,7 @@ subroutine update_land_bc_fast (tile, l ,k, land2cplr, is_init)
   land2cplr%rough_heat     (l,k) = 0.1
 
   ! Calculate radiative surface temperature. lwup cannot be calculated here
-  ! based on the available temperatures because it's a result of the implicit
+  ! based on the available temperatures because it is a result of the implicit
   ! time step: lwup = lwup0 + DlwupDTg*delta_Tg + ..., so we have to carry it
   ! from the update_land_fast
   ! Consequence: since update_landbc_fast is called once at the very beginning of
@@ -3175,10 +3192,10 @@ subroutine land_diag_init(clonb, clatb, clon, clat, time, domain, id_band, id_ug
       deallocate(ug_dim_data)
   endif
 
- ! Register horizontal axes that are required by the post-processing so that the output 
+ ! Register horizontal axes that are required by the post-processing so that the output
  ! files can be "decompressed": converted from unstructured back to lon-lat or cubic sphere.
- ! The "grid_xt" and "grid_yt" axes should run from 1 to the total number of x- and 
- ! y-points on cubic sphere face. It is assumed that all faces tiles contain the same 
+ ! The "grid_xt" and "grid_yt" axes should run from 1 to the total number of x- and
+ ! y-points on cubic sphere face. It is assumed that all faces tiles contain the same
  ! number of x- and y-points.
   nlon = size(clon)
   nlat = size(clat)
@@ -3539,7 +3556,7 @@ subroutine land_diag_init(clonb, clatb, clon, clat, time, domain, id_band, id_ug
              standard_name='surface_upward_latent_heat_flux', fill_missing=.FALSE.)
   id_nbp = register_tiled_diag_field ( cmor_name, 'nbp', axes, time, &
              'Carbon Mass Flux out of Atmosphere due to Net Biospheric Production on Land', &
-             'kg C m-2 s-1', missing_value=-1.0, &
+             'kg m-2 s-1', missing_value=-1.0, &
              standard_name='surface_net_downward_mass_flux_of_carbon_dioxide_expressed_as_carbon_due_to_all_land_processes', &
              fill_missing=.TRUE.)
   id_rlusLut = register_tiled_diag_field ( cmor_name, 'rlusLut', axes, time, &
@@ -3570,16 +3587,23 @@ subroutine land_diag_init(clonb, clatb, clon, clat, time, domain, id_band, id_ug
   id_snm = register_tiled_diag_field ( cmor_name, 'snm', axes, time, &
              'Surface Snow Melt','kg m-2 s-1', standard_name='surface_snow_melt_flux', &
              missing_value=-1.0e+20, fill_missing=.TRUE.)
+  id_tws = register_diag_field ( cmor_name, 'tws', axes, time, &
+             'Terrestrial Water Storage','kg m-2', &
+             standard_name='canopy_and_surface_and_subsurface_water_amount', &
+             area=get_area_id('land'))
+  call diag_field_add_attribute(id_tws,'cell_methods','area: mean')
+  call diag_field_add_attribute(id_tws,'ocean_fillvalue',0.0)
+
   call add_tiled_diag_field_alias(id_sens, cmor_name, 'hfssLut', axes, time, &
       'Sensible Heat Flux on Land Use Tile', 'W m-2', missing_value=-1.0e+20, &
       standard_name='surface_upward_sensible_heat_flux')
 
   id_sweLut = register_tiled_diag_field ( cmor_name, 'sweLut', axes, time, &
-             'Snow Water Equivalent on Land Use Tile','m', standard_name='snow_water_equivalent_lut', &
+             'Snow Water Equivalent on Land Use Tile','m', standard_name='snow_water_equivalent', &
              missing_value=-1.0e+20, fill_missing=.FALSE. )
 
   id_cLand = register_tiled_diag_field ( cmor_name, 'cLand', axes, time, &
-             'Total carbon in all terrestrial carbon pools', 'kg C m-2', &
+             'Total Carbon in All Terrestrial Carbon Pools', 'kg m-2', &
              standard_name='total_land_carbon', &
              missing_value=-1.0, fill_missing=.TRUE. )
   ! add alias for compatibility with older diag tables
@@ -3587,7 +3611,7 @@ subroutine land_diag_init(clonb, clatb, clon, clat, time, domain, id_band, id_ug
      'total land carbon', 'kg C/m2', missing_value=-1.0)
 
   id_nwdFracLut = register_tiled_diag_field ( cmor_name, 'nwdFracLut', axes, time, &
-             'Fraction of Land Use Tile Tile That is Non-Woody Vegetation', 'fraction', &
+             'Fraction of Land Use Tile Tile That is Non-Woody Vegetation', '1', &
              standard_name='under_review', missing_value=-1.0)
 
   id_sftlf = register_static_field ( cmor_name, 'sftlf', axes, &
@@ -3601,56 +3625,56 @@ subroutine land_diag_init(clonb, clatb, clon, clat, time, domain, id_band, id_ug
   call diag_field_add_attribute(id_sftgif,'cell_methods','area: mean')
   call diag_field_add_attribute(id_sftgif,'ocean_fillvalue',0.0)
   id_cropFrac = register_diag_field ( cmor_name, 'cropFrac', axes, time, &
-             'Crop Fraction','%', standard_name='crop_fraction', &
+             'Crop Fraction','%', standard_name='area_fraction', &
              area=id_cellarea)
   call diag_field_add_attribute(id_cropFrac,'cell_methods','area: mean')
   call diag_field_add_attribute(id_cropFrac,'ocean_fillvalue',0.0)
   id_cropFracC3 = register_diag_field ( cmor_name, 'cropFracC3', axes, time, &
-             'C3 Crop Fraction','%', standard_name='crop_fraction_c3', &
+             'C3 Crop Fraction','%', standard_name='area_fraction', &
              area=id_cellarea)
   call diag_field_add_attribute(id_cropFracC3,'cell_methods','area: mean')
   id_cropFracC4 = register_diag_field ( cmor_name, 'cropFracC4', axes, time, &
-             'C4 Crop Fraction','%', standard_name='crop_fraction_c4', &
+             'C4 Crop Fraction','%', standard_name='area_fraction', &
              area=id_cellarea)
   call diag_field_add_attribute(id_cropFracC4,'cell_methods','area: mean')
   call diag_field_add_attribute(id_cropFracC4,'ocean_fillvalue',0.0)
   id_pastureFrac = register_diag_field ( cmor_name, 'pastureFrac', axes, time, &
-             'Anthropogenic Pasture Fraction','%', standard_name='anthropogenic_pasture_fraction', &
+             'Anthropogenic Pasture Fraction','%', standard_name='area_fraction', &
              area=id_cellarea)
   call diag_field_add_attribute(id_pastureFrac,'cell_methods','area: mean')
   call diag_field_add_attribute(id_pastureFrac,'ocean_fillvalue',0.0)
   id_residualFrac = register_static_field ( cmor_name, 'residualFrac', axes, &
              'Fraction of Grid Cell that is Land but Neither Vegetation-Covered nor Bare Soil','%', &
-             standard_name='fraction_of_land_which_is_non_vegetation_and_non_bare_soil', &
+             standard_name='area_fraction', &
              area=id_cellarea)
   call diag_field_add_attribute(id_residualFrac,'cell_methods','area: mean')
   call diag_field_add_attribute(id_residualFrac,'ocean_fillvalue',0.0)
   id_treeFrac = register_diag_field ( cmor_name, 'treeFrac', axes, time, &
-             'Tree Cover Fraction','%', standard_name='tree_cover_fraction', area=id_cellarea)
+             'Tree Cover Fraction','%', standard_name='area_fraction', area=id_cellarea)
   call diag_field_add_attribute(id_treeFrac,'cell_methods','area: mean')
   call diag_field_add_attribute(id_treeFrac,'ocean_fillvalue',0.0)
   id_grassFrac = register_diag_field ( cmor_name, 'grassFrac', axes, time, &
-             'Natural Grass Fraction','%', standard_name='natural_grass_fraction', &
+             'Natural Grass Fraction','%', standard_name='area_fraction', &
              area=id_cellarea)
   call diag_field_add_attribute(id_grassFrac,'cell_methods','area: mean')
   call diag_field_add_attribute(id_grassFrac,'ocean_fillvalue',0.0)
   id_grassFracC3 = register_diag_field ( cmor_name, 'grassFracC3', axes, time, &
-             'C3 Natural Grass Fraction','%', standard_name='natural_grass_fraction_c3', &
+             'C3 Natural Grass Fraction','%', standard_name='area_fraction', &
              area=id_cellarea)
   call diag_field_add_attribute(id_grassFracC3,'cell_methods','area: mean')
   call diag_field_add_attribute(id_grassFracC3,'ocean_fillvalue',0.0)
   id_grassFracC4 = register_diag_field ( cmor_name, 'grassFracC4', axes, time, &
-             'C4 Natural Grass Fraction','%', standard_name='natural_grass_fraction_c4', &
+             'C4 Natural Grass Fraction','%', standard_name='area_fraction', &
              area=id_cellarea)
   call diag_field_add_attribute(id_grassFracC4,'cell_methods','area: mean')
   call diag_field_add_attribute(id_grassFracC4,'ocean_fillvalue',0.0)
   id_c3pftFrac = register_diag_field ( cmor_name, 'c3PftFrac', axes, time, &
-             'Total C3 PFT Cover Fraction','%', standard_name='total_c3_pft_cover_fraction', &
+             'Total C3 PFT Cover Fraction','%', standard_name='area_fraction', &
              area=id_cellarea)
   call diag_field_add_attribute(id_c3pftFrac,'cell_methods','area: mean')
   call diag_field_add_attribute(id_c3pftFrac,'ocean_fillvalue',0.0)
   id_c4pftFrac = register_diag_field ( cmor_name, 'c4PftFrac', axes, time, &
-             'Total C4 PFT Cover Fraction','%', standard_name='total_c4_pft_cover_fraction', &
+             'Total C4 PFT Cover Fraction','%', standard_name='area_fraction', &
              area=id_cellarea)
   call diag_field_add_attribute(id_c4pftFrac,'cell_methods','area: mean')
 
