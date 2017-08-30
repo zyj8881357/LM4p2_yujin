@@ -1894,7 +1894,7 @@ subroutine soil_data_hydraulic_properties (soil, vlc, vsc, &
   where (soil%ws > 0. .or. soil%wl <= 0.) soil%hyd_cond_horz = epsln
   if (all(DThDP==0.)) soil%hyd_cond_horz(:) = epsln ! Will be "stiff"
   ! Set some limits to the hydraulic conductivity for the model (If not it will crash for steep slopes unless the time step is very small)
-  where (soil%hyd_cond_horz .gt. 0.001)soil%hyd_cond_horz = 0.001
+  !where (soil%hyd_cond_horz .gt. 0.001)soil%hyd_cond_horz = 0.001
 
 end subroutine soil_data_hydraulic_properties
 
