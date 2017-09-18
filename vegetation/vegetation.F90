@@ -130,6 +130,8 @@ logical :: do_peat_redistribution = .FALSE.
 
 logical :: biodata_bug    = .FALSE. ! if true, initialization of t_ann, t_cold, p_ann,
                                     ! and p_cold from biodata is not done
+logical :: predefined_biomass = .FALSE. ! if true, initialize plant biomass from predefined database
+
 namelist /vegn_nml/ &
     lm2, init_Wl, init_Ws, init_Tv, cpw, clw, csw, &
     init_cohort_bl, init_cohort_blv, init_cohort_br, init_cohort_bsw, &
@@ -141,7 +143,7 @@ namelist /vegn_nml/ &
     min_Wl, min_Ws, tau_smooth_ncm, &
     rav_lit_0, rav_lit_vi, rav_lit_fsc, rav_lit_ssc, rav_lit_deadmic, rav_lit_bwood,&
     do_peat_redistribution, &
-    biodata_bug
+    biodata_bug, predefined_biomass
 
 !---- end of namelist --------------------------------------------------------
 
@@ -420,7 +422,7 @@ subroutine vegn_init(id_ug,id_band,id_ptid,predefined_tiles)
      cohort%Ws      = init_Ws
      cohort%Tv      = init_Tv
 
-     if (predefined_tiles)then
+     if (predefined_tiles .and. predefined_biomass)then
       !Initialize biomass components from predefined data
       cohort%bl = tile%vegn%bl
       cohort%br = tile%vegn%br

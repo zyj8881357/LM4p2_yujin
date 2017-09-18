@@ -348,6 +348,7 @@ logical :: use_fluid_ice         = .false.
 logical :: use_alt3_soil_hydraulics = .false.
 logical :: limit_DThDP           = .false.
 logical, protected :: retro_a0n1 = .false.
+real :: anisotropy_ratio = 1.0
 ! ---- remainder are used only for cold start ---------
 character(32), public :: soil_to_use     = 'single-tile'
        ! 'multi-tile' for multiple soil types per grid cell, a tile per type
@@ -494,7 +495,8 @@ namelist /soil_data_nml/ psi_wilt, &
      dat_refl_dry_dif,            dat_refl_sat_dif,              &
      dat_emis_dry,              dat_emis_sat,                &
      dat_z0_momentum,           dat_tf_depr,     clay,       &
-     peat_soil_e_depth,         peat_kx0, k0_macro_bug, repro_zms
+     peat_soil_e_depth,         peat_kx0, k0_macro_bug, repro_zms, &
+     anisotropy_ratio
 !---- end of namelist --------------------------------------------------------
 
 real    :: gw_hillslope_length   = 1000.
@@ -1889,12 +1891,14 @@ subroutine soil_data_hydraulic_properties (soil, vlc, vsc, &
       K_x = K_z
   endif
 
-  ! For use in hillslope model
+  ! For use in hillslope model (account for anisotropy...)
   soil%hyd_cond_horz(1:num_l) = K_x(1:num_l)
   where (soil%ws > 0. .or. soil%wl <= 0.) soil%hyd_cond_horz = epsln
   if (all(DThDP==0.)) soil%hyd_cond_horz(:) = epsln ! Will be "stiff"
   ! Set some limits to the hydraulic conductivity for the model (If not it will crash for steep slopes unless the time step is very small)
+  !print*,soil%hyd_cond_horz
   !where (soil%hyd_cond_horz .gt. 0.001)soil%hyd_cond_horz = 0.001
+  !soil%hyd_cond_horz = 10.0*soil%hyd_cond_horz !anisotropy
 
 end subroutine soil_data_hydraulic_properties
 
@@ -2096,7 +2100,9 @@ subroutine soil_data_hydraulics_alt3 (soil, vlc, vsc, &
     endif
     K_z(l) = min(max(K_min, K_z(l)), Ksat)
     K_z(l) = min(K_z(l), K_max_matrix)
-    K_x(l) = K_z(l)
+    K_x(l) = anisotropy_ratio*K_z(l)
+    !Set constraints
+    if (K_x(l) .gt. 0.01)K_x(l) = 0.01
     f_psi = min(max(1.-psi(l)/Psat,0.),1.)
     K_z(l) = K_z(l) + f_psi * soil%k_macro_z(l)
     K_x(l) = K_x(l) + f_psi * soil%k_macro_x(l)

@@ -271,7 +271,7 @@ integer :: id_mrlsl, id_mrsfl, id_mrsll, id_mrsol, id_mrso, id_mrsos, id_mrlso, 
     id_csoilfast, id_csoilmedium, id_csoilslow
 
 ! diag IDs of full tile variables
-integer :: id_lwc1_tile,id_lwc2_tile,id_lwc3_tile
+integer :: id_lwc1_tile,id_lwc2_tile,id_lwc3_tile,id_lwcrz_tile
 integer :: id_swc1_tile,id_swc2_tile,id_swc3_tile
 integer :: id_wt_2b_tile
 
@@ -1416,6 +1416,9 @@ subroutine soil_diag_init(id_ug,id_band,id_zfull,id_ptid)
   !Full tile output
   if (present(id_ptid)) then
    call set_default_diag_filter('soil')
+   id_lwcrz_tile    = register_tiled_diag_field ( module_name, 'lwcrz_tile',  &
+       (/id_ug,id_ptid/), lnd%time, 'volumetric water content of liquid water (2 meters)', &
+       'm3/m3', missing_value=-100.0,sm=.False.)
    id_lwc1_tile    = register_tiled_diag_field ( module_name, 'lwc1_tile',  &
        (/id_ug,id_ptid/), lnd%time, 'volumetric water content of liquid water (layer 1)', &
        'm3/m3', missing_value=-100.0,sm=.False.)
@@ -3122,6 +3125,8 @@ end subroutine soil_step_1
   call send_tile_data(id_swc2_tile,soil%ws(2)/(1000.0*dz(2)), diag)
   call send_tile_data(id_swc3_tile,soil%ws(3)/(1000.0*dz(3)), diag)
   call send_tile_data(id_wt_2b_tile, depth_to_wt_2b, diag)
+  !root zone soil moisture (2 meters)
+  call send_tile_data(id_lwcrz_tile,sum(soil%wl(1:13))/(1000.0*sum(dz(1:13))),diag)
 
   ! std variables
   if (id_lwc_std > 0) call send_tile_data(id_lwc_std,  soil%wl/dz(1:num_l), diag)
