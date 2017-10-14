@@ -253,6 +253,9 @@ subroutine hlsp_hydrology_1(num_species)
    real, parameter   :: minwl = 0.1 ! mm
    character(len=64) :: speciesname
    integer :: ll
+   real :: delta_time ! [s]
+
+   delta_time = time_type_to_real(lnd%dt_fast)
 
    if (.not. do_hillslope_model) return
 
@@ -417,6 +420,12 @@ subroutine hlsp_hydrology_1(num_species)
                         wflux(l) = k_hat * deltapsi/L_hat * dz(l) * tile2%soil%pars%tile_hlsp_frac / L1 * w_hat / w1
                         !wflux(l) = k_hat * deltapsi/L_hat * dz(l) * tile2%frac / L1 * w_hat / w1
                        ! mm/s =  mm/s *   m     / m    *  m          -      / m   * -    / -
+
+                        ! Constrain wflux to saturated layer value
+                        !if(abs(delta_time*wflux(l)) .gt. dz(l))then
+                        !  if(wflux(l) .gt. 0)wflux(l) = dz(l)/delta_time
+                        !  if(wflux(l) .lt. 0)wflux(l) = -dz(l)/delta_time
+                        !endif
 
                         ! Energy flux
                         if (wflux(l) < 0.) then ! water flowing into tile: heat advected in

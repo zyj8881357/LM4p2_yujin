@@ -564,7 +564,11 @@ subroutine retrieve_soil_parameters(tile_parameters,cid)
   where(isnan(soil%bl) .eq. .True.)soil%bl = 0.0
   where(isnan(soil%br) .eq. .True.)soil%br = 0.0
   where(isnan(soil%bsw) .eq. .True.)soil%bsw = 0.0
-  where(isnan(soil%bwood) .eq. .True.)soil%bwood = 0.0
+  where(soil%bwood .gt. 10**10)soil%bwood = 0.0
+  where(soil%bl .gt. 10**10)soil%bl = 0.0
+  where(soil%br .gt. 10**10)soil%br = 0.0
+  where(soil%bsw .gt. 10**10)soil%bsw = 0.0
+  where(soil%bwood .gt. 10**10)soil%bwood = 0.0
 
   !Close access to the group
   call h5gclose_f(grpid,status)

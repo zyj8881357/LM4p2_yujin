@@ -151,6 +151,7 @@ character(len=256)  :: coldstart_datafile = 'INPUT/soil_wtt.nc'
 logical :: allow_neg_rnu        = .false.   ! Refill from stream if wl < 0 with warning, i.e. during spinup.
 logical :: allow_neg_wl         = .false.   ! Warn rather than abort if wl < 0, even if .not. allow_neg_rnu
 logical :: fix_neg_subsurface_wl       = .false.
+logical :: fix_neg_subsurface_wl_revisited       = .false.
 logical :: prohibit_negative_water_div = .false. ! if TRUE, div_bf abd dif_if are
   ! set to zero in case water content of *any* layer is negative
 real    :: zeta_bar_override    = -1.
@@ -197,7 +198,8 @@ namelist /soil_nml/ lm2, use_E_min, use_E_max,           &
                     max_iter_trans, layer_for_gw_switch, eps_trans, &
                     supercooled_rnu, wet_depth, thetathresh, negrnuthresh, &
                     write_soil_carbon_restart, &
-                    max_soil_C_density, max_litter_thickness
+                    max_soil_C_density, max_litter_thickness, &
+                    fix_neg_subsurface_wl_revisited
 !---- end of namelist --------------------------------------------------------
 
 logical         :: module_is_initialized =.FALSE.
@@ -3855,7 +3857,7 @@ end subroutine soil_push_down_excess
        endif
      w_shortage = -(soil%wl(1)+dW_l(1))
      l_dest = 1
-     call move_up(dW_l, flow, w_shortage, num_l, l_dest)
+     call move_up_revisited(soil%wl, dW_l, flow, w_shortage, num_l, l_dest,dz)
   endif
 
 ! Adjust for negative water content in subsurface.
@@ -3867,6 +3869,18 @@ end subroutine soil_push_down_excess
         l_dest = l
         w_shortage = -(soil%wl(l_dest)+dW_l(l_dest))
         call move_up(dW_l, flow, w_shortage, num_l, l_dest)
+      endif
+    enddo
+  endif
+
+  if (fix_neg_subsurface_wl_revisited) then
+    do l=2, num_l
+      if ((soil%wl(l)+dW_l(l))/(dens_h2o*dz(l)*soil%pars%vwc_sat) < thetathresh) then
+        call get_current_point(ipt,jpt,kpt,fpt)
+        !write(*,*) '=== warning: fixing neg wl=',soil%wl(l)+dW_l(l),'at',l,ipt,jpt,kpt,fpt
+        l_dest = l
+        w_shortage = -(soil%wl(l_dest)+dW_l(l_dest))
+        call move_up_revisited(soil%wl, dW_l, flow, w_shortage, num_l, l_dest,dz)
       endif
     enddo
   endif
@@ -3904,6 +3918,44 @@ end subroutine soil_push_down_excess
   endif
 
 end subroutine richards_clean
+
+! ============================================================================
+  subroutine move_up_revisited(w_l, dW_l, flow, w_shortage, num_l, l_dest, dz)
+  real, intent(in), dimension(num_l) :: w_l,dz
+  real, intent(inout), dimension(num_l)   :: dW_l
+  real, intent(inout), dimension(num_l+1) :: flow
+  real, intent(in)                        ::  w_shortage
+  integer, intent(in)                     ::  num_l, l_dest
+  ! ---- local vars ----------------------------------------------------------
+  integer l, l_source
+  real dW_l_source, w_to_move_up
+
+  !If a layer doesn't have enough water move the remaining extraction to lower layers
+     l_source = l_dest
+     dW_l_source = -1.e20
+     do l = l_dest+1, num_l
+        !if (dW_l(l).gt.dW_l_source) then
+        if ((w_l(l)+dW_l(l)-w_shortage) .gt. 0.01*dz(l)) then
+           l_source = l
+           dW_l_source = dW_l(l)
+           exit
+        endif
+     enddo
+     !w_to_move_up = min(dW_l_source, w_shortage)
+     !w_to_move_up = max(w_to_move_up, 0.)
+     w_to_move_up = w_shortage
+     !write(*,*) 'l_dest,l_source=',l_dest,l_source
+     !write(*,*) 'dW_l_source=',dW_l_source
+     !write(*,*) 'w_shortage',w_shortage
+     !write(*,*) 'w_to_move_up=',w_to_move_up
+     if (l_source.gt.l_dest) then
+        dW_l(l_dest)   = dW_l(l_dest)   + w_to_move_up
+        dW_l(l_source) = dW_l(l_source) - w_to_move_up
+        do l = l_dest+1, l_source
+           flow(l) = flow(l) - w_to_move_up
+        enddo
+     endif
+  end subroutine move_up_revisited
 
 ! ============================================================================
   subroutine move_up(dW_l, flow, w_shortage, num_l, l_dest)
