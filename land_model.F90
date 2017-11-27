@@ -8,7 +8,7 @@ module land_model_mod
 use hdf5, only: hid_t
 
 use time_manager_mod, only : time_type, get_time, increment_time, time_type_to_real, &
-     operator(+)
+     operator(+),get_date
 use mpp_domains_mod, only : domain2d, mpp_get_ntile_count, mpp_pass_SG_to_UG, mpp_pass_ug_to_sg, &
                             mpp_get_UG_domain_tile_pe_inf, mpp_get_UG_domain_ntiles
 
@@ -112,7 +112,8 @@ use vegn_data_mod, only : LU_CROP, LU_PAST, LU_NTRL, LU_SCND, LU_URBN, &
 use predefined_tiles_mod, only: land_cover_cold_start_0d_predefined_tiles,&
                                 open_database_predefined_tiles,&
                                 close_database_predefined_tiles,&
-                                land_cover_warm_start_0d_predefined_tiles
+                                land_cover_warm_start_0d_predefined_tiles,&
+                                downscale_atmos
 use fms_io_mod,      only: fms_io_unstructured_read
 use mpp_domains_mod, only: domainUG
 use mpp_domains_mod, only: mpp_get_UG_compute_domain
@@ -173,6 +174,9 @@ logical :: print_remapping = .FALSE. ! if true, full land cover remapping
               ! information is printed on the cold start
 logical :: predefined_tiles= .FALSE. ! If true, the tiles for each grid cell for
               ! each grid cell are read from an external file
+logical,public :: downscale_surface_meteorology = .FALSE. ! If true, the downscaling weights in 
+              ! the input database will be used to downscale prec and sw
+              ! (could be eventually be used for others as well...)
 integer :: layout(2) = (/0,0/)
 integer :: io_layout(2) = (/0,0/)
 integer :: npes_io_group = 0
@@ -221,7 +225,8 @@ namelist /land_model_nml/ use_old_conservation_equations, &
                           use_coast_rough, coast_rough_mom, coast_rough_heat, &
                           max_coast_frac, use_coast_topo_rough, &
                           layout, io_layout, mask_table, &
-                          precip_warning_tol, npes_io_group, predefined_tiles
+                          precip_warning_tol, npes_io_group, predefined_tiles, &
+                          downscale_surface_meteorology
 
 ! ---- end of namelist -------------------------------------------------------
 
@@ -302,8 +307,9 @@ integer :: id_transp_tile,id_frac_tile,id_ttype_tile,id_precip_tile,id_runf_tile
   id_evap_tile,id_snow_tile,id_hevap_tile,id_levap_tile,id_water_tile,&
   id_sens_tile,id_grnd_T_tile,id_total_C_tile,&
   id_transp_std,id_precip_std,id_runf_std,id_evap_std,id_snow_std,id_water_std,&
-  id_sens_std,id_grnd_T_std,id_total_C_std,&
-  id_swup_dif_1_tile,id_swup_dif_2_tile,id_swdn_dif_1_tile,id_swdn_dif_2_tile
+  id_sens_std,id_grnd_T_std,id_total_C_std,id_lprec_std,id_fprec_std,&
+  id_swup_dif_1_tile,id_swup_dif_2_tile,id_swdn_dif_1_tile,id_swdn_dif_2_tile,&
+  id_precip_l_tile,id_precip_s_tile
 
 ! init_value is used to fill most of the allocated boundary condition arrays.
 ! It is supposed to be double-precision signaling NaN, to trigger a trap when
@@ -1280,6 +1286,9 @@ subroutine update_land_model_fast ( cplr2land, land2cplr )
      do while (loop_over_tiles(ce,tile,k=k))
         ! set this point coordinates as current for debug output
         call set_current_point(i,j,k,l)
+
+        ! nwc: downscale appropriate variables (sw,prec)
+        if (downscale_surface_meteorology)call downscale_atmos(tile,cplr2land,l,k,lnd)
 
         ISa_dn_dir(BAND_VIS) = cplr2land%sw_flux_down_vis_dir(l,k)
         ISa_dn_dir(BAND_NIR) = cplr2land%sw_flux_down_total_dir(l,k)&
@@ -2363,6 +2372,8 @@ subroutine update_land_model_fast_0d(tile, l, k, land2cplr, &
   !Tile variables
   call send_tile_data(id_transp_tile,vegn_uptk,tile%diag)
   call send_tile_data(id_precip_tile,precip_l+precip_s,tile%diag)
+  call send_tile_data(id_precip_l_tile,precip_l,tile%diag)
+  call send_tile_data(id_precip_s_tile,precip_s,tile%diag)
   call send_tile_data(id_runf_tile,snow_lrunf+snow_frunf+subs_lrunf,tile%diag)
   call send_tile_data(id_evap_tile,land_evap,tile%diag)
   call send_tile_data(id_sens_tile,land_sens,tile%diag)
@@ -2381,6 +2392,8 @@ subroutine update_land_model_fast_0d(tile, l, k, land2cplr, &
   call send_tile_data(id_evap_std,land_evap,tile%diag)
   call send_tile_data(id_sens_std,land_sens,tile%diag)
   call send_tile_data(id_total_C_std, land_tile_carbon(tile),tile%diag)
+  call send_tile_data(id_fprec_std,precip_s,tile%diag)
+  call send_tile_data(id_lprec_std,precip_l,tile%diag)
 
 end subroutine update_land_model_fast_0d
 
@@ -2717,6 +2730,7 @@ subroutine update_land_bc_fast (tile, l ,k, land2cplr, is_init)
   integer :: face ! for debugging
   integer :: tr   ! tracer index
   integer :: i, j
+  integer :: year,month,day,hour,minute,second
   vegn_Tv = 0
 
   i = lnd%i_index(l)
@@ -2888,6 +2902,11 @@ subroutine update_land_bc_fast (tile, l ,k, land2cplr, is_init)
      land2cplr%rough_mom   (l,k) = coast_rough_mom
      land2cplr%rough_heat  (l,k) = coast_rough_heat
   endif
+
+  ! Assign the downscaling weights
+  call get_date(lnd%time,year,month,day,hour,minute,second)
+  land2cplr%dws_t_atm (l,k) = tile%dws_tavg(month)
+  land2cplr%dws_prec (l,k) = tile%dws_prec(month)
 
   if(is_watch_point()) then
      write(*,*)'#### update_land_bc_fast ### output ####'
@@ -3683,6 +3702,10 @@ subroutine land_diag_init(clonb, clatb, clon, clat, time, domain, id_band, id_ug
              'Transpiration', 'kg/(m2 s)', missing_value=-1.0e+20,op='stdev')
   id_precip_std = register_tiled_diag_field ( module_name, 'precip_std', axes, time, &
              'precipitation rate', 'kg/(m2 s)', missing_value=-1.0e+20,op='stdev')
+  id_lprec_std = register_tiled_diag_field ( module_name, 'lprec_l_std', axes, time, &
+             'precipitation rate (liquid)', 'kg/(m2 s)', missing_value=-1.0e+20,op='stdev')
+  id_fprec_std = register_tiled_diag_field ( module_name, 'fprec_l_std', axes, time, &
+             'precipitation rate (frozen)', 'kg/(m2 s)', missing_value=-1.0e+20,op='stdev')
   id_evap_std = register_tiled_diag_field ( module_name, 'evap_std', axes, time, &
              'vapor flux up from land', 'kg/(m2 s)', missing_value=-1.0e+20,op='stdev')
   id_runf_std   = register_tiled_diag_field ( module_name, 'runf_std', axes, time, &
@@ -3707,6 +3730,10 @@ subroutine land_diag_init(clonb, clatb, clon, clat, time, domain, id_band, id_ug
              time, 'Type of parent tile', 'unitless',missing_value=-1.0,sm=.False.,op='mean')
   id_precip_tile = register_tiled_diag_field ( module_name, 'precip_tile', (/id_ug, id_ptid/),&
              time, 'precipitation rate', 'kg/(m2 s)', missing_value=-1.0e+20,sm=.False.)
+  id_precip_l_tile = register_tiled_diag_field ( module_name, 'precip_l_tile', (/id_ug, id_ptid/),&
+             time, 'precipitation rate (liquid)', 'kg/(m2 s)', missing_value=-1.0e+20,sm=.False.)
+  id_precip_s_tile = register_tiled_diag_field ( module_name, 'precip_s_tile', (/id_ug, id_ptid/),&
+             time, 'precipitation rate (frozen)', 'kg/(m2 s)', missing_value=-1.0e+20,sm=.False.)
   id_evap_tile = register_tiled_diag_field ( module_name, 'evap_tile', (/id_ug, id_ptid/),&
              time, 'vapor flux up from land', 'kg/(m2 s)', missing_value=-1.0e+20,sm=.False. )
   id_runf_tile = register_tiled_diag_field ( module_name, 'runf_tile', (/id_ug, id_ptid/),&
@@ -3995,6 +4022,13 @@ subroutine realloc_land2cplr ( bnd )
      bnd%discharge_snow_heat = 0.0
   endif
 
+  !Allocate the weights
+  allocate( bnd%dws_t_atm(lnd%ls:lnd%le,n_tiles) )
+  allocate( bnd%dws_prec(lnd%ls:lnd%le,n_tiles) )
+  bnd%dws_t_atm = init_value
+  bnd%dws_prec = init_value
+
+
 end subroutine realloc_land2cplr
 
 ! ============================================================================
@@ -4022,6 +4056,8 @@ subroutine dealloc_land2cplr ( bnd, dealloc_discharges )
   __DEALLOC__( bnd%rough_heat )
   __DEALLOC__( bnd%rough_scale )
   __DEALLOC__( bnd%mask )
+  __DEALLOC__( bnd%dws_t_atm )
+  __DEALLOC__( bnd%dws_prec )
 
   if (dealloc_discharges) then
      __DEALLOC__( bnd%discharge           )

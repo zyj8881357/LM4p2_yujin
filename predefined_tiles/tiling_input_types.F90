@@ -123,6 +123,9 @@ type :: metadata_predefined_type
  integer,pointer,dimension(:) :: tile
  integer,pointer,dimension(:) :: ttype
  real,pointer,dimension(:) :: frac
+ real,pointer,dimension(:,:) :: dws_prec !precip downscaling weights
+ real,pointer,dimension(:,:) :: dws_srad !shortwave downscaling weights
+ real,pointer,dimension(:,:) :: dws_tavg !temperature downscaling weights
 
 end type metadata_predefined_type
 

@@ -3,7 +3,7 @@ module predefined_tiles_mod
  use hdf5
  use,intrinsic :: iso_c_binding
  use constants_mod     , only : pi
- use land_data_mod, only: land_state_type
+ use land_data_mod, only: land_state_type,atmos_land_boundary_type
  use vegn_cohort_mod, only : vegn_cohort_type
  use land_tile_mod, only : first_elmt, insert, new_land_tile_predefined
  use land_tile_mod, only : land_tile_list_type,land_tile_type,&
@@ -11,7 +11,7 @@ module predefined_tiles_mod
  use tiling_input_types_mod, only : tile_parameters_type,lake_predefined_type
  use tiling_input_types_mod, only : glacier_predefined_type,soil_predefined_type
  use tiling_input_types_mod, only : metadata_predefined_type
- use time_manager_mod, only : time_type
+ use time_manager_mod, only : time_type,get_date
  use time_interp_mod, only : time_interp
 
  implicit none
@@ -206,13 +206,21 @@ subroutine land_cover_cold_start_0d_predefined_tiles(tiles,lnd,l,h5id)
             glac=tid,glacier_predefined=tile_parameters%glacier,&
             itile=tid,pid=tile_parameters%metadata%tile(itile)+1,&
             i_index=i_index,j_index=j_index,face=lnd%ug_face,ttype=1,&
-            l_index=l)
+            l_index=l,&
+            dws_prec=tile_parameters%metadata%dws_prec(itile,:),&
+            dws_srad=tile_parameters%metadata%dws_srad(itile,:),&
+            dws_tavg=tile_parameters%metadata%dws_tavg(itile,:)&
+            )
     case(2)
      tile => new_land_tile_predefined(frac=tile_parameters%metadata%frac(itile),&
             lake=tid,lake_predefined=tile_parameters%lake,&
             itile=tid,pid=tile_parameters%metadata%tile(itile)+1,&
             i_index=i_index,j_index=j_index,face=lnd%ug_face,ttype=2,&
-            l_index=l)
+            l_index=l,&
+            dws_prec=tile_parameters%metadata%dws_prec(itile,:),&
+            dws_srad=tile_parameters%metadata%dws_srad(itile,:),&
+            dws_tavg=tile_parameters%metadata%dws_tavg(itile,:)&
+            )
     case(3)
       tile => new_land_tile_predefined(frac=tile_parameters%metadata%frac(itile),&
            soil=1,vegn=tile_parameters%soil%vegn(tid),&
@@ -220,7 +228,11 @@ subroutine land_cover_cold_start_0d_predefined_tiles(tiles,lnd,l,h5id)
            htag_k=tile_parameters%soil%hidx_k(tid),&
            soil_predefined=tile_parameters%soil,itile=tid,pid=tile_parameters%metadata%tile(itile)+1,&
            i_index=i_index,j_index=j_index,face=lnd%ug_face,ttype=3,&
-           l_index=l)
+           l_index=l,&
+           dws_prec=tile_parameters%metadata%dws_prec(itile,:),&
+           dws_srad=tile_parameters%metadata%dws_srad(itile,:),&
+           dws_tavg=tile_parameters%metadata%dws_tavg(itile,:)&
+           )
    end select
    call insert(tile,tiles)
   enddo
@@ -293,13 +305,21 @@ subroutine land_cover_warm_start_0d_predefined_tiles(tiles,lnd,l,h5id,warm_tiles
             glac=tid,glacier_predefined=tile_parameters%glacier,&
             itile=tid,pid=tile_parameters%metadata%tile(itile)+1,&
             i_index=i_index,j_index=j_index,face=lnd%ug_face,ttype=1,&
-            l_index=l)
+            l_index=l,&
+            dws_prec=tile_parameters%metadata%dws_prec(itile,:),&
+            dws_srad=tile_parameters%metadata%dws_srad(itile,:),&
+            dws_tavg=tile_parameters%metadata%dws_tavg(itile,:)&
+            )
     case(2)
      tile => new_land_tile_predefined(frac=tile_parameters%metadata%frac(itile),&
             lake=tid,lake_predefined=tile_parameters%lake,&
             itile=tid,pid=tile_parameters%metadata%tile(itile)+1,&
             i_index=i_index,j_index=j_index,face=lnd%ug_face,ttype=2,&
-            l_index=l)
+            l_index=l,&
+            dws_prec=tile_parameters%metadata%dws_prec(itile,:),&
+            dws_srad=tile_parameters%metadata%dws_srad(itile,:),&
+            dws_tavg=tile_parameters%metadata%dws_tavg(itile,:)&
+            )
     case(3)
       tile => new_land_tile_predefined(frac=tile_parameters%metadata%frac(itile),&
            soil=1,vegn=warm_vegn(warm_tile),&
@@ -307,7 +327,11 @@ subroutine land_cover_warm_start_0d_predefined_tiles(tiles,lnd,l,h5id,warm_tiles
            htag_k=tile_parameters%soil%hidx_k(tid),&
            soil_predefined=tile_parameters%soil,itile=tid,pid=tile_parameters%metadata%tile(itile)+1,&
            i_index=i_index,j_index=j_index,face=lnd%ug_face,ttype=3,&
-           l_index=l)
+           l_index=l,&
+           dws_prec=tile_parameters%metadata%dws_prec(itile,:),&
+           dws_srad=tile_parameters%metadata%dws_srad(itile,:),&
+           dws_tavg=tile_parameters%metadata%dws_tavg(itile,:)&
+           )
    end select
    call insert(tile,tiles)
   enddo
@@ -350,6 +374,11 @@ subroutine retrieve_metadata(tile_parameters,cid)
   call get_parameter_data(grpid,'type',metadata%ntile,metadata%ttype)
   call get_parameter_data(grpid,'tid',metadata%ntile,metadata%tid)
   call get_parameter_data(grpid,'max_npt',1,metadata%max_npt)
+
+  !Retrieve meteorology info
+  call get_parameter_data(grpid,'prec',metadata%ntile,12,metadata%dws_prec)
+  call get_parameter_data(grpid,'srad',metadata%ntile,12,metadata%dws_srad)
+  call get_parameter_data(grpid,'tavg',metadata%ntile,12,metadata%dws_tavg)
 
   !Clean up (This should go in the database creation)
   where ((metadata%frac .lt. 1.e-8) .and. (metadata%ttype .eq. 2))metadata%frac = 0.0
@@ -646,6 +675,27 @@ subroutine get_parameter_data_2d_real(grpid,var,nx,ny,tmp)
  call h5dopen_f(grpid,var,varid,status)
  call h5dread_f(varid,H5T_IEEE_F64LE,tmp,dims,status)
  call h5dclose_f(varid,status)
+
+end subroutine
+
+subroutine downscale_atmos(tile,cplr2land,l,k,lnd)
+
+  implicit none
+  type(land_state_type),intent(in) :: lnd
+  type(land_tile_type), intent(in) :: tile ! pointer to current tile
+  type(atmos_land_boundary_type), intent(in)    :: cplr2land
+  integer, intent(in) :: l,k
+  integer :: year,month,day,hour,minute,second
+
+  call get_date(lnd%time,year,month,day,hour,minute,second)
+
+  !Downscale precipitation
+  !if (cplr2land%lprec(l,k)+cplr2land%fprec(l,k) .gt. 0)then
+  !cplr2land%lprec(l,k) = tile%dws_prec(month)*cplr2land%lprec(l,k)
+  !cplr2land%fprec(l,k) = tile%dws_prec(month)*cplr2land%fprec(l,k)
+  !endif
+
+  !Downscale shortwave radiation
 
 end subroutine
 

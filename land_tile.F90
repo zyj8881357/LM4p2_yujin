@@ -142,6 +142,9 @@ type :: land_tile_type
    integer :: l_index
    integer :: face
    real :: ttype
+   real :: dws_prec(12)
+   real :: dws_srad(12)
+   real :: dws_tavg(12)
    type(glac_tile_type), pointer :: glac => NULL() ! glacier model data
    type(lake_tile_type), pointer :: lake => NULL() ! lake model data
    type(soil_tile_type), pointer :: soil => NULL() ! soil model data
@@ -364,7 +367,8 @@ end function land_tile_ctor
 ! case are defined externally
 function land_tile_ctor_predefined(frac,glac,lake,soil,vegn,tag,htag_j,htag_k,&
                         soil_predefined,lake_predefined,glacier_predefined,&
-                        itile,pid,i_index,j_index,l_index,face,ttype) result(tile)
+                        itile,pid,i_index,j_index,l_index,face,ttype,&
+                        dws_prec,dws_srad,dws_tavg) result(tile)
   real   , optional, intent(in) :: frac ! fractional area of tile
   integer, optional, intent(in) :: &
                glac,lake,soil,vegn ! kinds of respective tiles
@@ -375,6 +379,7 @@ function land_tile_ctor_predefined(frac,glac,lake,soil,vegn,tag,htag_j,htag_k,&
   type(lake_predefined_type), optional, intent(in) :: lake_predefined
   type(glacier_predefined_type), optional, intent(in) :: glacier_predefined
   integer, optional, intent(in) :: itile,pid,i_index,j_index,face,ttype,l_index
+  real, optional, intent(in) :: dws_prec(12),dws_srad(12),dws_tavg(12)
   type(land_tile_type), pointer :: tile ! return value
 
   ! ---- local vars
@@ -396,6 +401,9 @@ function land_tile_ctor_predefined(frac,glac,lake,soil,vegn,tag,htag_j,htag_k,&
   tile%l_index = 0; if(present(l_index)) tile%l_index = l_index
   tile%face = 0; if(present(face)) tile%face = face
   tile%ttype = 0; if(present(ttype)) tile%ttype = ttype
+  tile%dws_srad = 1; if(present(dws_srad)) tile%dws_srad = dws_srad
+  tile%dws_prec = 1; if(present(dws_prec)) tile%dws_prec = dws_prec
+  tile%dws_tavg = 1; if(present(dws_tavg)) tile%dws_tavg = dws_tavg
 
   ! create sub-model tiles
   tile%cana => new_cana_tile()
