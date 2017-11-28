@@ -1288,7 +1288,7 @@ subroutine update_land_model_fast ( cplr2land, land2cplr )
         call set_current_point(i,j,k,l)
 
         ! nwc: downscale appropriate variables (sw,prec)
-        if (downscale_surface_meteorology)call downscale_atmos(tile,cplr2land,l,k,lnd)
+        !if (downscale_surface_meteorology)call downscale_atmos(tile,cplr2land,l,k,lnd)
 
         ISa_dn_dir(BAND_VIS) = cplr2land%sw_flux_down_vis_dir(l,k)
         ISa_dn_dir(BAND_NIR) = cplr2land%sw_flux_down_total_dir(l,k)&
