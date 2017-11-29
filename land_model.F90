@@ -2927,8 +2927,8 @@ subroutine update_land_bc_fast (tile, l ,k, land2cplr, is_init)
 
   ! Assign the downscaling weights
   call get_date(lnd%time,year,month,day,hour,minute,second)
-  land2cplr%dws_t_atm (l,k) = tile%dws_tavg(month)
-  land2cplr%dws_prec (l,k) = tile%dws_prec(month)
+  !land2cplr%dws_t_atm (l,k) = tile%dws_tavg(month) REVISIT
+  !land2cplr%dws_prec (l,k) = tile%dws_prec(month) REVISIT
 
   if(is_watch_point()) then
      write(*,*)'#### update_land_bc_fast ### output ####'
@@ -3807,7 +3807,6 @@ subroutine land_diag_init(clonb, clatb, clon, clat, time, domain, id_band, id_ug
   id_swup_dif_2_tile = register_tiled_diag_field ( module_name, 'swup_dif_2_tile', (/id_ug,id_ptid/), &
        time, 'diffuse short-wave radiation flux reflected by the land surface', 'W/m2', missing_value=-999.0,sm=.False.)
 
-  call diag_field_add_attribute(id_c4pftFrac,'ocean_fillvalue',0.0)
   ! LUMIP land fractions
   id_fracLut_psl = register_diag_field ( cmor_name, 'fracLut_psl', axes, time, &
              'Fraction of Grid Cell for Each Land Use Tile','fraction', &
@@ -4129,11 +4128,11 @@ subroutine realloc_land2cplr ( bnd )
      bnd%discharge_snow_heat = 0.0
   endif
 
-  !Allocate the weights
-  allocate( bnd%dws_t_atm(lnd%ls:lnd%le,n_tiles) )
-  allocate( bnd%dws_prec(lnd%ls:lnd%le,n_tiles) )
-  bnd%dws_t_atm = init_value
-  bnd%dws_prec = init_value
+  !Allocate the weights (REVISIT)
+  !allocate( bnd%dws_t_atm(lnd%ls:lnd%le,n_tiles) )
+  !allocate( bnd%dws_prec(lnd%ls:lnd%le,n_tiles) )
+  !bnd%dws_t_atm = init_value
+  !bnd%dws_prec = init_value
 
 
 end subroutine realloc_land2cplr
@@ -4163,8 +4162,8 @@ subroutine dealloc_land2cplr ( bnd, dealloc_discharges )
   __DEALLOC__( bnd%rough_heat )
   __DEALLOC__( bnd%rough_scale )
   __DEALLOC__( bnd%mask )
-  __DEALLOC__( bnd%dws_t_atm )
-  __DEALLOC__( bnd%dws_prec )
+  !__DEALLOC__( bnd%dws_t_atm ) REVISIT
+  !__DEALLOC__( bnd%dws_prec ) REVISIT
 
   if (dealloc_discharges) then
      __DEALLOC__( bnd%discharge           )
