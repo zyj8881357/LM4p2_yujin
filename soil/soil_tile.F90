@@ -184,6 +184,7 @@ type :: soil_pars_type
   real tile_hlsp_frac   ! fraction of the hillslope (different from fraction of the grid cell
 
   real Qmax             ! Maximum carbon sorption capacity (kgC/m3 soil)
+  real iwtd             ! Initial water table depth
 end type soil_pars_type
 
 
@@ -1111,6 +1112,7 @@ subroutine soil_data_init_0d_predefined(soil,tile_parameters,itile)
   !soil%pars%hillslope_n       = tile_parameters%gw_hillslope_n(itile)
   soil%pars%k_sat_gw          = tile_parameters%gw_perm(itile)&
                                 *tile_parameters%gw_scale_perm(itile)*9.8e9  !m^2 to kg/(m2 s)
+  soil%pars%iwtd              = tile_parameters%iwtd(itile)
   soil%pars%storage_index     = 1
   soil%alpha                  = 1.0
   soil%fast_soil_C(:)         = 0.0

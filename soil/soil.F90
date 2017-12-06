@@ -388,6 +388,7 @@ subroutine soil_init (predefined_tiles, id_ug,id_band,id_zfull,id_ptid)
 
   integer :: i, k, ll ! indices
   real :: psi(num_l), mwc(num_l)
+  real :: sum_frac
 
   type(land_restart_type) :: restart, restart1
   logical :: restart_exists
@@ -569,6 +570,15 @@ subroutine soil_init (predefined_tiles, id_ug,id_band,id_zfull,id_ptid)
           FATAL)
   endif
 
+  ! Assemble initial water table depth for grid cell
+  !if (predefined_tiles) then
+  ! init_wtdep = 0.0
+  ! do while(loop_over_tiles(ce,tile,k=k,l=ll))
+  !   if (.not.associated(tile%soil)) cycle
+  !   call set_current_point(ll,k)
+  ! end do
+  !endif
+
   ! Call calculate_wt_init outside tile loop so that it is done once per hillslope
   if (init_wtdep .gt. 0. .and. gw_option == GW_TILED) then
      call calculate_wt_init(init_wtdep)
@@ -586,13 +596,17 @@ subroutine soil_init (predefined_tiles, id_ug,id_band,id_zfull,id_ptid)
   do while(loop_over_tiles(ce,tile,k=k,l=ll))
      if (.not.associated(tile%soil)) cycle
      call set_current_point(ll,k)
-     if (init_wtdep .gt. 0.) then
+     if (init_wtdep .gt. 0. .or. predefined_tiles)then
         if (.not. use_coldstart_wtt_data) then
-           if (horiz_init_wt .and. gw_option == GW_TILED) then
+           if (horiz_init_wt .and. gw_option == GW_TILED .and. predefined_tiles .eq. .False.) then
               call horiz_wt_depth_to_init(tile%soil, prev_elmt(ce), local_wt_depth)
               ! Note: if restart_exists, then this function returns dummy local_wt_depth == 0.
               ! prev_elmt(ce) passed because indices will be needed.
               psi = zfull(1:num_l) - local_wt_depth
+           else if (gw_option == GW_TILED .and. predefined_tiles .eq. .True.) then
+              if (isnan(tile%soil%pars%iwtd)) tile%soil%pars%iwtd = 0.1
+              !print*,tile%soil%pars%iwtd
+              psi = zfull(1:num_l) - tile%soil%pars%iwtd
            else
               psi = zfull(1:num_l) - init_wtdep
            end if
@@ -602,7 +616,7 @@ subroutine soil_init (predefined_tiles, id_ug,id_band,id_zfull,id_ptid)
            else
               drypoint = .true.
            end if
-           if (gw_option == GW_TILED) then
+           if (gw_option == GW_TILED .and. predefined_tiles .eq. .False.) then
               call horiz_wt_depth_to_init(tile%soil, prev_elmt(ce), local_wt_depth, dry=drypoint)
               psi = zfull(1:num_l) - local_wt_depth
            else if (drypoint) then

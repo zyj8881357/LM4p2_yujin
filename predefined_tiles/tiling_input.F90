@@ -353,7 +353,7 @@ subroutine retrieve_metadata(tile_parameters,cid)
   integer(hid_t),intent(inout) :: cid
   type(metadata_predefined_type),pointer :: metadata
   integer(hid_t) :: dimid,grpid,dsid,varid
-  integer :: ntile,nband,status
+  integer :: ntile,nband,status,im
   integer(hsize_t) :: dims(1),maxdims(1)
   allocate(tile_parameters%metadata)
   metadata => tile_parameters%metadata
@@ -379,6 +379,14 @@ subroutine retrieve_metadata(tile_parameters,cid)
   call get_parameter_data(grpid,'prec',metadata%ntile,12,metadata%dws_prec)
   call get_parameter_data(grpid,'srad',metadata%ntile,12,metadata%dws_srad)
   call get_parameter_data(grpid,'tavg',metadata%ntile,12,metadata%dws_tavg)
+  
+  !Curate the weights
+  do im = 1,12
+   if (isnan(sum(metadata%frac*metadata%dws_prec(:,im))))metadata%dws_prec(:,im)=1
+   if (isnan(sum(metadata%frac*metadata%dws_tavg(:,im))))metadata%dws_tavg(:,im)=1
+  enddo
+  !print*,'prec',sum(metadata%frac*metadata%dws_prec(:,1))
+  !print*,'tavg',sum(metadata%frac*metadata%dws_tavg(:,1))
 
   !Clean up (This should go in the database creation)
   where ((metadata%frac .lt. 1.e-8) .and. (metadata%ttype .eq. 2))metadata%frac = 0.0
@@ -576,6 +584,7 @@ subroutine retrieve_soil_parameters(tile_parameters,cid)
   call get_parameter_data(grpid,"bsw",nsoil,soil%bsw)
   call get_parameter_data(grpid,"bwood",nsoil,soil%bwood)
   call get_parameter_data(grpid,"br",nsoil,soil%br)
+  call get_parameter_data(grpid,"wtd",nsoil,soil%iwtd)
 
   !Do some basic QC (should be done in the preprocessing...)
   where(isnan(soil%gw_soil_e_depth) .eq. .True.)soil%gw_soil_e_depth = 3.0

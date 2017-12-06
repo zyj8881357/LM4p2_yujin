@@ -94,6 +94,7 @@ type :: soil_predefined_type
  real,pointer,dimension(:) :: gw_hillslope_n
  real,pointer,dimension(:) :: gw_perm
  real,pointer,dimension(:) :: gw_scale_perm
+ real,pointer,dimension(:) :: iwtd
  !hillslope tiling
  real,pointer,dimension(:) :: microtopo
  real,pointer,dimension(:) :: tile_hlsp_length
