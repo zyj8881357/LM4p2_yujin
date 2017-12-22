@@ -1921,6 +1921,9 @@ subroutine update_land_model_fast_0d(tile, l, k, land2cplr, &
      if (ierr/=0)then
           write(*,*) 'Matrix is singular',i,j,k
      endif
+     where (isnan(A) .eq. .True.) !HACK
+      A = 0.0 !HACK
+     endwhere !HACK
      call lubksb(A,indx,B0)
      call lubksb(A,indx,B1)
      call lubksb(A,indx,B2)
