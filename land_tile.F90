@@ -170,6 +170,7 @@ type :: land_tile_type
            ! the implicit time step -- used in update_land_bc_fast to return to the flux exchange.
    real :: e_res_1  = 0.0 ! energy residual in canopy air EB equation
    real :: e_res_2  = 0.0 ! energy residual in canopy EB equation
+   real :: e_res_ds = 0.0 ! energy residual from downscaling precipitation (repartitioning liquid/frozen)
    real :: runon_l  = 0.0 ! water discharged by rivers into the tile, kg/(m2 s)
    real :: runon_s  = 0.0 ! snow discharged by rivers into the tile, kg/(m2 s)
    real :: runon_H  = 0.0 ! heat carried by water discharged by rivers into the tile, W/m2

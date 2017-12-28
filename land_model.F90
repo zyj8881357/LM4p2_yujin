@@ -1290,7 +1290,7 @@ subroutine update_land_model_fast ( cplr2land, land2cplr )
         call set_current_point(i,j,k,l)
 
         ! nwc: downscale appropriate variables (sw,prec)
-        !if (downscale_surface_meteorology)call downscale_atmos(tile,cplr2land,l,k,lnd)
+        if (downscale_surface_meteorology)call downscale_atmos(tile,cplr2land,l,k,lnd)
 
         ISa_dn_dir(BAND_VIS) = cplr2land%sw_flux_down_vis_dir(l,k)
         ISa_dn_dir(BAND_NIR) = cplr2land%sw_flux_down_total_dir(l,k)&
@@ -1987,6 +1987,8 @@ subroutine update_land_model_fast_0d(tile, l, k, land2cplr, &
      tile%e_res_1 = canopy_air_mass*(cpw-cp_air)*delta_qc*delta_Tc/delta_time
 #endif
      tile%e_res_2 = delta_Tv*(clw*delta_Wl+csw*delta_Ws)/delta_time
+! add in the residual produced in the precipitation downscaling
+     tile%e_res_2 = tile%e_res_2 + tile%e_res_ds
 ! calculate the final value upward long-wave radiation flux from the land, to be
 ! returned to the flux exchange.
      tile%lwup = ILa_dn - vegn_flw - flwg
@@ -2930,8 +2932,8 @@ subroutine update_land_bc_fast (tile, l ,k, land2cplr, is_init)
 
   ! Assign the downscaling weights
   call get_date(lnd%time,year,month,day,hour,minute,second)
-  !land2cplr%dws_t_atm (l,k) = tile%dws_tavg(month) REVISIT
-  !land2cplr%dws_prec (l,k) = tile%dws_prec(month) REVISIT
+  land2cplr%dws_t_atm (l,k) = tile%dws_tavg(month)
+  land2cplr%dws_prec (l,k) = tile%dws_prec(month)
 
   if(is_watch_point()) then
      write(*,*)'#### update_land_bc_fast ### output ####'
@@ -4131,11 +4133,11 @@ subroutine realloc_land2cplr ( bnd )
      bnd%discharge_snow_heat = 0.0
   endif
 
-  !Allocate the weights (REVISIT)
-  !allocate( bnd%dws_t_atm(lnd%ls:lnd%le,n_tiles) )
-  !allocate( bnd%dws_prec(lnd%ls:lnd%le,n_tiles) )
-  !bnd%dws_t_atm = init_value
-  !bnd%dws_prec = init_value
+  !Allocate the weights
+  allocate( bnd%dws_t_atm(lnd%ls:lnd%le,n_tiles) )
+  allocate( bnd%dws_prec(lnd%ls:lnd%le,n_tiles) )
+  bnd%dws_t_atm = init_value
+  bnd%dws_prec = init_value
 
 
 end subroutine realloc_land2cplr
@@ -4165,8 +4167,8 @@ subroutine dealloc_land2cplr ( bnd, dealloc_discharges )
   __DEALLOC__( bnd%rough_heat )
   __DEALLOC__( bnd%rough_scale )
   __DEALLOC__( bnd%mask )
-  !__DEALLOC__( bnd%dws_t_atm ) REVISIT
-  !__DEALLOC__( bnd%dws_prec ) REVISIT
+  __DEALLOC__( bnd%dws_t_atm )
+  __DEALLOC__( bnd%dws_prec )
 
   if (dealloc_discharges) then
      __DEALLOC__( bnd%discharge           )

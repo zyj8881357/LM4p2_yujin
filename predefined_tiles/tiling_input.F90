@@ -691,21 +691,46 @@ subroutine downscale_atmos(tile,cplr2land,l,k,lnd)
 
   implicit none
   type(land_state_type),intent(in) :: lnd
-  type(land_tile_type), intent(in) :: tile ! pointer to current tile
+  type(land_tile_type), intent(inout) :: tile ! pointer to current tile
   type(atmos_land_boundary_type), intent(in)    :: cplr2land
   integer, intent(in) :: l,k
   integer :: year,month,day,hour,minute,second
+  real :: tas_ds,lprec_ds,fprec_ds,e_res_ds,hlf,tfreeze
+  e_res_ds = 0.0
+  hlf = 3.34e5 !< Latent heat of fusion [J/kg]
+  tfreeze = 273.16 !< Freezing temperature of fresh water [K]
 
   call get_date(lnd%time,year,month,day,hour,minute,second)
 
+  !Downscale temperature (precipitation temperature)
+  tas_ds = tile%dws_tavg(month)*cplr2land%tprec(l,k)
+  !Get canopy temperature
+  !tas_ds = tile%cana%T
+
   !Downscale precipitation
-  !if (cplr2land%lprec(l,k)+cplr2land%fprec(l,k) .gt. 0)then
-  !cplr2land%lprec(l,k) = tile%dws_prec(month)*cplr2land%lprec(l,k)
-  !cplr2land%fprec(l,k) = tile%dws_prec(month)*cplr2land%fprec(l,k)
-  !endif
+  lprec_ds = tile%dws_prec(month)*cplr2land%lprec(l,k)
+  fprec_ds = tile%dws_prec(month)*cplr2land%fprec(l,k)
 
-  !Downscale shortwave radiation
+  !Melt any frozen precipitation
+  !e_res_ds = e_res_ds - HLF*fprec_ds
+  lprec_ds = lprec_ds + fprec_ds
+  fprec_ds = 0.0
 
+  !Calculate the heat necessary to bring up the temperature to tfreeze
+  !Calculate the max mass of water that could be frozen before surpassing tfreeze
+  !When applicable convert liquid water to frozen
+  if (tas_ds .le. tfreeze)then
+  ! e_res_ds = e_res_ds + HLF*lprec_ds
+   fprec_ds = lprec_ds
+   lprec_ds = 0.0
+  endif
+
+  !Send values back to the land model
+  cplr2land%tprec(l,k) = tas_ds
+  cplr2land%lprec(l,k) = lprec_ds
+  cplr2land%fprec(l,k) = fprec_ds
+  tile%e_res_ds = 0.0!e_res_ds
+  
 end subroutine
 
 end module predefined_tiles_mod
