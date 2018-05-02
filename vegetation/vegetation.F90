@@ -315,6 +315,12 @@ subroutine vegn_init(id_ug,id_band,id_ptid,predefined_tiles)
      if(field_exists(restart2,'leaf_age')) &
           call get_cohort_data(restart2,'leaf_age',cohort_leaf_age_ptr)
      call get_cohort_data(restart2, 'npp_prev_day', cohort_npp_previous_day_ptr)
+     ! for reproducibility across mid-day restarts 
+     if (field_exists(restart2,'carbon_gain')) then
+        call get_cohort_data(restart2, 'carbon_gain', cohort_carbon_gain_ptr)
+        call get_cohort_data(restart2, 'bwood_gain', cohort_bwood_gain_ptr)
+        call get_cohort_data(restart2, 'npp_prev_day_acm', cohort_npp_previous_day_tmp_ptr)
+     endif
 
      if(field_exists(restart2,'landuse')) &
           call get_int_tile_data(restart2,'landuse',vegn_landuse_ptr)
@@ -868,6 +874,11 @@ subroutine save_vegn_restart(tile_dim_length,timestamp)
   call add_cohort_data(restart2,'bliving', cohort_bliving_ptr, 'total living biomass per individual','kg C/m2')
   call add_int_cohort_data(restart2,'status', cohort_status_ptr, 'leaf status')
   call add_cohort_data(restart2,'leaf_age',cohort_leaf_age_ptr, 'age of leaves since bud burst', 'days')
+
+  ! for reproducibility across mid-day restarts
+  call add_cohort_data(restart2,'carbon_gain',cohort_carbon_gain_ptr, 'carbon gain during a day', 'kgC/m2')
+  call add_cohort_data(restart2,'bwood_gain',cohort_bwood_gain_ptr, 'wood gain during a day', 'kgC/m2')
+  call add_cohort_data(restart2,'npp_prev_day_acm', cohort_npp_previous_day_tmp_ptr, 'cumulative sum of NPP for average values','kg C/(m2 year)')
 
   !#### MODIFIED BY PPG 2016-12-01
   call add_cohort_data(restart2, 'Anlayer_acm', cohort_Anlayer_acm_ptr,  ' Cumulative Net Photosynthesis for new Lai layer', 'kg C/(m2 year)')
@@ -1897,5 +1908,10 @@ DEFINE_COHORT_ACCESSOR(real,wl)
 DEFINE_COHORT_ACCESSOR(real,ws)
 
 DEFINE_COHORT_ACCESSOR(real,height)
+
+! for reproducibility across mid-day restarts
+DEFINE_COHORT_ACCESSOR(real,carbon_gain)
+DEFINE_COHORT_ACCESSOR(real,bwood_gain)
+DEFINE_COHORT_ACCESSOR(real,npp_previous_day_tmp)
 
 end module vegetation_mod
