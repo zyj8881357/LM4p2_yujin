@@ -1066,12 +1066,14 @@ subroutine land_cover_warm_start_predefined(restart)
   first = 1
   last = 0
   do itt = 1,ntiless
-   if ((itt+1 .gt. ntiless) .or. (i_index_sd(itt+1) .ne. i) .or. (j_index_sd(itt+1) .ne. j) &
-      .or. (faces_sd(itt+1) .ne. face))then
+   if (itt+1 .gt. ntiless)then
+    !Create all the tiles for this cell
+    last = itt
+    call land_cover_warm_start_0d_predefined_tiles(land_tile_map(l),lnd,l,h5id,&
+         pid_sd(first:last),vegn_sd(first:last),i,j,face)
+   else if ((i_index_sd(itt+1) .ne. i) .or. (j_index_sd(itt+1) .ne. j) .or. (faces_sd(itt+1) .ne. face))then
     last = itt
     !Create all the tiles for this cell
-    !call land_cover_warm_start_0d_predefined_tiles(land_tile_map(l),&
-    !     lnd,i,j,h5id,pids(first:last),vegns(first:last))
     call land_cover_warm_start_0d_predefined_tiles(land_tile_map(l),lnd,l,h5id,&
          pid_sd(first:last),vegn_sd(first:last),i,j,face)
     !Update the parameters
@@ -4153,7 +4155,6 @@ subroutine dealloc_land2cplr ( bnd, dealloc_discharges )
   type(land_data_type), intent(inout) :: bnd  ! data to de-allocate
   logical, intent(in) :: dealloc_discharges
 
-  __DEALLOC__( bnd%tile_size )
   __DEALLOC__( bnd%tile_size )
   __DEALLOC__( bnd%t_surf )
   __DEALLOC__( bnd%t_ca )

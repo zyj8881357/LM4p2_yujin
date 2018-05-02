@@ -125,6 +125,9 @@ logical :: write_when_flagged   = .false.
 logical :: corrected_lm2_gw     = .true.
 logical :: use_fringe           = .false.
 logical :: push_down_sfc_excess = .true.
+logical :: push_up_sfc_excess = .false.
+logical :: predefined_wtd = .false.
+logical :: excess_soil_water_to_numerical_runoff = .false.
 logical :: lrunf_from_div       = .true.
 logical :: use_tall_plants      = .false.
 logical :: cold_infilt          = .false.
@@ -199,7 +202,8 @@ namelist /soil_nml/ lm2, use_E_min, use_E_max,           &
                     supercooled_rnu, wet_depth, thetathresh, negrnuthresh, &
                     write_soil_carbon_restart, &
                     max_soil_C_density, max_litter_thickness, &
-                    fix_neg_subsurface_wl_revisited
+                    fix_neg_subsurface_wl_revisited, excess_soil_water_to_numerical_runoff, &
+                    push_up_sfc_excess, predefined_wtd
 !---- end of namelist --------------------------------------------------------
 
 logical         :: module_is_initialized =.FALSE.
@@ -603,7 +607,7 @@ subroutine soil_init (predefined_tiles, id_ug,id_band,id_zfull,id_ptid)
               ! Note: if restart_exists, then this function returns dummy local_wt_depth == 0.
               ! prev_elmt(ce) passed because indices will be needed.
               psi = zfull(1:num_l) - local_wt_depth
-           else if (gw_option == GW_TILED .and. predefined_tiles .eq. .True.) then
+           else if (gw_option == GW_TILED .and. predefined_tiles .eq. .True. .and. predefined_wtd) then
               if (isnan(tile%soil%pars%iwtd)) tile%soil%pars%iwtd = 0.1
               !print*,tile%soil%pars%iwtd
               psi = zfull(1:num_l) - tile%soil%pars%iwtd
@@ -2271,11 +2275,13 @@ end subroutine soil_step_1
   !.........................................................................
 
   ! ---- push down any excess surface water, with heat ---------------------
+  lrunf_nu=0; hlrunf_nu=0; frunf=0; hfrunf = 0
   IF (PUSH_DOWN_SFC_EXCESS) THEN
      CALL SOIL_PUSH_DOWN_EXCESS ( soil, diag, lrunf_nu, hlrunf_nu, frunf, hfrunf)
-  ELSE
-     lrunf_nu=0; hlrunf_nu=0; frunf=0; hfrunf = 0
-  ENDIF
+  endif
+  if (push_up_sfc_excess) then
+     call soil_push_up_excess ( soil, diag, lrunf_nu, hlrunf_nu, frunf, hfrunf)
+  endif
 
   ! ---- fetch soil hydraulic properties -----------------------------------
   do l = 1, num_l
@@ -2533,11 +2539,18 @@ end subroutine soil_step_1
                  / (soil%pars%hillslope_length*soil%pars%hillslope_length)
         enddo
      endif
+     print*,'length',soil%pars%hillslope_length
+     print*,'relief',soil%pars%hillslope_relief
+     !print*,'slope',soil%pars%hillslope_slope
+     print*,'soil_e_depth',soil%pars%soil_e_depth
+     print*,'zeta_bar',soil%pars%hillslope_zeta_bar
+     print*,'hillslope_a',soil%pars%hillslope_a
+     print*,'hillslope_n',soil%pars%hillslope_n
 
   CASE (GW_TILED)
      call hlsp_hydrology_2(soil, psi, vlc, vsc, div_it, hdiv_it, &
         sat_area_frac, inundated_frac, storage_2, depth_to_wt_2b, surface_water, sat_runf_frac, &
-        div_gtos, hdiv_gtos)
+        div_gtos, hdiv_gtos, depth_to_wt_2a)
      if (depth_to_wt_2b >= 0. .and. depth_to_wt_2b <= wet_depth) then
         wet_frac = 1.
      else
@@ -3585,6 +3598,207 @@ subroutine Dsdt_CENTURY(vegn, soil, diag, soilt, theta)
 
 end subroutine Dsdt_CENTURY
 
+! ============================================================================
+subroutine soil_excess_to_numerical_runoff ( soil, diag, lrunf_nu, hlrunf_nu, frunf, hfrunf)
+  type(soil_tile_type), intent(inout) :: soil
+  type(diag_buff_type), intent(inout) :: diag
+  real, intent(out) :: lrunf_nu, hlrunf_nu
+  real, intent(out) :: frunf, hfrunf ! frozen runoff (mm/s); frozen runoff heat (W/m^2)
+
+  ! ---- local vars ----------------------------------------------------------
+  real      :: &
+     liq_frac, excess_wat, excess_liq, excess_ice, excess_t, &
+     h1, h2, summax, space_avail, liq_placed, ice_placed
+  integer :: k,l
+
+  lrunf_nu = 0.0
+  hlrunf_nu = 0.0
+  frunf = 0.0
+  hfrunf = 0.0
+  do l = 1,num_l
+   !if (zhalf(l) .gt. soil%pars%soil_e_depth)exit
+   liq_frac=0;excess_wat=0;excess_liq=0;excess_ice=0;h1=0;h2=0
+   summax = max(0.,soil%wl(l))+max(0.,soil%ws(l))
+   if (summax > 0) then
+      liq_frac = max(0.,soil%wl(l)) / summax
+   else
+      liq_frac = 1
+   endif
+   excess_wat = max(0., soil%wl(l) + soil%ws(l) &
+        - dens_h2o*dz(l)*soil%vwc_max(l) )
+   excess_liq = exp(-zhalf(l)/soil%pars%soil_e_depth)*excess_wat*liq_frac
+   excess_ice = exp(-zhalf(l)/soil%pars%soil_e_depth)*(excess_wat-excess_liq)
+   excess_t   = soil%T(l)
+   soil%wl(l) = soil%wl(l) - excess_liq
+   soil%ws(l) = soil%ws(l) - excess_ice
+
+   ! to avoid adding frozen runoff to soil interface, melt all remaining
+   ! excess ice, even if it results in supercooled liquid runoff
+   if (supercooled_rnu) then
+     lrunf_nu  = lrunf_nu + (excess_liq+excess_ice) / delta_time
+     hlrunf_nu = hlrunf_nu + (  excess_liq*clw*(excess_T-tfreeze)  &
+                  + excess_ice*csw*(excess_T-tfreeze)  &
+                  - hlf_factor*hlf*excess_ice                   ) / delta_time
+     frunf = 0.
+     hfrunf = 0.
+   else
+ !! ZMS: Change this to propagate frozen runoff to avoid lake crashes from supercooled water.
+     lrunf_nu = lrunf_nu + excess_liq / delta_time
+     hlrunf_nu = hlrunf_nu + excess_liq*clw*(excess_T-tfreeze) / delta_time
+     frunf = frunf + excess_ice / delta_time
+     hfrunf = hfrunf + excess_ice*csw*(excess_T-tfreeze) / delta_time
+  end if
+ enddo
+
+end subroutine soil_excess_to_numerical_runoff
+
+! ============================================================================
+subroutine soil_push_up_excess ( soil, diag, lrunf_nu, hlrunf_nu, frunf, hfrunf)
+  type(soil_tile_type), intent(inout) :: soil
+  type(diag_buff_type), intent(inout) :: diag
+  real, intent(inout) :: lrunf_nu, hlrunf_nu
+  real, intent(inout) :: frunf, hfrunf ! frozen runoff (mm/s); frozen runoff heat (W/m^2)
+
+  ! ---- local vars ----------------------------------------------------------
+  real      :: &
+     liq_frac, excess_wat, excess_liq, excess_ice, excess_t, excess_heat, &
+     h1, h2, summax, space_avail, liq_placed, ice_placed
+  integer :: k,l
+
+  !Collect excesses
+  excess_liq = 0.0
+  excess_ice = 0.0
+  excess_heat = 0.0
+  do l = num_l,1,-1
+   excess_wat=0;h1=0;h2=0
+   excess_wat = max(0., max(soil%wl(l),0.0) - dens_h2o*dz(l)*soil%vwc_max(l) - max(soil%ws(l),0.0))
+   excess_liq = excess_liq + excess_wat
+   soil%wl(l) = soil%wl(l) - excess_wat
+   excess_heat = excess_heat + soil%T(l)*(clw*excess_wat)
+   if (excess_liq > 0) then
+     excess_T = excess_heat/(excess_liq*clw)
+     space_avail = dens_h2o*dz(l)*soil%vwc_max(l) - (max(soil%wl(l),0.0) + max(soil%ws(l),0.0))
+     liq_placed = max(min(space_avail, excess_liq), 0.)
+     h1 = (soil%heat_capacity_dry(l)*dz(l) + clw*soil%wl(l) + csw*soil%ws(l))
+     h2 = liq_placed*clw
+     soil%T(l) = (h1 * soil%T(l) &
+           + h2 * excess_T )  / (h1+h2)
+     soil%wl(l) = soil%wl(l) + liq_placed
+     excess_liq = excess_liq - liq_placed
+     excess_heat = excess_heat - h2 * excess_T
+   endif
+  enddo
+
+! to avoid adding frozen runoff to soil interface, melt all remaining
+! excess ice, even if it results in supercooled liquid runoff
+  if (excess_liq > 0.0)then
+   excess_t = excess_heat/(excess_liq*clw)
+   if (supercooled_rnu) then
+      lrunf_nu  = lrunf_nu + excess_liq / delta_time !(excess_liq+excess_ice) / delta_time
+      hlrunf_nu = hlrunf_nu + excess_liq*clw*(excess_T-tfreeze) / delta_time
+      !frunf = 0.
+      !hfrunf = 0.
+   else
+ !! ZMS: Change this to propagate frozen runoff to avoid lake crashes from supercooled water.
+      lrunf_nu = lrunf_nu + excess_liq / delta_time
+      hlrunf_nu = hlrunf_nu + excess_liq*clw*(excess_T-tfreeze) / delta_time
+      !frunf = 0.0!excess_ice / delta_time
+      !hfrunf = 0.0!excess_ice*csw*(excess_T-tfreeze) / delta_time
+   end if
+  endif
+
+end subroutine soil_push_up_excess
+
+! ============================================================================
+subroutine soil_push_up_excess_old ( soil, diag, lrunf_nu, hlrunf_nu, frunf, hfrunf)
+  type(soil_tile_type), intent(inout) :: soil
+  type(diag_buff_type), intent(inout) :: diag
+  real, intent(out) :: lrunf_nu, hlrunf_nu
+  real, intent(out) :: frunf, hfrunf ! frozen runoff (mm/s); frozen runoff heat (W/m^2)
+
+  ! ---- local vars ----------------------------------------------------------
+  real      :: &
+     liq_frac, excess_wat, excess_liq, excess_ice, excess_t, excess_heat, &
+     h1, h2, summax, space_avail, liq_placed, ice_placed
+  integer :: k,l
+
+  !Collect excesses
+  excess_liq = 0.0
+  excess_ice = 0.0
+  excess_heat = 0.0
+  do l = num_l,1,-1
+   liq_frac=0;excess_wat=0;h1=0;h2=0
+   !summax = max(0.,soil%wl(l))+max(0.,soil%ws(l))
+   !if (summax > 0) then
+   !   liq_frac = max(0.,soil%wl(l)) / summax
+   !else
+   !   liq_frac = 1
+   !endif
+   !excess_wat = max(0., soil%wl(l) + soil%ws(l) &
+   !     - dens_h2o*dz(l)*soil%vwc_max(l) )
+   excess_wat = max(0., max(soil%wl(l),0.0) - dens_h2o*dz(l)*soil%vwc_max(l) - max(soil%ws(l),0.0))
+   !print*,l,excess_liq,excess_ice,excess_wat*liq_frac,excess_wat-excess_liq
+   excess_liq = excess_liq + excess_wat
+   !excess_liq = excess_liq + excess_wat*liq_frac
+   !excess_ice = excess_ice + excess_wat - excess_wat*liq_frac
+   !excess_heat = excess_heat + soil%T(l)*(clw*excess_wat*liq_frac + csw*(excess_wat - excess_wat*liq_frac))
+   soil%wl(l) = soil%wl(l) - excess_wat!excess_wat*liq_frac
+   !soil%ws(l) = soil%ws(l) - excess_wat + excess_wat*liq_frac
+  enddo
+
+  !Fill in
+  do l = num_l,1,-1
+   !if (excess_liq+excess_ice>0) then
+   if (excess_liq > 0) then
+     !excess_T = excess_heat/(excess_liq*clw + excess_ice*csw)
+     excess_T = excess_heat/(excess_liq*clw)
+     !space_avail = dens_h2o*dz(l)*soil%vwc_max(l) &
+     !      - (soil%wl(l) + soil%ws(l))
+     space_avail = dens_h2o*dz(l)*soil%vwc_max(l) - (max(soil%wl(l),0.0) + max(soil%ws(l),0.0))
+     !print*,l,dens_h2o*dz(l)*soil%vwc_max(l),(soil%wl(l) + soil%ws(l))
+     liq_placed = max(min(space_avail, excess_liq), 0.)
+     !ice_placed = max(min(space_avail-liq_placed, excess_ice), 0.)
+     !h1 = (soil%heat_capacity_dry(l)*dz(l) &
+     !      + csw*soil%ws(l) + clw*soil%wl(l))
+     h1 = (soil%heat_capacity_dry(l)*dz(l) + clw*soil%wl(l))
+     !h2 = liq_placed*clw+ice_placed*csw
+     h2 = liq_placed*clw
+     soil%T(l) = (h1 * soil%T(l) &
+           + h2 * excess_T )  / (h1+h2)
+     soil%wl(l) = soil%wl(l) + liq_placed
+     !soil%ws(l) = soil%ws(l) + ice_placed
+     excess_liq = excess_liq - liq_placed
+     !print*,soil%wl(l),excess_liq,liq_placed
+     !excess_ice = excess_ice - ice_placed
+     excess_heat = excess_heat - h2 * excess_T
+   endif
+  enddo
+  !print*,excess_liq,excess_ice,excess_heat
+
+! to avoid adding frozen runoff to soil interface, melt all remaining
+! excess ice, even if it results in supercooled liquid runoff
+  !if (excess_liq + excess_ice > 0.0)then
+  if (excess_liq > 0.0)then
+   !excess_t = excess_heat/(excess_liq*clw + excess_ice*csw)
+   excess_t = excess_heat/(excess_liq*clw)
+   if (supercooled_rnu) then
+      lrunf_nu  = excess_liq / delta_time !(excess_liq+excess_ice) / delta_time
+      hlrunf_nu = excess_liq*clw*(excess_T-tfreeze) / delta_time
+                  !(  excess_liq*clw*(excess_T-tfreeze)  &
+                  ! + excess_ice*csw*(excess_T-tfreeze)  &
+                  ! - hlf_factor*hlf*excess_ice                   ) / delta_time
+      frunf = 0.
+      hfrunf = 0.
+   else
+ !! ZMS: Change this to propagate frozen runoff to avoid lake crashes from supercooled water.
+      lrunf_nu = excess_liq / delta_time
+      hlrunf_nu = excess_liq*clw*(excess_T-tfreeze) / delta_time
+      frunf = 0.0!excess_ice / delta_time
+      hfrunf = 0.0!excess_ice*csw*(excess_T-tfreeze) / delta_time
+   end if
+  endif
+
+end subroutine soil_push_up_excess_old
 
 ! ============================================================================
 subroutine soil_push_down_excess ( soil, diag, lrunf_nu, hlrunf_nu, frunf, hfrunf)

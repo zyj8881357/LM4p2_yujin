@@ -169,6 +169,7 @@ type :: soil_pars_type
   real k_sat_gw         ! saturated hydraulic conductivity at infinite depth, for bedrock (mm/s)
   real k_sat_sfc        ! saturated hydraulic conductivity at surface (mm/s)
   real soil_e_depth     ! soil depth scale for taking on properties of bedrock (m)
+  real depth_to_bedrock ! depth to unweathered bedrock (m) (groundwater model could access below)
   real microtopo        ! microtopographic roughness length for surface water (m)
   real tile_hlsp_length ! horizontal length of tile parallel to hillslope (m) (proportional to
                         ! tile area)
@@ -182,7 +183,8 @@ type :: soil_pars_type
                         ! This will need to be set in transitions; otherwise, defaults to 1/2
                         ! tile_hlsp_width.
   real tile_hlsp_frac   ! fraction of the hillslope (different from fraction of the grid cell
-
+  real hand_ecdf(11)
+  real hand_bedges(11)
   real Qmax             ! Maximum carbon sorption capacity (kgC/m3 soil)
   real iwtd             ! Initial water table depth
 end type soil_pars_type
@@ -346,6 +348,7 @@ logical :: use_comp_for_ic       = .false.
 logical :: use_comp_for_push     = .false.
 logical :: limit_hi_psi          = .false.
 logical :: use_fluid_ice         = .false.
+logical :: use_depth_to_bedrock  = .false.
 logical :: use_alt3_soil_hydraulics = .false.
 logical :: limit_DThDP           = .false.
 logical, protected :: retro_a0n1 = .false.
@@ -464,6 +467,8 @@ real :: peat_soil_e_depth = -1  ! If positive (and GW_TILED or GW_HILL), overrid
 real :: peat_kx0 = -1           ! If non-negative (and GW_TILED or GW_HILL), override macroporosity for peat
 logical :: k0_macro_bug = .FALSE. ! if true, reproduces the mistake in z calculations in soil_data_init_0d, as in LM3.1 paper
 logical :: repro_zms = .FALSE. ! if true, changes calculations of zfull to reproduce Zack's hillslope code.
+logical :: override_soil_e_depth = .FALSE.
+real :: soil_e_depth = 2.0
                                ! The two ways of calculating zfull are mathematically identical, but they differ
                                ! in the lowest bits of answer.
 namelist /soil_data_nml/ psi_wilt, &
@@ -497,7 +502,7 @@ namelist /soil_data_nml/ psi_wilt, &
      dat_emis_dry,              dat_emis_sat,                &
      dat_z0_momentum,           dat_tf_depr,     clay,       &
      peat_soil_e_depth,         peat_kx0, k0_macro_bug, repro_zms, &
-     anisotropy_ratio
+     anisotropy_ratio, use_depth_to_bedrock, override_soil_e_depth, soil_e_depth
 !---- end of namelist --------------------------------------------------------
 
 real    :: gw_hillslope_length   = 1000.
@@ -1067,6 +1072,25 @@ subroutine soil_data_init_0d(soil)
 
 end subroutine soil_data_init_0d
 
+subroutine calculate_soil_e_depth_ksat(zs,kb,ksat200,ksat0)
+
+ implicit none
+ real :: zs,kb,ksat200,ksat0
+ real :: a2,ab2
+ !Curate values
+ !print*,ksat0,ksat200,kb
+ if (ksat200 .ge. ksat0)ksat200 = 0.9*ksat0
+ if (ksat0 .le. kb)ksat0 = 1.1*kb
+ if (ksat200 .le. kb)ksat200 = 1.01*kb
+ a2 = ksat200/ksat0 
+ ab2 = kb/ksat0
+ zs = -2.0/log((a2-ab2)/(1-ab2))
+ if (zs < 0.001)zs = 0.001
+ if (zs > 100.0)zs = 100.0
+ if (isnan(zs))zs = 2.0
+
+end subroutine calculate_soil_e_depth_ksat
+
 ! ============================================================================
 subroutine soil_data_init_0d_predefined(soil,tile_parameters,itile)
   type(soil_tile_type), intent(inout) :: soil
@@ -1106,12 +1130,19 @@ subroutine soil_data_init_0d_predefined(soil,tile_parameters,itile)
   soil%pars%hillslope_zeta_bar = tile_parameters%gw_hillslope_zeta_bar(itile)
   soil%pars%hillslope_relief  = tile_parameters%gw_hillslope_relief(itile)&
                                 *tile_parameters%gw_scale_relief(itile)
-  soil%pars%soil_e_depth      = tile_parameters%gw_soil_e_depth(itile)&
-                                *tile_parameters%gw_scale_soil_depth(itile)
+  !soil%pars%soil_e_depth      = tile_parameters%gw_soil_e_depth(itile)&
+  !                              *tile_parameters%gw_scale_soil_depth(itile)
+  soil%pars%depth_to_bedrock  = tile_parameters%depth_to_bedrock(itile)
   !soil%pars%hillslope_a       = tile_parameters%gw_hillslope_a(itile)
   !soil%pars%hillslope_n       = tile_parameters%gw_hillslope_n(itile)
   soil%pars%k_sat_gw          = tile_parameters%gw_perm(itile)&
                                 *tile_parameters%gw_scale_perm(itile)*9.8e9  !m^2 to kg/(m2 s)
+  !Convert horizontal k_sat_gw to vertical k_sat_gw (anisotropy ratio)
+  soil%pars%k_sat_gw          = soil%pars%k_sat_gw/anisotropy_ratio
+  !Calculate soil_e_depth
+  call calculate_soil_e_depth_ksat(soil%pars%soil_e_depth,soil%pars%k_sat_gw,&
+       tile_parameters%ksat200cm(itile),tile_parameters%ksat0cm(itile))
+  if (override_soil_e_depth)soil%pars%soil_e_depth = soil_e_depth
   soil%pars%iwtd              = tile_parameters%iwtd(itile)
   soil%pars%storage_index     = 1
   soil%alpha                  = 1.0
@@ -1171,13 +1202,15 @@ subroutine soil_data_init_0d_predefined(soil,tile_parameters,itile)
   soil%geothermal_heat_flux = geothermal_heat_flux_constant
 
   ! Init hlsp variables to initval to flag use before appropriate initialization
-  soil%pars%microtopo = tile_parameters%microtopo(itile)
+  soil%pars%microtopo = 0.1!tile_parameters%microtopo(itile)
   soil%pars%tile_hlsp_length = tile_parameters%tile_hlsp_length(itile)
   soil%pars%tile_hlsp_slope = tile_parameters%tile_hlsp_slope(itile)
   soil%pars%tile_hlsp_elev = tile_parameters%tile_hlsp_elev(itile)
   soil%pars%tile_hlsp_hpos = tile_parameters%tile_hlsp_hpos(itile)
   soil%pars%tile_hlsp_width = tile_parameters%tile_hlsp_width(itile)
   soil%pars%tile_hlsp_frac = tile_parameters%tile_hlsp_frac(itile)
+  soil%pars%hand_ecdf = tile_parameters%hand_ecdf(itile,:)
+  soil%pars%hand_bedges = tile_parameters%hand_bedges(itile,:)
 
   !Print out the parameter values 
   if (is_watch_point()) then
@@ -2055,6 +2088,15 @@ subroutine soil_data_hydraulics_alt3 (soil, vlc, vsc, &
     if (use_fluid_ice) Xl_eff = Xl + Xs
     Ksat = soil%pars%k_sat_ref    * soil%alpha(l)**2
     Psat = soil%pars%psi_sat_ref  / soil%alpha(l)
+    !If below depth to bedrock then effectively kill off Ksat
+    if (use_depth_to_bedrock)then
+     if (zhalf(l+1) .gt. soil%pars%depth_to_bedrock)then
+      Ksat = 10.0**-10.0
+      Psat = -1500.0
+      !Ksat = soil%pars%k_sat_ref*10**-10
+      !Psat = soil%pars%psi_sat_ref/10**-5
+     endif
+    endif
     if (Xs.gt.0.) Psat = Psat / 2.2
     Xsat = soil%pars%vwc_sat
     B    = soil%pars%chb

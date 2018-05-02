@@ -349,13 +349,13 @@ end subroutine
 
 subroutine retrieve_metadata(tile_parameters,cid)
 
-  type(tile_parameters_type),intent(inout) :: tile_parameters
+  type(tile_parameters_type),intent(inout),target :: tile_parameters
   integer(hid_t),intent(inout) :: cid
   type(metadata_predefined_type),pointer :: metadata
   integer(hid_t) :: dimid,grpid,dsid,varid
   integer :: ntile,nband,status,im
   integer(hsize_t) :: dims(1),maxdims(1)
-  allocate(tile_parameters%metadata)
+  !allocate(tile_parameters%metadata)
   metadata => tile_parameters%metadata
 
   !Retrieve the group id
@@ -399,13 +399,13 @@ end subroutine retrieve_metadata
 
 subroutine retrieve_glacier_parameters(tile_parameters,cid)
 
-  type(tile_parameters_type),intent(inout) :: tile_parameters
+  type(tile_parameters_type),intent(inout),target :: tile_parameters
   integer(hid_t),intent(inout) :: cid
   type(glacier_predefined_type),pointer :: glacier
   integer(hid_t) :: dimid,grpid,dsid,varid
   integer :: nglacier,nband,status
   integer(hsize_t) :: dims(2),maxdims(2)
-  allocate(tile_parameters%glacier)
+  !allocate(tile_parameters%glacier)
   glacier => tile_parameters%glacier
 
   !Retrieve the group id
@@ -449,13 +449,13 @@ end subroutine retrieve_glacier_parameters
 
 subroutine retrieve_lake_parameters(tile_parameters,cid)
 
-  type(tile_parameters_type),intent(inout) :: tile_parameters
+  type(tile_parameters_type),intent(inout),target :: tile_parameters
   integer(hid_t), intent(inout) :: cid
   type(lake_predefined_type),pointer :: lake
   integer(hid_t) :: dimid,grpid,dsid,varid
   integer :: nlake,nband,status
   integer(hsize_t) :: dims(2),maxdims(2)
-  allocate(tile_parameters%lake)
+  !allocate(tile_parameters%lake)
   lake => tile_parameters%lake
 
   !Retrieve the group id
@@ -509,13 +509,13 @@ end subroutine retrieve_lake_parameters
 
 subroutine retrieve_soil_parameters(tile_parameters,cid)
 
-  type(tile_parameters_type), intent(inout) :: tile_parameters
+  type(tile_parameters_type), intent(inout),target :: tile_parameters
   integer(hid_t), intent(inout) :: cid
   type(soil_predefined_type),pointer :: soil
   integer(hid_t) :: varid,grpid,dsid
   integer :: nsoil,nband,status
   integer(hsize_t) :: dims(2),maxdims(2)
-  allocate(tile_parameters%soil)
+  !allocate(tile_parameters%soil)
   soil => tile_parameters%soil
 
   !Retrieve the group id
@@ -585,11 +585,24 @@ subroutine retrieve_soil_parameters(tile_parameters,cid)
   call get_parameter_data(grpid,"bwood",nsoil,soil%bwood)
   call get_parameter_data(grpid,"br",nsoil,soil%br)
   call get_parameter_data(grpid,"wtd",nsoil,soil%iwtd)
+  call get_parameter_data(grpid,"soil_depth",nsoil,soil%soil_depth)
+  call get_parameter_data(grpid,"depth_to_bedrock",nsoil,soil%depth_to_bedrock)
+  call get_parameter_data(grpid,"hand_ecdf",nsoil,11,soil%hand_ecdf)
+  call get_parameter_data(grpid,"hand_bedges",nsoil,11,soil%hand_bedges)
+  call get_parameter_data(grpid,"ksat_0cm",nsoil,soil%ksat0cm)
+  call get_parameter_data(grpid,"ksat_200cm",nsoil,soil%ksat200cm)
 
   !Do some basic QC (should be done in the preprocessing...)
   where(isnan(soil%gw_soil_e_depth) .eq. .True.)soil%gw_soil_e_depth = 3.0
   !where(soil%gw_soil_e_depth .lt. 1.0)soil%gw_soil_e_depth = 1.0
   where(isnan(soil%gw_perm) .eq. .True.)soil%gw_perm = 2e-13 !HACK
+  where(isnan(soil%soil_depth) .eq. .True.)soil%soil_depth = 2.0
+  where(isnan(soil%depth_to_bedrock) .eq. .True.)soil%depth_to_bedrock = 10.0
+  soil%gw_soil_e_depth = soil%soil_depth !Remove dependence on input soil_e_depth
+  !Turn everything below DTB to hard rock...
+  !soil%gw_perm = 10**(-15.2)!1e-20
+  !Divide soil_e_depth by 3
+  !soil%gw_soil_e_depth = soil%gw_soil_e_depth/100.0
   where(soil%dat_k_sat_ref .gt. 0.035)soil%dat_k_sat_ref = 0.035 !HACK
   where(soil%dat_psi_sat_ref .gt. -0.01)soil%dat_psi_sat_ref = -0.01 !HACK
   where(soil%dat_chb .lt. 2.0)soil%dat_chb = 2.0 !HACK
@@ -607,6 +620,8 @@ subroutine retrieve_soil_parameters(tile_parameters,cid)
   where(soil%br .gt. 10**10)soil%br = 0.0
   where(soil%bsw .gt. 10**10)soil%bsw = 0.0
   where(soil%bwood .gt. 10**10)soil%bwood = 0.0
+  !microtopography
+  soil%microtopo = 9e9 !meter (dh/2) !0.5 ! meter
 
   !Close access to the group
   call h5gclose_f(grpid,status)
@@ -618,10 +633,12 @@ subroutine get_parameter_data_1d_integer(grpid,var,nx,tmp)
  integer(hid_t), intent(in) :: grpid
  character(len=*),intent(in) :: var
  integer,intent(in) :: nx
- integer,dimension(:),pointer :: tmp
+ !integer,dimension(:),pointer :: tmp
+ integer,dimension(:),allocatable :: tmp
  integer(hid_t) :: varid
  integer :: status
  integer(hsize_t) :: dims(1)
+ if (allocated(tmp))deallocate(tmp)
  allocate(tmp(nx))
 
  dims(1) = nx
@@ -636,10 +653,13 @@ subroutine get_parameter_data_1d_real(grpid,var,nx,tmp)
  integer(hid_t), intent(in) :: grpid
  character(len=*),intent(in) :: var
  integer,intent(in) :: nx
- real,dimension(:),pointer :: tmp
+ !real,dimension(:),pointer :: tmp
+ real,dimension(:),allocatable :: tmp
  integer(hid_t) :: varid
  integer :: status
  integer(hsize_t) :: dims(1)
+ !if (associated(tmp))deallocate(tmp)
+ if (allocated(tmp))deallocate(tmp)
  allocate(tmp(nx))
  
  dims(1) = nx
@@ -654,10 +674,11 @@ subroutine get_parameter_data_2d_integer(grpid,var,nx,ny,tmp)
  integer(hid_t), intent(in) :: grpid
  character(len=*),intent(in) :: var
  integer,intent(in) :: nx,ny
- integer,dimension(:,:), pointer :: tmp
+ integer,dimension(:,:), allocatable :: tmp
  integer(hid_t) :: varid
  integer :: status
  integer(hsize_t) :: dims(2)
+ if (allocated(tmp))deallocate(tmp)
  allocate(tmp(nx,ny))
 
  dims(1) = nx
@@ -673,10 +694,11 @@ subroutine get_parameter_data_2d_real(grpid,var,nx,ny,tmp)
  integer(hid_t),   intent(in) :: grpid
  character(len=*), intent(in) :: var
  integer,          intent(in) :: nx,ny
- real,dimension(:,:),pointer :: tmp
+ real,dimension(:,:),allocatable :: tmp
  integer(hid_t) :: varid
  integer :: itile,status
  integer(hsize_t) :: dims(2)
+ if (allocated(tmp))deallocate(tmp)
  allocate(tmp(nx,ny))
 
  dims(1) = nx

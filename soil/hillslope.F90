@@ -123,6 +123,10 @@ logical, protected, public :: limit_intertile_flow = .false. ! True ==> Limit ex
                        ! to improve numerical stability
 real, protected, public    :: flow_ratio_limit = 1.    ! max delta psi to length ratio allowed, if limit_intertile_flow
 logical, protected, public :: tiled_DOC_flux = .false. ! True ==> Calculate DOC fluxes for soil carbon model
+logical, protected, public :: sat_frac_from_hand = .false.
+logical, protected, public :: turn_gtos_off = .false.
+logical, protected, public :: sat_from_edecay = .true.
+real, protected, public :: sat_from_edecay_parameter = 0.1
 
 character(len=256)  :: hillslope_surfdata = 'INPUT/hillslope.nc'
 character(len=24)   :: hlsp_interpmethod = 'nearest'
@@ -135,7 +139,8 @@ namelist /hlsp_nml/ num_vertclusters, max_num_topo_hlsps, hillslope_horz_subdiv,
                     strm_depth_penetration, use_hlsp_aspect_in_gwflow, use_geohydrodata, &
                     diagnostics_by_cluster, init_wt_strmelev, dammed_strm_bc, &
                     simple_inundation, surf_flow_velocity, dl, equal_length_tiles, &
-                    limit_intertile_flow, flow_ratio_limit, exp_inundation, tiled_DOC_flux
+                    limit_intertile_flow, flow_ratio_limit, exp_inundation, tiled_DOC_flux, &
+                    sat_frac_from_hand, turn_gtos_off, sat_from_edecay,sat_from_edecay_parameter
 ! hardwired: fixed_num_vertclusters, hillslope_topo_subdiv, stiff_do_explicit
 !---- end of namelist --------------------------------------------------------
 

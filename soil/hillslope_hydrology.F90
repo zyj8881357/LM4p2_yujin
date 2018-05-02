@@ -16,7 +16,7 @@ use land_debug_mod, only : is_watch_point, set_current_point, get_current_point,
 use hillslope_mod, only : do_hillslope_model, strm_depth_penetration, use_hlsp_aspect_in_gwflow, &
                           use_geohydrodata, stiff_do_explicit, dammed_strm_bc, simple_inundation, &
                           surf_flow_velocity, limit_intertile_flow, flow_ratio_limit, exp_inundation, &
-                          tiled_DOC_flux
+                          tiled_DOC_flux,sat_frac_from_hand,turn_gtos_off,sat_from_edecay,sat_from_edecay_parameter
 use constants_mod, only : tfreeze, dens_h2o, epsln
       ! Use global tfreeze in energy flux calculations, not local freezing-point-depression temperature.
 use fms_mod, only: error_mesg, FATAL
@@ -89,7 +89,7 @@ end subroutine hlsp_hydro_lev_init
 ! ============================================================================
 subroutine hlsp_hydrology_2(soil, psi, vlc, vsc, div_it, hdiv_it, &
               sat_frac, inun_frac, storage_frac, zwt, surface_water, runoff_frac,&
-              div_gtos, hdiv_gtos)
+              div_gtos, hdiv_gtos, zwt2)
 
    type(soil_tile_type), intent(inout) :: soil ! soil tile pointer
    real, intent(in)    :: psi(num_l) ! soil moisture potential wrt local elevation [m]
@@ -99,6 +99,7 @@ subroutine hlsp_hydrology_2(soil, psi, vlc, vsc, div_it, hdiv_it, &
    real, intent(out)   :: inun_frac  ! diagnostic inundated area fraction [-]
    real, intent(inout) :: storage_frac ! diagnostic fraction of groundwater storage above stream elev [-]
    real, intent(in)    :: zwt ! depth to water table [m]; first saturated layer from top
+   real, intent(in)    :: zwt2 ! depth to water table [m]; first saturated (liquid+frozen) layer from top
    real, intent(out)   :: surface_water ! [m] surface water storage
    real, intent(out)   :: div_it(num_l) ! [mm/s] divergence of water due to inter-tile flow
                                         ! (incl. to stream)
@@ -108,8 +109,8 @@ subroutine hlsp_hydrology_2(soil, psi, vlc, vsc, div_it, hdiv_it, &
    real, intent(out)   :: runoff_frac ! [-] effective saturated fraction used for calculating surface runoff, used
                         ! when simple inundation scheme is applied
    real :: delta_time ! [s]
-   integer :: l
-
+   integer :: l,i
+   real :: nhand_bedges(11),y,y0,y1,x0,x1,hand_mean
 
    delta_time = time_type_to_real(lnd%dt_fast)
 
@@ -119,17 +120,66 @@ subroutine hlsp_hydrology_2(soil, psi, vlc, vsc, div_it, hdiv_it, &
    hdiv_it(1:num_l) = soil%div_hlsp_heat(1:num_l)
    div_gtos(1:num_l) = soil%gtos(1:num_l)
    hdiv_gtos(1:num_l) = soil%gtosh(1:num_l)
-
+!
    ! Diagnostics
    ! Trivial for now
    surface_water = max(0., (vlc(1) + vsc(1) - soil%pars%vwc_sat)*dz(1))
 
    ! Set saturated fraction
-   if (surface_water > 0.) then
-      sat_frac = 1.
-   else
-      sat_frac = 0.
-   end if
+   !if (surface_water > 0.) then
+   !   sat_frac = 1.
+   !else
+   !   sat_frac = 0.
+   !end if
+   if (vlc(1) + vsc(1) - soil%pars%vwc_sat .ge. 0.0)then
+    sat_frac = 1.0
+   else 
+    sat_frac = 0.0
+   endif
+   if (sat_from_edecay) then
+    sat_frac = exp(-zwt2/sat_from_edecay_parameter)!soil%pars%soil_e_depth)
+    !sat_frac = exp(-zwt/soil%pars%soil_e_depth)
+   endif
+
+   ! Get saturated fraction from hand data
+   if (sat_frac_from_hand) then
+    sat_frac = 0.0
+    ! Compute the percentage of saturation of tile from water table and distribution of hand
+    ! Subtract the mean from the edges
+    hand_mean = sum((soil%pars%hand_bedges(2:11)+soil%pars%hand_bedges(1:10))/2 &
+                      *(soil%pars%hand_ecdf(2:11)-(soil%pars%hand_ecdf(1:10))))
+    !nhand_bedges = soil%pars%tile_hlsp_elev*soil%pars%hand_bedges/hand_mean - soil%pars%tile_hlsp_elev
+    nhand_bedges = soil%pars%hand_bedges - soil%pars%tile_hlsp_elev
+    !nhand_bedges = soil%pars%hand_bedges - sum(soil%pars%hand_bedges)/size(soil%pars%hand_bedges)
+    if (zwt2 .gt. -nhand_bedges(1))then
+     sat_frac = 0.0
+    else if (zwt2 .lt. -nhand_bedges(11))then
+     sat_frac = 1.0
+    else
+     do i = 1,size(soil%pars%hand_bedges)-1
+      if ((zwt2 .lt. -nhand_bedges(i)) .and. (zwt2 .gt. -nhand_bedges(i+1)))then
+       y = zwt2
+       y0 = -nhand_bedges(i)
+       y1 = -nhand_bedges(i+1)
+       x0 = soil%pars%hand_ecdf(i)
+       x1 = soil%pars%hand_ecdf(i+1)
+       if (((y1-y0) .ne. 0.0) .and. ((x1 - x0) .ne. 0))then
+        sat_frac = (y - y0)/((y1 - y0)/(x1 - x0))
+       else
+        sat_frac = 0.0
+       endif
+       sat_frac = x0 + sat_frac
+       exit
+      endif
+     enddo
+    endif
+    if (sat_frac .gt. 1.0)sat_frac = 1.0
+    if (sat_frac .lt. 0.0)sat_frac = 0.0
+    if (isnan(sat_frac))sat_frac = 0.0
+    !sat_frac = 2.0*sat_frac
+    !sat_frac = sat_frac**sat_frac_exp !Parameter
+    !print*,sat_frac,zwt,zwt2,hand_mean,soil%pars%tile_hlsp_elev
+   endif
 
    ! Inundation and runoff_frac
    if (.not. simple_inundation .and. .not. exp_inundation) then
@@ -150,6 +200,8 @@ subroutine hlsp_hydrology_2(soil, psi, vlc, vsc, div_it, hdiv_it, &
       runoff_frac = 1. - exp(-runoff_frac) ! To smooth behavior approaching 1.
       ! ZMS Could set surface_water here to soil%pars%microtopo*inun_frac,
       ! the simple integral, unless the above diagnostic proves useful.
+      runoff_frac = runoff_frac + sat_frac
+      if (runoff_frac .gt. 1.0)runoff_frac = 1.0
    end if
 
    ! Storage above stream elevation
@@ -649,6 +701,7 @@ subroutine hlsp_hydrology_1(num_species)
                   wflux(l) = k_hat*ks * deltapsi/L_hat * dz(l)/L1
                                                                         ! ZMS double-check this
                   ! mm/s =  mm/s *   m     / m    *  m  /m
+                  if (turn_gtos_off)wflux(l) = 0.0
 
                   ! Energy flux
                   if (wflux(l) < 0.) then ! water flowing into tile: heat advected in
