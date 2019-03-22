@@ -2689,7 +2689,7 @@ subroutine vegn_burn_lm3(vegn,soil,tile_area_m2)
      killed_wood_C = fireMort_stem*(bc%bwood+bc%bsw)
      killed_wood_N = fireMort_stem*(bc%wood_N+bc%sapwood_N)
      killed_root_C = fireMort_root*bc%br
-     killed_root_N = fireMort_root*bc%wood_N
+     killed_root_N = fireMort_root*bc%root_N
 
      bc%bl    = (1-fireMort_leaf) * bc%bl    ; bc%leaf_N    = (1-fireMort_leaf) * bc%leaf_N
      bc%br    = (1-fireMort_root) * bc%br    ; bc%root_N    = (1-fireMort_root) * bc%root_N
