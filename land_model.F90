@@ -1161,6 +1161,9 @@ subroutine update_land_model_fast ( cplr2land, land2cplr )
   ! variables for total water storage diagnostics
   real :: twsr_sg(lnd%is:lnd%ie,lnd%js:lnd%je), tws(lnd%ls:lnd%le)
 
+  ! for diag messages
+  character(256) :: str
+
   ! start clocks
   call mpp_clock_begin(landClock)
   call mpp_clock_begin(landFastClock)
@@ -1192,11 +1195,19 @@ subroutine update_land_model_fast ( cplr2land, land2cplr )
 !$OMP parallel do default(none) shared(lnd,land_tile_map,cplr2land,land2cplr,phot_co2_overridden, &
 !$OMP                                  phot_co2_data,runoff,runoff_c,snc,id_area,id_z0m,id_z0s,       &
 !$OMP                                  id_Trad,id_Tca,id_qca,isphum,id_cd_m,id_cd_t,id_snc) &
-!$OMP                                  private(i,j,k,ce,tile,ISa_dn_dir,ISa_dn_dif,n_cohorts,snow_depth,snow_area)
+!$OMP                                  private(i,j,k,ce,tile,ISa_dn_dir,ISa_dn_dif,n_cohorts,snow_depth,snow_area,str)
   do l = lnd%ls, lnd%le
      i = lnd%i_index(l)
      j = lnd%j_index(l)
 !     __DEBUG4__(is,js,i-is+lnd%is,j-js+lnd%js)
+     if ((l<lbound(land_tile_map,1)).or.(l>ubound(land_tile_map,1))) then
+        write (str,'("l=",i4.4," is out of bounds:",4(x,a,"=",i4.4))') &
+           l, "lnd%ls",lnd%ls,"lnd%le",lnd%le,&
+           "lbound(land_tile_map)",lbound(land_tile_map),&
+           "ubound(land_tile_map)",ubound(land_tile_map)
+        call error_mesg('update_land_model_fast',trim(str),FATAL)
+     endif
+
      ce = first_elmt(land_tile_map(l))
      do while (loop_over_tiles(ce,tile,k=k))
         ! set this point coordinates as current for debug output
