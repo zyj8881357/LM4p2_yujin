@@ -17,7 +17,7 @@ use vegn_data_mod, only : &
      vegn_to_use,  input_cover_types, vegn_index_constant, &
      mcv_min, mcv_lai, &
      BSEED, C2N_SEED, LU_NTRL, LU_PSL, LU_PST, LU_SCND, LU_PAST, LU_RANGE, N_HARV_POOLS, &
-     LU_SEL_TAG, SP_SEL_TAG, NG_SEL_TAG, FORM_GRASS, &
+     LU_SEL_TAG, SP_SEL_TAG, NG_SEL_TAG, SCND_AGE_SEL_TAG, FORM_GRASS, &
      scnd_biomass_bins, do_ppa, N_limits_live_biomass, &
      do_bl_max_merge
 
@@ -888,6 +888,10 @@ function vegn_is_selected(vegn, sel)
              (spdata(sp)%lifeform==FORM_GRASS).and.&
              ((vegn%landuse==LU_NTRL).or.(vegn%landuse==LU_SCND))
      endif
+  case (SCND_AGE_SEL_TAG)
+     vegn_is_selected = (vegn%landuse == LU_SCND              &
+                   .and. vegn%age_since_landuse.ge.sel%rdata1 &
+                   .and. vegn%age_since_landuse.lt.sel%rdata2 )
   case default
      vegn_is_selected = .FALSE.
   end select
