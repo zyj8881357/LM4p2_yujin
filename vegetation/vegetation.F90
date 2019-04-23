@@ -494,7 +494,10 @@ subroutine vegn_init ( id_ug, id_band, id_cellarea )
 
      call get_int_tile_data(restart2,'landuse',vegn_landuse_ptr)
 
-     call get_tile_data(restart2,'age',vegn_age_ptr)
+     if (field_exists(restart2,'age_since_disturbance')) then
+        call get_tile_data(restart2,'age_since_disturbance',vegn_age_since_disturbance_ptr)
+        call get_tile_data(restart2,'age_since_landuse',vegn_age_since_landuse_ptr)
+     endif
 
      call get_tile_data(restart2,'fsc_pool_ag',vegn_fsc_pool_ag_ptr)
      call get_tile_data(restart2,'fsc_rate_ag',vegn_fsc_rate_ag_ptr)
@@ -1479,7 +1482,8 @@ subroutine save_vegn_restart(tile_dim_length,timestamp)
   enddo
 
   call add_int_tile_data(restart2,'landuse',vegn_landuse_ptr,'vegetation land use type')
-  call add_tile_data(restart2,'age',vegn_age_ptr,'vegetation age', 'yr')
+  call add_tile_data(restart2,'age_since_disturbance',vegn_age_since_disturbance_ptr,'time since last disturbance', 'yr')
+  call add_tile_data(restart2,'age_since_landuse',vegn_age_since_landuse_ptr,'time since last land use disturbance', 'yr')
 
   ! write carbon pools and rates
   call add_tile_data(restart2,'fsc_pool_ag',vegn_fsc_pool_ag_ptr,'intermediate pool for AG fast soil carbon input', 'kg C/m2')

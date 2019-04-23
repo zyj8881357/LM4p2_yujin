@@ -2511,6 +2511,9 @@ subroutine update_land_model_slow ( cplr2land, land2cplr )
   type(atmos_land_boundary_type), intent(inout) :: cplr2land
   type(land_data_type)          , intent(inout) :: land2cplr
 
+  ! ---- local constants
+  real, parameter :: MAX_TILE_AGE = 1.0e6 ! upper limit for the tile age, years
+
   ! ---- local vars
   integer :: l,k
   integer :: second, minute, hour, day0, day1, month0, month1, year0, year1
@@ -2553,6 +2556,17 @@ subroutine update_land_model_slow ( cplr2land, land2cplr )
      do while(loop_over_tiles(ce,tile))
          if (associated(tile%vegn)) &
             tile%vegn%tc_daily = tile%vegn%tc_daily/steps_per_day
+     enddo
+  endif
+
+  if (year0/=year1) then
+     ! advance age of tiles. Do this before other processes have a chance to reset the age
+     ce = first_elmt(land_tile_map)
+     do while(loop_over_tiles(ce,tile))
+        if (associated(tile%vegn)) then
+           tile%vegn%age_since_disturbance = min(tile%vegn%age_since_disturbance + 1.0, MAX_TILE_AGE)
+           tile%vegn%age_since_landuse     = min(tile%vegn%age_since_landuse     + 1.0, MAX_TILE_AGE)
+        endif
      enddo
   endif
 

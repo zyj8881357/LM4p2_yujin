@@ -3499,6 +3499,8 @@ subroutine fire_transitions_0D(tiles, land_area, l)
         ! reset fire values for the next period
         tile%vegn%burned_frac = 0.0 ; tile%vegn%fire_rad_power = 0.0
         temp%vegn%burned_frac = 0.0 ; temp%vegn%fire_rad_power = 0.0
+        ! reset time elapsed since last disturbance in the new tile; do not change age_since_landuse
+        temp%vegn%age_since_disturbance = 0.0
         ! add disturbed part to the output list
         call insert(temp, burned)
      else

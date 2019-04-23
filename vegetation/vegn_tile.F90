@@ -84,7 +84,11 @@ type :: vegn_tile_type
    real, allocatable :: drop_seed_C(:), drop_seed_N(:) ! by species, seeds dropped
                                 ! by dying plants, kgC/m2
 
-   real :: age=0.0 ! tile age
+   real :: age_since_disturbance = 0.0 ! tile age since last disturbance (either human or natural)
+   real :: age_since_landuse     = 0.0 ! tile age since last human disturbance
+   ! it may sound easier to store time of last disturbance and calculate age by subtraction
+   ! when necessary (since disturbance time would not require updating), but such approach
+   ! would cause problems if the model date is changed, or if model calendar is changed
 
    ! fields for smoothing out the contribution of the spike-type processes (e.g.
    ! harvesting) to the soil carbon pools over some period of time
@@ -324,7 +328,8 @@ subroutine merge_vegn_tiles(t1,w1,t2,w2,dheat)
   __MERGE__(drop_seed_C)
   __MERGE__(drop_seed_N)
 
-  __MERGE__(age);
+  __MERGE__(age_since_disturbance)
+  __MERGE__(age_since_landuse)
 
   __MERGE__(fsc_pool_ag); __MERGE__(fsc_rate_ag)
   __MERGE__(ssc_pool_ag); __MERGE__(ssc_rate_ag)
