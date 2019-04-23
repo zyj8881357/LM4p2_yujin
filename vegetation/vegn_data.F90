@@ -131,6 +131,8 @@ integer, public, parameter :: & ! NSC target calculation options
        ! out of canppy layer
   NSC_TARGET_FROM_BSW          = 3     ! form sapwood biomass
 
+real, public, parameter :: MAX_TILE_AGE = 1.0e5 ! upper limit for the tile ages, years
+
 ! ---- public data
 integer, public, protected :: nspecies ! total number of species
 public :: &
