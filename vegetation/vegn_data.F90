@@ -783,11 +783,11 @@ subroutine read_vegn_data_namelist()
   do i=1, size(scnd_age_bins)
      age1 = scnd_age_bins(i)
      if (age1<MAX_TILE_AGE) then
-        sname = 'scnd'//string(nint(age0))//'to'//string(nint(age1))
-        lname = 'secondary vegetation '//string(age0)//' to '//string(age1)//' years of age since last land use disturbance'
+        sname = 'scnd'//trim(string(nint(age0)))//'to'//trim(string(nint(age1)))
+        lname = 'secondary vegetation '//trim(string(age0))//' to '//trim(string(age1))//' years of age since last land use disturbance'
      else
-        sname = 'scnd'//string(age0)//'toInf'
-        lname = 'secondary vegetation older than '//string(age0)//' years since last land use disturbance'
+        sname = 'scnd'//trim(string(nint(age0)))//'toInf'
+        lname = 'secondary vegetation older than '//trim(string(age0))//' years since last land use disturbance'
         age1  = HUGE(age1)
      endif
      call register_tile_selector(trim(sname), long_name=trim(lname),&
