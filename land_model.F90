@@ -73,7 +73,7 @@ use vegn_tile_mod, only : vegn_cover_cold_start, &
                           vegn_tile_stock_pe, vegn_tile_heat, vegn_tile_carbon
 use lake_tile_mod, only : lake_cover_cold_start, lake_tile_stock_pe, &
                           lake_tile_heat, lake_roughness
-use glac_tile_mod, only : glac_pars_type, glac_cover_cold_start, &
+use glac_tile_mod, only : glac_cover_cold_start, &
                           glac_tile_stock_pe, glac_tile_heat, glac_roughness
 use snow_tile_mod, only : snow_tile_stock_pe, snow_tile_heat, snow_roughness, snow_radiation
 use land_numerics_mod, only : ludcmp, lubksb, lubksb_and_improve, nearest, &
