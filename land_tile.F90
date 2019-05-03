@@ -51,7 +51,6 @@ public :: max_n_tiles
 public :: new_land_tile, delete_land_tile
 public :: land_tiles_can_be_merged, merge_land_tiles, merge_land_tile_into_list
 
-public :: get_tile_tags ! returns the tags of the sub-model tiles
 public :: get_tile_water ! returns liquid and frozen water masses
 public :: land_tile_carbon ! returns total carbon in the tile
 public :: land_tile_nitrogen ! returns total nitrogen in the tile
@@ -381,40 +380,6 @@ subroutine delete_land_tile(tile)
   n_deleted_land_tiles = n_deleted_land_tiles + 1
 
 end subroutine delete_land_tile
-
-
-! ============================================================================
-! returns tags of the component model tiles
-subroutine get_tile_tags(tile,land,glac,lake,soil,snow,cana,vegn)
-   type(land_tile_type), intent(in)  :: tile
-   integer, optional,    intent(out) :: land,glac,lake,soil,snow,cana,vegn
-
-   if(present(land)) land=tile%tag
-   if(present(glac)) then
-      glac=-HUGE(glac)
-      if (associated(tile%glac)) glac=get_glac_tile_tag(tile%glac)
-   endif
-   if(present(lake)) then
-      lake=-HUGE(lake)
-      if (associated(tile%lake)) lake=get_lake_tile_tag(tile%lake)
-   endif
-   if(present(soil)) then
-      soil=-HUGE(soil)
-      if (associated(tile%soil)) soil=get_soil_tile_tag(tile%soil)
-   endif
-   if(present(snow)) then
-      snow=-HUGE(snow)
-      if (associated(tile%snow)) snow=get_snow_tile_tag(tile%snow)
-   endif
-   if(present(cana)) then
-      cana=-HUGE(cana)
-      if (associated(tile%cana)) cana=get_cana_tile_tag(tile%cana)
-   endif
-   if(present(vegn)) then
-      vegn=-HUGE(vegn)
-      if (associated(tile%vegn)) vegn=vegn_tile_tag(tile%vegn)
-   endif
-end subroutine get_tile_tags
 
 
 ! ============================================================================

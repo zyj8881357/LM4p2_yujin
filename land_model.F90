@@ -83,7 +83,7 @@ use land_io_mod, only : read_land_io_namelist, input_buf_size, new_land_io
 use land_tile_mod, only : land_tile_map, land_tile_type, land_tile_list_type, &
      land_tile_enum_type, new_land_tile, insert, remove, empty, nitems, &
      first_elmt, tail_elmt, next_elmt, operator(==), current_tile, &
-     get_tile_tags, get_tile_water, land_tile_heat, land_tile_nitrogen, &
+     get_tile_water, land_tile_heat, land_tile_nitrogen, &
      land_tile_carbon, max_n_tiles, init_tile_map, free_tile_map, &
      loop_over_tiles, land_tile_list_init, land_tile_list_end, &
      merge_land_tile_into_list, tile_test_func
