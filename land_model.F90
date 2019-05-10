@@ -551,8 +551,8 @@ subroutine remove_non_primary()
   type(land_tile_type), pointer :: tile, tile_max
   real :: f_ntrl, f_soil, btot, btot_max
 
-  do l = lnd%ls, lnd%le
-     call set_current_point(l,1)
+  do l = lbound(land_tile_map,1),ubound(land_tile_map,1)
+     call set_current_point(l-lbound(land_tile_map,1)+lnd%ls,1)
      f_ntrl = 0.0; f_soil = 0.0; n_ntrl=0
      ce = first_elmt(land_tile_map(l))
      do while (loop_over_tiles(ce, tile, k=k))
@@ -678,7 +678,7 @@ subroutine land_model_restart(timestamp)
   ! [1] count all land tiles and determine the length of tile dimension
   ! sufficient for the current domain
   tile_dim_length = 0
-  do l = lnd%ls, lnd%le
+  do l = lbound(land_tile_map,1),ubound(land_tile_map,1)
      tile_dim_length = max(tile_dim_length,nitems(land_tile_map(l)))
   enddo
 
@@ -866,9 +866,9 @@ subroutine land_cover_cold_start()
      if(.not.land_mask(l)) cycle ! skip ocean points
      call set_current_point(lll,1)
      call land_cover_cold_start_0d &
-          (land_tile_map(lll),glac(l,:),lake(l,:),soil(l,:),soiltags(l,:),&
+          (land_tile_map(l),glac(l,:),lake(l,:),soil(l,:),soiltags(l,:),&
                hlsp_pos(l,:), hlsp_par(l,:), vegn(l,:))
-     if(nitems(land_tile_map(lll))==0) then
+     if(nitems(land_tile_map(l))==0) then
         call error_mesg('land_cover_cold_start',&
              'No tiles were created for a valid land point at i='&
              //trim(string(lnd%i_index(lll)))//' j='//trim(string(lnd%j_index(lll)))&
@@ -1041,10 +1041,10 @@ subroutine land_cover_warm_start_new (restart)
      if (k<0) cycle ! skip negative indices
      g = modulo(k,npts)+1
      if (g<lnd%gs.or.g>lnd%ge) cycle ! skip points outside of domain
-     l = lnd%l_index(g)
      ! the size of the tile set at the point (i,j) must be equal to k
      tile=>new_land_tile(frac=frac(it),&
               glac=glac(it),lake=lake(it),soil=soil(it),vegn=vegn(it))
+     l = lnd%l_index(g)-lnd%ls+lbound(land_tile_map,1) ! l_index starts at lnd%ls
      call insert(tile,land_tile_map(l))
   enddo
   deallocate(glac, lake, soil, vegn, frac)
@@ -1106,10 +1106,10 @@ subroutine land_cover_warm_start_orig (restart)
        if (k<0) cycle ! skip negative indices
        g = modulo(k,npts)+1
        if (g<lnd%gs.or.g>lnd%ge) cycle ! skip points outside of domain
-       l = lnd%l_index(g)
        ! the size of the tile set at the point (i,j) must be equal to k
        tile=>new_land_tile(frac=frac(it),&
                 glac=glac(it),lake=lake(it),soil=soil(it),vegn=vegn(it))
+       l = lnd%l_index(g)-lnd%ls+lbound(land_tile_map,1) ! l_index starts at lnd%ls
        call insert(tile,land_tile_map(l))
     enddo
   enddo
@@ -1161,9 +1161,6 @@ subroutine update_land_model_fast ( cplr2land, land2cplr )
   ! variables for total water storage diagnostics
   real :: twsr_sg(lnd%is:lnd%ie,lnd%js:lnd%je), tws(lnd%ls:lnd%le)
 
-  ! for diag messages
-  character(256) :: str
-
   ! start clocks
   call mpp_clock_begin(landClock)
   call mpp_clock_begin(landFastClock)
@@ -1195,20 +1192,12 @@ subroutine update_land_model_fast ( cplr2land, land2cplr )
 !$OMP parallel do default(none) shared(lnd,land_tile_map,cplr2land,land2cplr,phot_co2_overridden, &
 !$OMP                                  phot_co2_data,runoff,runoff_c,snc,id_area,id_z0m,id_z0s,       &
 !$OMP                                  id_Trad,id_Tca,id_qca,isphum,id_cd_m,id_cd_t,id_snc) &
-!$OMP                                  private(i,j,k,ce,tile,ISa_dn_dir,ISa_dn_dif,n_cohorts,snow_depth,snow_area,str)
+!$OMP                                  private(i,j,k,ce,tile,ISa_dn_dir,ISa_dn_dif,n_cohorts,snow_depth,snow_area)
   do l = lnd%ls, lnd%le
      i = lnd%i_index(l)
      j = lnd%j_index(l)
-!     __DEBUG4__(is,js,i-is+lnd%is,j-js+lnd%js)
-     if ((l<lbound(land_tile_map,1)).or.(l>ubound(land_tile_map,1))) then
-        write (str,'("l=",i4.4," is out of bounds:",4(x,a,"=",i4.4))') &
-           l, "lnd%ls",lnd%ls,"lnd%le",lnd%le,&
-           "lbound(land_tile_map)",lbound(land_tile_map),&
-           "ubound(land_tile_map)",ubound(land_tile_map)
-        call error_mesg('update_land_model_fast',trim(str),FATAL)
-     endif
 
-     ce = first_elmt(land_tile_map(l))
+     ce = first_elmt(land_tile_map(l-lnd%ls+lbound(land_tile_map,1)))
      do while (loop_over_tiles(ce,tile,k=k))
         ! set this point coordinates as current for debug output
         call set_current_point(i,j,k,l)
@@ -2575,7 +2564,7 @@ subroutine update_land_model_slow ( cplr2land, land2cplr )
   ! try to minimize the number of tiles by merging similar ones
   if (year0/=year1) then
      call land_tile_list_init(tmp)
-     do l = lnd%ls,lnd%le
+     do l = lbound(land_tile_map,1),ubound(land_tile_map,1)
         ! merge all tiles into temporary list
         do while (.not.empty(land_tile_map(l)))
            ce=first_elmt(land_tile_map(l))
