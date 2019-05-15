@@ -99,8 +99,8 @@ subroutine READ_REMAP_SUB(Field, fptr, map_i, map_j, cidx, compressed_data)
      if ((ii.le.0).or.(jj.le.0)) cycle ! skip un-mapped points
      if (.not.any(mask(ii,jj,:,:))) cycle ! skip points where there is no data
 
-     ce = first_elmt (land_tile_map(l))
-     te = tail_elmt  (land_tile_map(l))
+     ce = first_elmt (land_tile_map(l-lnd%ls+lbound(land_tile_map,1)))
+     te = tail_elmt  (land_tile_map(l-lnd%ls+lbound(land_tile_map,1)))
      k = 1
 tile_loop:  do while(ce/=te.and.k<=dimlens(2))
         tile=>current_tile(ce); ce=next_elmt(ce);
