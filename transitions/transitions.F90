@@ -1056,6 +1056,10 @@ subroutine split_changing_tile_parts_by_priority(d_list,d_kind,a_kind,dfrac,a_li
                 call vegn_cut_forest(temp, a_kind)
         ! change landuse type of the tile
         temp%vegn%landuse = a_kind
+        ! reset time elapsed since last disturbance and time elapsed since last land use
+        ! event in the new tile
+        temp%vegn%age_since_disturbance = 0.0
+        temp%vegn%age_since_landuse     = 0.0
         ! add the new tile to the resulting list
         call insert(temp, a_list) ! insert tile into output list
         ! calculate remaining area of transition
@@ -1183,6 +1187,10 @@ subroutine split_changing_tile_parts(d_list,d_kind,a_kind,dfrac,a_list)
              call vegn_cut_forest(temp, a_kind)
         ! change landuse type of the tile
         temp%vegn%landuse = a_kind
+        ! reset time elapsed since last disturbance and time elapsed since last land use
+        ! event in the new tile
+        temp%vegn%age_since_disturbance = 0.0
+        temp%vegn%age_since_landuse     = 0.0
         ! add the new tile to the resulting list
         call insert(temp, a_list) ! insert tile into output list
      endif
