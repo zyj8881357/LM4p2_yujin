@@ -3553,7 +3553,7 @@ endif
 select case(index)
 case(ISTOCK_WATER)
   do l = lnd%ls, lnd%le
-    ce = first_elmt(land_tile_map(l))
+    ce = first_elmt(land_tile_map(l-lnd%ls+lbound(land_tile_map,1)))
     gcwd_cana = 0.0; gcwd_glac = 0.0; gcwd_lake = 0.0
     gcwd_soil = 0.0; gcwd_snow = 0.0; gcwd_vegn = 0.0
     do while(loop_over_tiles(ce,tile))
