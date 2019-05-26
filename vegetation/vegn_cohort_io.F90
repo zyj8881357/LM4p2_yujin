@@ -156,7 +156,7 @@ subroutine read_create_cohorts_orig(ncid, filename)
         k = k/npts
         t = modulo(k,ntiles)+1 ; k = k/ntiles
         k = k+1
-        ce = first_elmt(land_tile_map(l-lnd%ls+lbound(land_tile_map,1)))
+        ce = first_elmt(land_tile_map(l))
         do m = 1,t-1
            ce=next_elmt(ce)
         enddo
@@ -216,7 +216,7 @@ subroutine read_create_cohorts_new(idx,ntiles)
      t = modulo(k,ntiles)+1 ; k = k/ntiles
      k = k+1
 
-     ce = first_elmt(land_tile_map(l-lnd%ls+lbound(land_tile_map,1)))
+     ce = first_elmt(land_tile_map(l))
      do m = 1,t-1
         ce=next_elmt(ce)
      enddo

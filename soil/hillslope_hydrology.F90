@@ -294,7 +294,7 @@ subroutine hlsp_hydrology_1(num_species)
          ! Initial loop over tile list
          ! ZMS for now this is an extra loop to calculate soil hydraulic props.
          ! This will need to be consolidated later.
-         ce = first_elmt(land_tile_map(ll-lnd%ls+lbound(land_tile_map,1)))
+         ce = first_elmt(land_tile_map(ll))
          do while(loop_over_tiles(ce,tile,k=k))
             if (.not.associated(tile%soil)) cycle
             soil => tile%soil
@@ -338,7 +338,7 @@ subroutine hlsp_hydrology_1(num_species)
 !         area_stream = 0.
 
          ! Allocate and initialize gtos_bytile
-         numtiles = nitems(land_tile_map(ll-lnd%ls+lbound(land_tile_map,1)))
+         numtiles = nitems(land_tile_map(ll))
          allocate(gtos_bytile(numtiles, num_l), gtosh_bytile(numtiles, num_l), &
              gtosDOC_bytile(numtiles, num_l, num_species),gtosDON_bytile(numtiles, num_l, num_species), &
              gtosNO3_bytile(numtiles,num_l), gtosNH4_bytile(numtiles,num_l) )
@@ -349,7 +349,7 @@ subroutine hlsp_hydrology_1(num_species)
          gtosNO3_bytile(:,:) = 0.
          gtosNH4_bytile(:,:) = 0.
 
-         ce = first_elmt(land_tile_map(ll-lnd%ls+lbound(land_tile_map,1)))
+         ce = first_elmt(land_tile_map(ll))
          do while(loop_over_tiles(ce,tile,k=k))
             if (.not.associated(tile%soil)) cycle
 
@@ -390,7 +390,7 @@ subroutine hlsp_hydrology_1(num_species)
             NH4div_below(:)  = 0.
 
             ! Loop over second tile list, and calculate fluxes
-            ce2 = first_elmt(land_tile_map(ll-lnd%ls+lbound(land_tile_map,1)))
+            ce2 = first_elmt(land_tile_map(ll))
             do while (loop_over_tiles(ce2,tile2))
                if (.not.associated(tile2%soil)) cycle
 
@@ -809,7 +809,7 @@ subroutine hlsp_hydrology_1(num_species)
          ! Check conservation of water, energy, and tracers,
          ! and send tile diagnostics.
          ! Repeat single loop over tile list
-         ce = first_elmt(land_tile_map(ll-lnd%ls+lbound(land_tile_map,1)))
+         ce = first_elmt(land_tile_map(ll))
 
          wbal = 0.
          ebal = 0.

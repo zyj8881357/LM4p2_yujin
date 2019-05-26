@@ -1233,8 +1233,8 @@ subroutine get_tile_by_idx(idx,ptr)
    ! do nothing if the index is outside of our domain
    if (g<lnd%gs.or.g>lnd%ge) return ! skip points outside of domain
    ! loop through the list of tiles at the given point to find k+1st tile
-   l = lnd%l_index(g)-lnd%ls+lbound(land_tile_map,1)
-   if ((l<lbound(land_tile_map,1)).or.(l>ubound(land_tile_map,1))) then
+   l = lnd%l_index(g)
+   if (l<lnd%ls .or. l>lnd%le) then
       write (str,'("l=",i4.4," is out of bounds:",4(x,a,"=",i4.4))') &
          "l_index",lnd%l_index(g), "lnd%ls",lnd%ls,"lnd%le",lnd%le,&
          "l",l,&

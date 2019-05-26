@@ -752,7 +752,7 @@ subroutine land_transitions (time)
      ! set current point for debugging
      call set_current_point(l,1)
      ! transition land area between different tile types
-     call land_transitions_0d(land_tile_map(l-lnd%ls+lbound(land_tile_map,1)), &
+     call land_transitions_0d(land_tile_map(l), &
           transitions(l,:)%donor, &
           transitions(l,:)%acceptor,&
           transitions(l,:)%frac )

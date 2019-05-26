@@ -600,10 +600,10 @@ subroutine vegn_fire_init(id_ug, id_cellarea, dt_fast_in, time)
   !!! dsward_kop begin
   if (file_exist('INPUT/Koppen_zones_2deg_1950-2000.nc'))then
      call error_mesg('vegn_fire_init','Reading Koppen zones.',NOTE)
-     allocate(koppen_zone_2000(lnd%le-lnd%ls+1))
+     allocate(koppen_zone_2000(lnd%ls:lnd%le) )
      call read_field('INPUT/Koppen_zones_2deg_1950-2000.nc','Koppen', koppen_zone_2000, &
                       interp='nearest')
-     do l = lbound(land_tile_map,1),ubound(land_tile_map,1)
+     do l = lnd%ls, lnd%le
         ce = first_elmt(land_tile_map(l))
         do while (loop_over_tiles(ce,tile))
           if (associated(tile%vegn)) tile%vegn%koppen_zone = koppen_zone_2000(l)
@@ -1022,7 +1022,7 @@ subroutine update_fire_data(time)
   ! recalculate burnable (as natural) and fragmenting fractions
   fragmenting_frac(:) = 0.0; burnable_frac(:) = 0.0
   do l = lnd%ls, lnd%le
-     ce = first_elmt(land_tile_map(l-lnd%ls+lbound(land_tile_map,1)))
+     ce = first_elmt(land_tile_map(l))
      do while (loop_over_tiles(ce,tile,k=k))
         ! set this point coordinates as current for debug output
         call set_current_point(l,k)
@@ -3445,7 +3445,7 @@ subroutine fire_transitions(time)
   ! perform the transitions
   do l = lnd%ls,lnd%le
      ! transition land area between different tile types
-     call fire_transitions_0D(land_tile_map(l-lnd%ls+lbound(land_tile_map,1)), lnd%ug_area(l), l)
+     call fire_transitions_0D(land_tile_map(l), lnd%ug_area(l), l)
   enddo
 end subroutine fire_transitions
 
