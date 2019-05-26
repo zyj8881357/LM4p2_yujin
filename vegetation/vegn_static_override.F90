@@ -464,7 +464,7 @@ subroutine init_writing_static_veg()
   ! sufficient for the current domain
   tile_dim_length = 0
   do l = lnd%ls, lnd%le
-     k = nitems(land_tile_map(l-lnd%ls+lbound(land_tile_map,1)))
+     k = nitems(land_tile_map(l))
      tile_dim_length = max(tile_dim_length,k)
   enddo
 

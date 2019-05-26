@@ -551,8 +551,8 @@ subroutine remove_non_primary()
   type(land_tile_type), pointer :: tile, tile_max
   real :: f_ntrl, f_soil, btot, btot_max
 
-  do l = lbound(land_tile_map,1),ubound(land_tile_map,1)
-     call set_current_point(l-lbound(land_tile_map,1)+lnd%ls,1)
+  do l = lnd%ls, lnd%le
+     call set_current_point(l,1)
      f_ntrl = 0.0; f_soil = 0.0; n_ntrl=0
      ce = first_elmt(land_tile_map(l))
      do while (loop_over_tiles(ce, tile, k=k))
@@ -678,7 +678,7 @@ subroutine land_model_restart(timestamp)
   ! [1] count all land tiles and determine the length of tile dimension
   ! sufficient for the current domain
   tile_dim_length = 0
-  do l = lbound(land_tile_map,1),ubound(land_tile_map,1)
+  do l = lnd%ls, lnd%le
      tile_dim_length = max(tile_dim_length,nitems(land_tile_map(l)))
   enddo
 
@@ -866,9 +866,9 @@ subroutine land_cover_cold_start()
      if(.not.land_mask(l)) cycle ! skip ocean points
      call set_current_point(lll,1)
      call land_cover_cold_start_0d &
-          (land_tile_map(l),glac(l,:),lake(l,:),soil(l,:),soiltags(l,:),&
+          (land_tile_map(lll),glac(l,:),lake(l,:),soil(l,:),soiltags(l,:),&
                hlsp_pos(l,:), hlsp_par(l,:), vegn(l,:))
-     if(nitems(land_tile_map(l))==0) then
+     if(nitems(land_tile_map(lll))==0) then
         call error_mesg('land_cover_cold_start',&
              'No tiles were created for a valid land point at i='&
              //trim(string(lnd%i_index(lll)))//' j='//trim(string(lnd%j_index(lll)))&
@@ -1044,7 +1044,7 @@ subroutine land_cover_warm_start_new (restart)
      ! the size of the tile set at the point (i,j) must be equal to k
      tile=>new_land_tile(frac=frac(it),&
               glac=glac(it),lake=lake(it),soil=soil(it),vegn=vegn(it))
-     l = lnd%l_index(g)-lnd%ls+lbound(land_tile_map,1) ! l_index starts at lnd%ls
+     l = lnd%l_index(g)
      call insert(tile,land_tile_map(l))
   enddo
   deallocate(glac, lake, soil, vegn, frac)
@@ -1109,7 +1109,7 @@ subroutine land_cover_warm_start_orig (restart)
        ! the size of the tile set at the point (i,j) must be equal to k
        tile=>new_land_tile(frac=frac(it),&
                 glac=glac(it),lake=lake(it),soil=soil(it),vegn=vegn(it))
-       l = lnd%l_index(g)-lnd%ls+lbound(land_tile_map,1) ! l_index starts at lnd%ls
+       l = lnd%l_index(g)
        call insert(tile,land_tile_map(l))
     enddo
   enddo
@@ -1196,8 +1196,7 @@ subroutine update_land_model_fast ( cplr2land, land2cplr )
   do l = lnd%ls, lnd%le
      i = lnd%i_index(l)
      j = lnd%j_index(l)
-
-     ce = first_elmt(land_tile_map(l-lnd%ls+lbound(land_tile_map,1)))
+     ce = first_elmt(land_tile_map(l))
      do while (loop_over_tiles(ce,tile,k=k))
         ! set this point coordinates as current for debug output
         call set_current_point(i,j,k,l)
@@ -2564,7 +2563,7 @@ subroutine update_land_model_slow ( cplr2land, land2cplr )
   ! try to minimize the number of tiles by merging similar ones
   if (year0/=year1) then
      call land_tile_list_init(tmp)
-     do l = lbound(land_tile_map,1),ubound(land_tile_map,1)
+     do l = lnd%ls,lnd%le
         ! merge all tiles into temporary list
         do while (.not.empty(land_tile_map(l)))
            ce=first_elmt(land_tile_map(l))

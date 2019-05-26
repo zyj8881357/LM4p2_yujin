@@ -264,17 +264,8 @@ contains
 subroutine init_tile_map()
   integer :: l
 
-! NOTE that land_tile_map is allocated as an array starting at index 1, instead of
-! more natural lnd%ls. This a work around (apparent) compiler issue, when with multiple
-! openmp threads *and* debug flags Intel compilers (15 and 16) report index errors, as if
-! global land_tile_map array started from 1 instead of lnd%ls, when it was allocated as
-! (lnd%ls:lnd%le).
-!
-! This problem does not occur with other compilation flags (e.g. prod, or prod,openmp are
-! both fine). Nevertheless, to address this issue we allocate land_tile_map starting from
-! index 1 and re-caluclate indices as necessary in the code.
-  allocate(land_tile_map(lnd%le-lnd%ls+1))
-  do l = lbound(land_tile_map,1),ubound(land_tile_map,1)
+  allocate(land_tile_map(lnd%ls:lnd%le))
+  do l = lnd%ls,lnd%le
      call land_tile_list_init(land_tile_map(l))
   enddo
 end subroutine init_tile_map
@@ -284,7 +275,7 @@ end subroutine init_tile_map
 subroutine free_tile_map()
   integer :: l
 
-  do l = lbound(land_tile_map,1),ubound(land_tile_map,1)
+  do l = lnd%ls,lnd%le
      call land_tile_list_end(land_tile_map(l))
   enddo
 end subroutine free_tile_map
@@ -296,7 +287,7 @@ function max_n_tiles() result(n)
   integer :: l
 
   n=1
-  do l = lbound(land_tile_map,1),ubound(land_tile_map,1)
+  do l=lnd%ls,lnd%le
      n=max(n, nitems(land_tile_map(l)))
   enddo
 end function max_n_tiles
