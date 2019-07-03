@@ -474,7 +474,7 @@ subroutine  update_mycorrhizae(cc, soilT, &
 
   N_fixation=N_fixation-cc%nfix_N*(1-et_myc/N_fixer_turnover_time*dt_fast_yr)
   cc%nfix_C = cc%nfix_C + Nfix_growth - cc%nfix_C/N_fixer_turnover_time*dt_fast_yr
-  cc%nfix_N = cc%nfix_N/c2n_N_fixer
+  cc%nfix_N = cc%nfix_C/c2n_N_fixer
   cc%nfix_C_reservoir = cc%nfix_C_reservoir - Nfix_growth/N_fixer_C_efficiency
   ! d_Nfix_N_reservoir = d_Nfix_N_reservoir - Nfix_growth/c2n_mycorrhizae
 
