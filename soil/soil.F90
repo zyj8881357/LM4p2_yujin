@@ -4804,9 +4804,9 @@ end subroutine init_soil_twc
 ! ============================================================================
 ! Calculate irrigation demand for each gridcell
 subroutine irrigation_deficit(tot_irr_flux, tot_irr_flux_start, irr_area)
-  real, dimension(:,:),   intent(in)  :: tot_irr_flux
-  real, dimension(:,:,:), intent(in)  :: tot_irr_flux_start             
-  real, dimension(:,:,:), intent(in)  :: irr_area                        
+  real, dimension(:),   intent(inout)  :: tot_irr_flux
+  real, dimension(:), intent(inout)  :: tot_irr_flux_start             
+  real, dimension(:), intent(inout)  :: irr_area                        
   ! ---- local vars ----------------------------------------------------------
   type(land_tile_enum_type)     :: te,ce  ! tail and current tile list elements
   type(land_tile_type), pointer :: tile   ! pointer to current tile
@@ -4832,7 +4832,7 @@ subroutine irrigation_deficit(tot_irr_flux, tot_irr_flux_start, irr_area)
   integer :: layer
   real :: percentile = 0.95  
   real :: thres = 0.03   
-  real :: wscale_thres = 0.99
+  real :: w_scale_thres = 0.99
 !----------------------------------------------------
 
  if (.not. use_irrigation_routine) return
@@ -4852,14 +4852,14 @@ subroutine irrigation_deficit(tot_irr_flux, tot_irr_flux_start, irr_area)
            irr_area_temp =tile%frac*lnd%ug_area(l)
            irr_flux = 0.
            do i = 1, vegn%n_cohorts
-             if(vegn%cohorts(i)%wscale < wscale_thres .and. vegn%cohorts(i)%lai > 0) then
-                irr_flux =  irr_flux + vegn%cohorts(i)%layerfrac * vegn%cohorts(i)%evap_demand*(1.-vegn%cohorts(i)%wscale) * vegn%cohorts(i)%nindivs  !kg/m2 s
+             if(vegn%cohorts(i)%w_scale < w_scale_thres .and. vegn%cohorts(i)%lai > 0) then
+                irr_flux =  irr_flux + vegn%cohorts(i)%layerfrac * vegn%cohorts(i)%evap_demand*(1.-vegn%cohorts(i)%w_scale) * vegn%cohorts(i)%nindivs  !kg/m2 s
              endif
            enddo
            if(irr_flux == 0.) irr_area_temp = 0.
          else       
            irr_flux=0.
-           irr_area_temp = 0..                            
+           irr_area_temp = 0.                           
          endif
          tot_irr_flux(l)=tot_irr_flux(l) + irr_flux/DENS_H2O*irr_area_temp !m3/s
          !tile%irr_demand = irr_flux !kg/m2s

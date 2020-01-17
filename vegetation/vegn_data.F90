@@ -100,6 +100,7 @@ integer, public, parameter :: & ! land use types
  LU_SCND    = 4, & ! secondary vegetation
  LU_URBN    = 5, & ! urban
  LU_RANGE   = 6, & ! rangeland
+ LU_IRRIG   = 7, & ! irrigated cropland
  LU_PSL     = 1001, & ! primary and secondary land, for LUMIP
  LU_PST     = 1002    ! pasture and rangeland, for LUMIP
 
