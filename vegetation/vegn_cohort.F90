@@ -210,6 +210,9 @@ type :: vegn_cohort_type
   real :: max_mine_alloc = 0.0
   real :: max_Nfix_alloc = 0.0
   real :: nitrogen_stress_smoothed = 1.0
+
+! ---- irrigation-related variables
+  real :: evap_demand = 0.0 !transpiration water demand, kg/(indiv s)
 end type vegn_cohort_type
 
 contains ! -=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-

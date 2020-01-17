@@ -62,7 +62,7 @@ use land_tile_io_mod, only: land_restart_type, &
      init_land_restart, open_land_restart, save_land_restart, free_land_restart, &
      add_tile_data, add_int_tile_data, get_tile_data, get_int_tile_data, &
      add_restart_axis, field_exists
-use vegn_data_mod, only: K1, K2, spdata
+use vegn_data_mod, only: K1, K2, spdata, LU_IRRIG
 use vegn_cohort_mod, only : vegn_cohort_type, &
      cohort_uptake_profile, cohort_root_litter_profile
 
@@ -110,6 +110,8 @@ public :: active_root_N_uptake
 public :: myc_scavenger_N_uptake
 public :: myc_miner_N_uptake
 public :: redistribute_peat_carbon
+
+public :: irrigation_deficit
 
 ! helper functions that may be better moved elsewhere:
 public :: register_litter_soilc_diag_fields
@@ -174,6 +176,8 @@ real :: max_litter_thickness = 0.05 ! m of litter layer thickness before it gets
 real :: r_rhiz = 0.001              ! Radius of rhizosphere around root (m)
 real :: tau_smooth_frozen_freq  = 2.0 ! time scale for frozen soil frequency calculations, yrs
 
+logical :: use_irrigation_routine = .true.
+
 namelist /soil_nml/ lm2, use_E_min, use_E_max,           &
                     init_temp,      &
                     init_w,   init_wtdep,    &
@@ -199,7 +203,8 @@ namelist /soil_nml/ lm2, use_E_min, use_E_max,           &
                     supercooled_rnu, wet_depth, thetathresh, negrnuthresh, &
                     write_soil_carbon_restart, &
                     max_soil_C_density, max_litter_thickness, r_rhiz, &
-                    tau_smooth_frozen_freq
+                    tau_smooth_frozen_freq, &
+                    use_irrigation_routine
 !---- end of namelist --------------------------------------------------------
 
 logical         :: module_is_initialized =.FALSE.
@@ -4789,5 +4794,76 @@ subroutine init_soil_twc(soil, ref_soil_t, mwc)
       end do
    end if
 end subroutine init_soil_twc
+
+! ============================================================================
+! Calculate irrigation demand for each gridcell
+subroutine irrigation_deficit(tot_irr_flux, tot_irr_flux_start, irr_area)
+  real, dimension(:,:),   intent(in)  :: tot_irr_flux
+  real, dimension(:,:,:), intent(in)  :: tot_irr_flux_start             
+  real, dimension(:,:,:), intent(in)  :: irr_area                        
+  ! ---- local vars ----------------------------------------------------------
+  type(land_tile_enum_type)     :: te,ce  ! tail and current tile list elements
+  type(land_tile_type), pointer :: tile   ! pointer to current tile
+  type(soil_tile_type), pointer :: soil
+  type(vegn_tile_type), pointer :: vegn 
+  type(diag_buff_type), pointer :: diag  
+  real  :: &
+       irr_tot, & ! irrigation deficit 
+       irr_flux, & !kg/m2 s
+       irr_area_temp, &
+       soil_water_supply_irronly, ground_evap_irronly, evap_demand_irronly, vegn_uptk_irronly, &
+       prec_irronly
+  real  :: spr_flux, flood_flux     
+  real, dimension(1:num_l) :: lwc_irronly, swc_irronly, temp_irronly
+  integer :: l, j, i, k, s
+  character(len=256)  :: irr_fac_file = 'INPUT/irr_fac.nc'   
+  character(len=256)  :: floodirr_ind_file = 'INPUT/floodirr_ind.nc'
+  real, dimension(lnd%ls:lnd%le) :: irr_fac, flood_ind   
+  integer :: second, minute, hour, day0, month0, year0
+  integer :: loch
+  integer :: flood_time
+  real :: depth_ave, theta_test
+  integer :: layer
+  real :: percentile = 0.95  
+  real :: thres = 0.03   
+  real :: wscale_thres = 0.99
+!----------------------------------------------------
+
+ if (.not. use_irrigation_routine) return
+
+ irr_fac = 1.
+ !call read_field(irr_fac_file, 'irr_fac', irr_fac)
+
+ do l=lnd%ls, lnd%le  
+     tot_irr_flux(l)=0.
+     irr_area(l) = 0.    
+     ce = first_elmt(land_tile_map(l))
+     do while(loop_over_tiles(ce,tile,k=k))
+       if (.not.associated(tile%soil)) cycle
+       soil => tile%soil
+       vegn => tile%vegn
+         if(vegn%landuse == LU_IRRIG) then
+           irr_area_temp =tile%frac*lnd%ug_area(l)
+           irr_flux = 0.
+           do i = 1, vegn%n_cohorts
+             if(vegn%cohorts(i)%wscale < wscale_thres .and. vegn%cohorts(i)%lai > 0) then
+                irr_flux =  irr_flux + vegn%cohorts(i)%layerfrac * vegn%cohorts(i)%evap_demand*(1.-vegn%cohorts(i)%wscale) * vegn%cohorts(i)%nindivs  !kg/m2 s
+             endif
+           enddo
+           if(irr_flux == 0.) irr_area_temp = 0.
+         else       
+           irr_flux=0.
+           irr_area_temp = 0..                            
+         endif
+         tot_irr_flux(l)=tot_irr_flux(l) + irr_flux/DENS_H2O*irr_area_temp !m3/s
+         !tile%irr_demand = irr_flux !kg/m2s
+         irr_area(l) = irr_area(l) + irr_area_temp 
+       !call send_tile_data(id_irr_dem, tile%irr_demand, tile%diag)
+       !call send_tile_data(id_irr_flux, irr_flux, tile%diag)
+     enddo
+     tot_irr_flux_start(l) = tot_irr_flux(l) !m3/s
+  enddo
+
+ end subroutine 
 
 end module soil_mod
