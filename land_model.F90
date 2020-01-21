@@ -108,7 +108,8 @@ use land_debug_mod, only : land_debug_init, land_debug_end, set_current_point, &
 use static_vegn_mod, only : write_static_vegn
 use land_transitions_mod, only : &
      land_transitions_init, land_transitions_end, land_transitions, &
-     save_land_transitions_restart
+     save_land_transitions_restart, &
+     land_irrigatedareas_init
 use stock_constants_mod, only: ISTOCK_WATER, ISTOCK_HEAT, ISTOCK_SALT
 use nitrogen_sources_mod, only : nitrogen_sources_init, nitrogen_sources_end, &
      update_nitrogen_sources, nitrogen_sources
@@ -491,6 +492,7 @@ subroutine land_model_init &
   if (i_river_heat == NO_TRACER) call error_mesg ('land_model_init','required river tracer for heat not found', FATAL)
 
   call land_transitions_init (id_ug, id_cellarea)
+  call land_irrigatedareas_init (id_ug) 
   ! [8] initialize boundary data
   ! [8.1] allocate storage for the boundary data
   call hlsp_config_check () ! Needs to be done after land_transitions_init and vegn_init
