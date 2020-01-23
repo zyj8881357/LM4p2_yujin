@@ -169,6 +169,13 @@ type(horiz_interp_type), save :: interp_manag ! interpolator for the input data
 type(time_type) :: time0_manag ! time of previous transition calculations
 character(len=5), public, parameter  :: &
      crop_name (1) = (/'c3ann'/) !,'c4per', 'c3nfx' /)
+real :: cost(M_LU_TYPES, M_LU_TYPES)=reshape((/0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 2.0, &
+                                               0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 2.0, &
+                                               0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 2.0, &
+                                               0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 2.0, &
+                                               0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 2.0, &
+                                               0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 2.0, &
+                                               2.0, 2.0, 2.0, 2.0, 2.0, 2.0, 0.0 /), (/M_LU_TYPES,M_LU_TYPES/), order =(/ 2, 1 /))      
 
 ! ---- namelist variables ---------------------------------------------------
 logical, protected, public :: do_landuse_change = .FALSE. ! if true, then the landuse changes with time
@@ -193,13 +200,7 @@ character(len=16) :: conservation_handling = 'stop' ! or 'report', or 'ignore'
 
 ! for irrigation
 character(len=1024) :: manag_file = '' ! management data file, for input land fraction irrigated area
-real :: cost(M_LU_TYPES, M_LU_TYPES)=reshape((/0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 2.0, &
-                                               0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 2.0, &
-                                               0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 2.0, &
-                                               0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 2.0, &
-                                               0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 2.0, &
-                                               0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 2.0, &
-                                               2.0, 2.0, 2.0, 2.0, 2.0, 2.0, 0.0 /), (/M_LU_TYPES,M_LU_TYPES/), order =(/ 2, 1 /)) 
+
 logical :: irrigation_on = .TRUE.
 
 namelist/landuse_nml/do_landuse_change, input_file, state_file, static_file, data_type, &

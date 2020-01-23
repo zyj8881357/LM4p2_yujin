@@ -293,7 +293,7 @@ integer :: id_mrlsl, id_mrsfl, id_mrsll, id_mrsol, id_mrso, id_mrsos, id_mrlso, 
     id_nSoil, id_nLitter, id_nLitterCwd, id_nMineral, id_nMineralNH4, id_nMineralNO3
 
 ! diag of irrigation-ralted variables
-integer :: id_irr_flux    
+integer :: id_irr_demand    
 
 ! variables for CMOR/CMIP diagnostic calculations
 real, allocatable :: mrsos_weight(:) ! weights for mrsos averaging
@@ -1462,8 +1462,9 @@ subroutine soil_diag_init(id_ug,id_band,id_zfull)
        missing_value=-100.0, standard_name='wood_debris_mass_content_of_nitrogen', &
        fill_missing=.TRUE.)
 
-  id_irr_flux = register_tiled_diag_field ( module_name, 'irr_flux', axes(1:1), &
-       lnd%time, 'irrigation flux on soil area', 'kg/(m2 s)',  missing_value=-100.0 )  
+  id_irr_demand = register_tiled_diag_field ( module_name, 'irr_demand', axes(1:1), &
+       lnd%time, 'irrigation demand on soil area, only meaningful when the transpiration has been maximized', &
+       'kg/(m2 s)',  missing_value=-100.0 )  
 
 end subroutine soil_diag_init
 
@@ -4815,7 +4816,7 @@ subroutine irrigation_deficit(tot_irr_flux, tot_irr_flux_start, irr_area)
   type(diag_buff_type), pointer :: diag  
   real  :: &
        irr_tot, & ! irrigation deficit 
-       irr_flux, & !kg/m2 s
+       irr_demand, & !kg/m2 s
        irr_area_temp, &
        soil_water_supply_irronly, ground_evap_irronly, evap_demand_irronly, vegn_uptk_irronly, &
        prec_irronly
@@ -4850,22 +4851,22 @@ subroutine irrigation_deficit(tot_irr_flux, tot_irr_flux_start, irr_area)
        vegn => tile%vegn
          if(vegn%landuse == LU_IRRIG) then
            irr_area_temp =tile%frac*lnd%ug_area(l)
-           irr_flux = 0.
+           irr_demand = 0.
            do i = 1, vegn%n_cohorts
              if(vegn%cohorts(i)%w_scale < w_scale_thres .and. vegn%cohorts(i)%lai > 0) then
-                irr_flux =  irr_flux + vegn%cohorts(i)%layerfrac * vegn%cohorts(i)%evap_demand*(1.-vegn%cohorts(i)%w_scale) * vegn%cohorts(i)%nindivs  !kg/m2 s
+                irr_demand =  irr_demand + vegn%cohorts(i)%layerfrac * vegn%cohorts(i)%evap_demand*(1.-vegn%cohorts(i)%w_scale) * vegn%cohorts(i)%nindivs  !kg/m2 s
              endif
            enddo
-           if(irr_flux == 0.) irr_area_temp = 0.
+           if(irr_demand == 0.) irr_area_temp = 0.
          else       
-           irr_flux=0.
+           irr_demand=0.
            irr_area_temp = 0.                           
          endif
-         tot_irr_flux(l)=tot_irr_flux(l) + irr_flux/DENS_H2O*irr_area_temp !m3/s
+         tot_irr_flux(l)=tot_irr_flux(l) + irr_demand/DENS_H2O*irr_area_temp !m3/s
          !tile%irr_demand = irr_flux !kg/m2s
          irr_area(l) = irr_area(l) + irr_area_temp 
-       !call send_tile_data(id_irr_dem, tile%irr_demand, tile%diag)
-       call send_tile_data(id_irr_flux, irr_flux, tile%diag)
+         !call send_tile_data(id_irr_dem, tile%irr_demand, tile%diag)
+         call send_tile_data(id_irr_demand, irr_demand, tile%diag)
      enddo
      tot_irr_flux_start(l) = tot_irr_flux(l) !m3/s
   enddo
