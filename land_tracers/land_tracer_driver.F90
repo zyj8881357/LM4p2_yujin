@@ -9,7 +9,7 @@ use field_manager_mod , only : MODEL_ATMOS, MODEL_LAND, parse
 use tracer_manager_mod, only : NO_TRACER, get_tracer_index, get_tracer_names, query_method
 use table_printer_mod
 
-use land_constants_mod, only : d608, kBoltz
+use land_constants_mod, only : d608, kBoltz, diffusivity_h2o
 use land_debug_mod, only : is_watch_point
 use land_data_mod, only : lnd, log_version
 use land_tracers_mod, only : ntcana, isphum, ico2
@@ -38,10 +38,6 @@ public :: update_cana_tracers
 character(len=*), parameter :: module_name = 'land_tracer_driver_mod'
 #include "../shared/version_variable.inc"
 character(len=*), parameter :: diag_name   = 'land_tracers'
-
-real :: diffusivity_h2o = 0.282e-4 ! diffusivity of water vapor m2/s,
-    ! Cussler, E. L. (1997). Diffusion: Mass Transfer in Fluid Systems (2nd ed.).
-    ! New York: Cambridge University Press. ISBN 0-521-45078-0.
 
 ! ---- data types -----------------------------------------------------------
 type :: tracer_data_type
@@ -245,7 +241,7 @@ subroutine update_cana_tracers(tile, l, tr_flux, dfdtr, &
   real, intent(in) :: con_g ! aerodynamic conductance between canopy air and ground for tracers
   real, intent(in) :: con_v_v(:) ! aerodynamic conductance between canopy air and canopy
           ! for tracers, by cohort, per unit area occupied by cohort
-  real, intent(in) :: stomatal_cond(:) ! integral stomatal conductance of each cohort 
+  real, intent(in) :: stomatal_cond(:) ! integral stomatal conductance of each cohort
           ! canopy (that is, multiplied by LAI), for water vapor, m/s
 
   integer :: tr      ! tracer index

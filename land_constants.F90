@@ -27,4 +27,8 @@ real, public, parameter :: mol_h2o = 18.0e-3 ! molar mass of water, kg
 
 real, public, parameter :: MPa_per_m = dens_h2o*grav*1.0e-6 ! pressure of one meter of water, Mega Pascal
 
+real, public, parameter :: diffusivity_h2o = 0.282e-4 ! diffusivity of water vapor in air, m2/s,
+    ! Cussler, E. L. (1997). Diffusion: Mass Transfer in Fluid Systems (2nd ed.).
+    ! New York: Cambridge University Press. ISBN 0-521-45078-0.
+
 end module
