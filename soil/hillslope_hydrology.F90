@@ -307,6 +307,9 @@ subroutine hlsp_hydrology_1(num_species)
 
             call soil_data_hydraulic_properties ( soil, vlc, vsc, &
                  soil%psi, DThDP, K_x, K_z, DKDP, DPsi_min, DPsi_max)
+            soil%hyd_cond_horz(1:num_l) = K_x(1:num_l)
+            where (soil%ws > 0. .or. soil%wl <= 0.) soil%hyd_cond_horz = epsln
+            if (all(DThDP==0.)) soil%hyd_cond_horz(:) = epsln ! Will be "stiff"
 
             ! ZMS Find max hidx_k?
             if (is_watch_cell()) then

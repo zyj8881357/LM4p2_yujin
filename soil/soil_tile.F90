@@ -1473,7 +1473,7 @@ end subroutine soil_data_thermodynamics
 ! richards equation for full column. note that psi_for_rh is not passed.
 subroutine soil_data_hydraulic_properties (soil, vlc, vsc, &
                     psi, DThDP, K_z, K_x, DKDP, DPsi_min, DPsi_max  )
-  type(soil_tile_type),        intent(inout) :: soil
+  type(soil_tile_type),        intent(in) :: soil
   real,                        intent(in),  dimension(:) :: vlc, vsc
   real,                        intent(out), dimension(:) :: &
       psi, DThDP, K_z, K_x, DKDP
@@ -1492,11 +1492,6 @@ subroutine soil_data_hydraulic_properties (soil, vlc, vsc, &
                     psi_for_rh  )
       K_x = K_z
   endif
-
-  ! For use in hillslope model
-  soil%hyd_cond_horz(1:num_l) = K_x(1:num_l)
-  where (soil%ws > 0. .or. soil%wl <= 0.) soil%hyd_cond_horz = epsln
-  if (all(DThDP==0.)) soil%hyd_cond_horz(:) = epsln ! Will be "stiff"
 
 end subroutine soil_data_hydraulic_properties
 
