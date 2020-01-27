@@ -1,6 +1,6 @@
 module land_constants_mod
 
-use constants_mod, only : rdgas, rvgas, wtmair, dens_h2o, grav
+use constants_mod, only : rdgas, rvgas, wtmair, dens_h2o, grav, cp_air
 
 implicit none
 private
@@ -27,8 +27,61 @@ real, public, parameter :: mol_h2o = 18.0e-3 ! molar mass of water, kg
 
 real, public, parameter :: MPa_per_m = dens_h2o*grav*1.0e-6 ! pressure of one meter of water, Mega Pascal
 
-real, public, parameter :: diffusivity_h2o = 0.282e-4 ! diffusivity of water vapor in air, m2/s,
-    ! Cussler, E. L. (1997). Diffusion: Mass Transfer in Fluid Systems (2nd ed.).
-    ! New York: Cambridge University Press. ISBN 0-521-45078-0.
+!real, public, parameter :: kin_visc_air = 1.568e-5 ! kinematic viscosity of air, m2/s
+
+public :: diffusivity_h2o ! (T,p) diffusivity of H2O in air, m2/s
+public :: dyn_visc_air    ! (T)   dynamic viscosity of air, kg/(m s)
+public :: kin_visc_air    ! (T,p) kinematic viscosity of dry air, m2/s
+public :: heat_cond_air   ! (T)   molecular heat conductivity of air, W/(m K)
+contains
+
+! ---------------------------------------------------------------------------------------
+! diffusivity of H2O in air, m2/s
+! W. J. Massman (1998): A review of the molecular diffusivities of H2O, CO2, CH4, CO, O3,
+! SO2, NH3, N2O, NO, and NO2 in air, O2 and N2 near STP. Atmospheric Environment, 32, No.6,
+! 1111–1127, doi:10.1016/s1352-2310(97)00391-9.
+real function diffusivity_h2o(T,p) result(D)
+    real, intent(in) :: T ! temperature, degK
+    real, intent(in) :: p ! pressure, N/m2
+
+    real, parameter :: T0 = 273.15    ! reference temperature, degK
+    real, parameter :: p0 = 101325.0  ! reference pressure, N/m2
+    D = 0.2178e-4*(p0/p)*(T/T0)**1.81
+end function diffusivity_h2o
+
+! ---------------------------------------------------------------------------------------
+! dynamic viscosity of air, kg/(m s)
+! Smithsonian tables
+real function dyn_visc_air(T) result(mu)
+    real, intent(in) :: T ! temperature, degK
+
+    real, parameter :: mu0 = 1.8325e-5 ! reference dynamic viscosity, kg/(m s)
+    real, parameter :: T0  = 296.6     ! reference temperature, degK
+    real, parameter :: C   = 120.0     ! Sutherland model constant, degK
+
+    mu = mu0*(T0+C)/(T+C)*sqrt((T/T0)**3)
+end function dyn_visc_air
+
+! ---------------------------------------------------------------------------------------
+! kinematic viscosity of dry air, m2/s
+! We neglect air specific humidity effect on density here. Even if we do take it into
+! account here, the dynamic viscosity calculation neglects it.
+real function kin_visc_air(T, p) result(nu)
+    real, intent(in) :: T ! temperature, degK
+    real, intent(in) :: p ! pressure, N/m2
+
+    nu = dyn_visc_air(T)*rdgas*T/p
+end function kin_visc_air
+
+! ---------------------------------------------------------------------------------------
+! molecular heat conductivity of air, W/(m K)
+! https://en.wikipedia.org/wiki/Prandtl_number
+real function heat_cond_air(T) result(k)
+    real, intent(in) :: T ! temperature, degK
+
+    real, parameter :: Pr = 0.71 ! Prandtl number for air
+    k = dyn_visc_air(T) * cp_air / Pr
+end function heat_cond_air
+
 
 end module
