@@ -176,7 +176,7 @@ real :: max_litter_thickness = 0.05 ! m of litter layer thickness before it gets
 real :: r_rhiz = 0.001              ! Radius of rhizosphere around root (m)
 real :: tau_smooth_frozen_freq  = 2.0 ! time scale for frozen soil frequency calculations, yrs
 
-logical :: use_irrigation_routine = .true.
+logical :: use_irrigation_routine = .false.
 
 namelist /soil_nml/ lm2, use_E_min, use_E_max,           &
                     init_temp,      &
@@ -1234,6 +1234,8 @@ subroutine soil_diag_init(id_ug,id_band,id_zfull)
        lnd%time, 'upwards flow of soil water at surface; zero if flow into surface', 'mm/s', missing_value=-100.0 )
   id_macro_infilt = register_tiled_diag_field (module_name, 'macro_inf', axes(1:1), &
        lnd%time, 'infiltration (decrease to IE runoff) at soil surface due to vertical macroporosity', 'mm/s', missing_value=-100.0 )
+  id_irr_demand = register_tiled_diag_field ( module_name, 'irr_demand', axes(1:1), &
+       lnd%time, 'irrigation demand on soil area, only meaningful when the transpiration has been maximized', 'kg/(m2 s)',  missing_value=-100.0 )  
 
   id_type = register_tiled_static_field ( module_name, 'soil_type',  &
        axes(1:1), 'soil type', missing_value=-1.0 )
@@ -1462,9 +1464,6 @@ subroutine soil_diag_init(id_ug,id_band,id_zfull)
        missing_value=-100.0, standard_name='wood_debris_mass_content_of_nitrogen', &
        fill_missing=.TRUE.)
 
-  id_irr_demand = register_tiled_diag_field ( module_name, 'irr_demand', axes(1:1), &
-       lnd%time, 'irrigation demand on soil area, only meaningful when the transpiration has been maximized', &
-       'kg/(m2 s)',  missing_value=-100.0 )  
 
 end subroutine soil_diag_init
 
@@ -4805,15 +4804,14 @@ end subroutine init_soil_twc
 ! ============================================================================
 ! Calculate irrigation demand for each gridcell
 subroutine irrigation_deficit(tot_irr_flux, tot_irr_flux_start, irr_area)
-  real, dimension(:),   intent(inout)  :: tot_irr_flux
-  real, dimension(:), intent(inout)  :: tot_irr_flux_start             
-  real, dimension(:), intent(inout)  :: irr_area                        
+  real, dimension(:), intent(out)  :: tot_irr_flux
+  real, dimension(:), intent(out)  :: tot_irr_flux_start             
+  real, dimension(:), intent(out)  :: irr_area                        
   ! ---- local vars ----------------------------------------------------------
   type(land_tile_enum_type)     :: te,ce  ! tail and current tile list elements
   type(land_tile_type), pointer :: tile   ! pointer to current tile
   type(soil_tile_type), pointer :: soil
   type(vegn_tile_type), pointer :: vegn 
-  type(diag_buff_type), pointer :: diag  
   real  :: &
        irr_tot, & ! irrigation deficit 
        irr_demand, & !kg/m2 s
@@ -4836,6 +4834,10 @@ subroutine irrigation_deficit(tot_irr_flux, tot_irr_flux_start, irr_area)
   real :: w_scale_thres = 0.99
 !----------------------------------------------------
 
+ tot_irr_flux = 0.
+ tot_irr_flux_start = 0.
+ irr_area = 0.
+
  if (.not. use_irrigation_routine) return
 
  irr_fac = 1.
@@ -4849,24 +4851,23 @@ subroutine irrigation_deficit(tot_irr_flux, tot_irr_flux_start, irr_area)
        if (.not.associated(tile%soil)) cycle
        soil => tile%soil
        vegn => tile%vegn
-         if(vegn%landuse == LU_IRRIG) then
-           irr_area_temp =tile%frac*lnd%ug_area(l)
-           irr_demand = 0.
-           do i = 1, vegn%n_cohorts
-             if(vegn%cohorts(i)%w_scale < w_scale_thres .and. vegn%cohorts(i)%lai > 0) then
-                irr_demand =  irr_demand + vegn%cohorts(i)%layerfrac * vegn%cohorts(i)%evap_demand*(1.-vegn%cohorts(i)%w_scale) * vegn%cohorts(i)%nindivs  !kg/m2 s
-             endif
-           enddo
-           if(irr_demand == 0.) irr_area_temp = 0.
-         else       
-           irr_demand=0.
-           irr_area_temp = 0.                           
-         endif
-         tot_irr_flux(l)=tot_irr_flux(l) + irr_demand/DENS_H2O*irr_area_temp !m3/s
-         !tile%irr_demand = irr_flux !kg/m2s
-         irr_area(l) = irr_area(l) + irr_area_temp 
-         !call send_tile_data(id_irr_dem, tile%irr_demand, tile%diag)
-         call send_tile_data(id_irr_demand, irr_demand, tile%diag)
+       if(vegn%landuse == LU_IRRIG) then
+         irr_area_temp =tile%frac*lnd%ug_area(l)
+         irr_demand = 0. !kg/m2 s
+         do i = 1, vegn%n_cohorts
+            if(vegn%cohorts(i)%w_scale < w_scale_thres .and. vegn%cohorts(i)%lai > 0) then
+              irr_demand =  irr_demand + max(0.,vegn%cohorts(i)%layerfrac * vegn%cohorts(i)%evap_demand*(1.-vegn%cohorts(i)%w_scale) * vegn%cohorts(i)%nindivs)  !kg/m2 s
+              vegn%cohorts(i)%irr_rate = max(0.,vegn%cohorts(i)%evap_demand*(1.-vegn%cohorts(i)%w_scale) * vegn%cohorts(i)%nindivs)  !kg/m2 s for yujin test
+            endif
+         enddo
+         if(irr_demand == 0.) irr_area_temp = 0.
+       else       
+         irr_demand=0.
+         irr_area_temp = 0.                           
+       endif
+       tot_irr_flux(l)=tot_irr_flux(l) + irr_demand/DENS_H2O*irr_area_temp !m3/s
+       irr_area(l) = irr_area(l) + irr_area_temp
+       call send_tile_data(id_irr_demand, irr_demand, tile%diag) !kg/m2 s
      enddo
      tot_irr_flux_start(l) = tot_irr_flux(l) !m3/s
   enddo

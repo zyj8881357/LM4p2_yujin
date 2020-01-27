@@ -41,7 +41,8 @@ use land_tracer_driver_mod, only: land_tracer_driver_init, land_tracer_driver_en
 use glacier_mod, only : read_glac_namelist, glac_init, glac_end, glac_get_sfc_temp, &
      glac_radiation, glac_step_1, glac_step_2, save_glac_restart
 use lake_mod, only : read_lake_namelist, lake_init, lake_end, lake_get_sfc_temp, &
-     lake_radiation, lake_step_1, lake_step_2, save_lake_restart
+     lake_radiation, lake_step_1, lake_step_2, save_lake_restart, &
+     lake_abstraction_est
 use soil_mod, only : read_soil_namelist, soil_init, soil_end, soil_get_sfc_temp, &
      soil_radiation, soil_step_1, soil_step_2, soil_step_3, save_soil_restart, &
      ! moved here to eliminate circular dependencies with hillslope mods:
@@ -1196,8 +1197,10 @@ subroutine update_land_model_fast ( cplr2land, land2cplr )
   call hlsp_hydrology_1(n_c_types)
   ! ZMS: Eventually pass these args into river or main tile loop.
 
-  ! Calculate irrigation demand for each gridcell
+  ! Calculate demand of irrigation rate for each gridcell
   call irrigation_deficit(tot_irr_flux, tot_irr_flux_start, irr_area)
+  ! Estimate lake/reservoir water withdrawal fluxes for irrigation
+  call lake_abstraction_est(tot_irr_flux)
 
   ! main tile loop
 !$OMP parallel do default(none) shared(lnd,land_tile_map,cplr2land,land2cplr,phot_co2_overridden, &

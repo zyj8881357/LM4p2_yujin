@@ -213,6 +213,7 @@ type :: vegn_cohort_type
 
 ! ---- irrigation-related variables
   real :: evap_demand = 0.0 !transpiration water demand, kg/(indiv s)
+  real :: irr_rate = 0.0 !actual irrigation rate, kg(m2 s)
 end type vegn_cohort_type
 
 contains ! -=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-
