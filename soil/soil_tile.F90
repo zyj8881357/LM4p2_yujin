@@ -16,7 +16,8 @@ use land_data_mod, only : log_version
 use land_tile_selectors_mod, only : &
      tile_selector_type, SEL_SOIL, register_tile_selector
 use land_io_mod, only : print_netcdf_error
-use soil_carbon_mod, only : soil_carbon_option, SOILC_CORPSE, SOILC_CORPSE_N, &
+use soil_carbon_mod, only : soil_carbon_option, &
+    SOILC_CORPSE, SOILC_CORPSE_N, SOILC_CENTURY, SOILC_CENTURY_BY_LAYER, &
     soil_pool, combine_pools, init_soil_pool, poolTotals, N_C_TYPES
 
 implicit none
@@ -58,6 +59,7 @@ public :: soil_ave_theta2! like soil_ave_theta1, but includes ice. (SSR)
 public :: soil_ave_wetness ! calculate average soil wetness
 public :: soil_theta     ! returns array of soil moisture, for all layers
 public :: soil_psi_stress ! return soil-water-stress index
+public :: get_soil_litter_C ! returns litter carbon pools
 
 ! public data
 public :: max_lev ! max number of soil layers (max dimension of arrays)
@@ -1960,5 +1962,27 @@ real function soil_tile_nitrogen (soil)
      soil_tile_nitrogen = 0.0
   end select
 end function soil_tile_nitrogen
+
+! ============================================================================
+! given soil tile, returns carbon content of various components of litter
+subroutine get_soil_litter_C(soil, litter_fast_C, litter_slow_C, litter_deadmic_C)
+  type(soil_tile_type), intent(in)  :: soil
+  real, intent(out) :: &
+     litter_fast_C,    & ! fast litter carbon, [kgC/m2]
+     litter_slow_C,    & ! slow litter carbon, [kgC/m2]
+     litter_deadmic_C    ! mass of dead microbes in litter, [kgC/m2]
+
+  select case(soil_carbon_option)
+  case(SOILC_CENTURY, SOILC_CENTURY_BY_LAYER)
+     litter_fast_C    = soil%fast_soil_C(1)
+     litter_slow_C    = soil%slow_soil_C(1)
+     litter_deadmic_C = 0.0
+  case(SOILC_CORPSE, SOILC_CORPSE_N)
+     call poolTotals(soil%litter(LEAF),fastC=litter_fast_C,slowC=litter_slow_C,deadMicrobeC=litter_deadmic_C)
+  case default
+     call error_mesg('get_soil_litter_C','The value of soil_carbon_option is invalid. This should never happen. Contact developer.',FATAL)
+  end select
+end subroutine get_soil_litter_C
+
 
 end module soil_tile_mod

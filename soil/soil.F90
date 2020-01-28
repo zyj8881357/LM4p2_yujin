@@ -105,7 +105,6 @@ public :: soil_step_3
 public :: soil_data_beta
 
 public :: Dsdt
-public :: get_soil_litter_C
 public :: active_root_N_uptake
 public :: myc_scavenger_N_uptake
 public :: myc_miner_N_uptake
@@ -4328,27 +4327,6 @@ subroutine tracer_leaching_with_litter(diag, soilc, leaflitter, woodlitter,&
   call send_tile_data(id_total_NH4_div_loss, total_NH4_div/delta_time, diag)
 
 end subroutine tracer_leaching_with_litter
-
-! ============================================================================
-! given soil tile, returns carbon content of various components of litter
-subroutine get_soil_litter_C(soil, litter_fast_C, litter_slow_C, litter_deadmic_C)
-  type(soil_tile_type), intent(in)  :: soil
-  real, intent(out) :: &
-     litter_fast_C,    & ! fast litter carbon, [kgC/m2]
-     litter_slow_C,    & ! slow litter carbon, [kgC/m2]
-     litter_deadmic_C    ! mass of dead microbes in litter, [kgC/m2]
-
-  select case(soil_carbon_option)
-  case(SOILC_CENTURY, SOILC_CENTURY_BY_LAYER)
-     litter_fast_C    = soil%fast_soil_C(1)
-     litter_slow_C    = soil%slow_soil_C(1)
-     litter_deadmic_C = 0.0
-  case(SOILC_CORPSE, SOILC_CORPSE_N)
-     call poolTotals(soil%litter(LEAF),fastC=litter_fast_C,slowC=litter_slow_C,deadMicrobeC=litter_deadmic_C)
-  case default
-     call error_mesg('get_soil_litter_C','The value of soil_carbon_option is invalid. This should never happen. Contact developer.',FATAL)
-  end select
-end subroutine get_soil_litter_C
 
 ! ============================================================================
 ! Nitrogen uptake from the rhizosphere by roots (active transport across root-soil interface)
