@@ -233,7 +233,7 @@ end subroutine save_cana_restart
 subroutine cana_turbulence (u_star,&
      vegn_cover, vegn_layerfrac, vegn_height, vegn_bottom, vegn_lai, vegn_sai, vegn_d_leaf, &
      land_d, land_z0m, land_z0s, grnd_z0s, &
-     con_v_h, con_v_v, con_g_h, con_g_v )
+     con_v_h, con_v_v, con_g_h, con_g_v, u_sfc, ustar_sfc )
   real, intent(in) :: &
        u_star, & ! friction velocity, m/s
        land_d, land_z0m, land_z0s, grnd_z0s, &
@@ -242,7 +242,9 @@ subroutine cana_turbulence (u_star,&
        vegn_lai(:), vegn_sai(:), vegn_d_leaf(:)
   real, intent(out) :: &
        con_v_h(:), con_v_v(:), & ! one-sided foliage-CAS conductance per unit ground area
-       con_g_h   , con_g_v       ! ground-CAS conductance per unit ground area
+       con_g_h   , con_g_v,    & ! ground-CAS turbulent conductance per unit ground area
+       u_sfc, &                  ! near-surface wind speed, m/s
+       ustar_sfc                 ! near-surface friction velocity, m/s
 
   !---- local constants
   real, parameter :: a_max = 3
@@ -265,6 +267,8 @@ subroutine cana_turbulence (u_star,&
   integer :: i
 
   ! TODO: check array sizes
+
+  vegn_idx = sum((vegn_lai+vegn_sai)*vegn_layerfrac)  ! total vegetation index
 
   select case(turbulence_option)
   case(TURB_LM3W)
@@ -317,7 +321,6 @@ subroutine cana_turbulence (u_star,&
         endif
      enddo
 
-     vegn_idx = sum((vegn_lai+vegn_sai)*vegn_layerfrac)  ! total vegetation index
      if (land_d > 0.06 .and. vegn_idx > 0.25) then
         Kh_top = VONKARM*u_star*(ztop-land_d)
         rah_sca = ztop/a/Kh_top * &
@@ -329,6 +332,11 @@ subroutine cana_turbulence (u_star,&
      con_g_h = 1.0/rah_sca
   end select
   con_g_v = con_g_h
+
+  u_sfc = wind*exp(-a)
+  ! simplified equation, probably wrong, assuming that momentum loss on every surface is
+  ! the same. Factor 2 is because leaves are two-sided
+  ustar_sfc = u_star/(2*vegn_idx+1)
 end subroutine cana_turbulence
 
 ! ============================================================================
