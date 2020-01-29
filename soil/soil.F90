@@ -1866,7 +1866,7 @@ end subroutine soil_step_1
   type(vegn_tile_type), intent(in)    :: vegn
   type(diag_buff_type), intent(inout) :: diag
   real, intent(in) :: & ! ZMS assign tentative annotations below with "??"
-       soil_subl     ! ?? solution for soil surface sublimation [mm/s]
+       soil_subl        ! fraction of water vapor flux that comes from sublimation, unitless [0,1]
   real, intent(in) :: &
        snow_lprec, & ! ?? solid / liquid throughfall infiltrating the snow [kg/m2/s]
        snow_hlprec, & ! ?? heat associated with snow_lprec [W/m^2]
