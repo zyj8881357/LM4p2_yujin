@@ -22,7 +22,6 @@ use sphum_mod, only: qscomp
 use vegn_tile_mod, only: vegn_tile_type, &
      vegn_seed_demand, vegn_seed_supply, vegn_seed_N_supply, vegn_add_bliving, &
      vegn_relayer_cohorts_ppa, vegn_mergecohorts_ppa, &
-     vegn_tile_LAI, vegn_tile_SAI, &
      cpw, clw, csw
 use vegn_accessors_mod ! use everything
 use soil_tile_mod, only: soil_tile_type, num_l, dz, &
@@ -61,8 +60,9 @@ use vegn_cohort_mod, only : vegn_cohort_type, &
      vegn_data_cover, btotal, height_from_biomass, leaf_area_from_biomass, &
      update_cohort_root_properties
 use canopy_air_mod, only : cana_turbulence
-use soil_mod, only : soil_data_beta, get_soil_litter_C, redistribute_peat_carbon, &
+use soil_mod, only : soil_data_beta, redistribute_peat_carbon, &
      register_litter_soilc_diag_fields
+use surface_resistance_mod, only : evap_resistance_litter, evap_resistance_soil
 
 use cohort_io_mod, only :  read_create_cohorts, create_cohort_dimension, &
      add_cohort_data, add_int_cohort_data, get_cohort_data, get_int_cohort_data
@@ -187,12 +187,6 @@ real    :: tau_smooth_ncm = 0.0 ! Time scale for ncm smoothing (low-pass
 real    :: tau_smooth_T_dorm = 10.0 ! time scale for smoothing of daily temperatures for
    ! dormancy calculations, day. Zero turns off smoothing: average temperature from
    ! will be used previous day
-real :: rav_lit_0         = 0.0 ! constant litter resistance to vapor
-real :: rav_lit_vi        = 0.0 ! litter resistance to vapor per LAI+SAI
-real :: rav_lit_fsc       = 0.0 ! litter resistance to vapor per fsc
-real :: rav_lit_ssc       = 0.0 ! litter resistance to vapor per ssc
-real :: rav_lit_deadmic   = 0.0 ! litter resistance to vapor per dead microbe C
-real :: rav_lit_bwood     = 0.0 ! litter resistance to vapor per bwood
 
 logical :: do_peat_redistribution = .FALSE.
 
@@ -211,7 +205,6 @@ namelist /vegn_nml/ &
     xwilt_available, &
     do_biogeography, seed_transport_to_use, &
     min_Wl, min_Ws, min_lai, tau_smooth_ncm, tau_smooth_T_dorm, &
-    rav_lit_0, rav_lit_vi, rav_lit_fsc, rav_lit_ssc, rav_lit_deadmic, rav_lit_bwood, &
     do_peat_redistribution, do_intercept_melt
 
 !---- end of namelist --------------------------------------------------------
@@ -1706,7 +1699,9 @@ subroutine vegn_step_1 ( vegn, soil, diag, &
   real :: indiv2area ! conversion factor from X per indiv. to X per unit cohort area
   real :: area2indiv ! reciprocal of the indiv2area conversion factor
   real :: rav_lit    ! litter resistance to water vapor
-  real :: litter_fast_C, litter_slow_C, litter_deadmic_C ! for rav_lit calculations
+  real :: rav_soil   ! soil and viscous sublayer resistance for water vapor
+  real :: u_sfc      ! near-surface wind speed, m/s
+  real :: ustar_sfc  ! near-surface friction speed, m/s
 
   cc => vegn%cohorts(1:vegn%n_cohorts) ! note that the size of cc is always N
 
@@ -1764,18 +1759,17 @@ subroutine vegn_step_1 ( vegn, soil, diag, &
      cc(:)%layerfrac, cc(:)%height, cc(:)%zbot, cc(:)%lai, cc(:)%sai, cc(:)%leaf_size, &
      land_d, land_z0m, land_z0s, grnd_z0s, &
      ! output:
-     con_v_h, con_v_v, con_g_h, con_g_v)
+     con_v_h, con_v_v, con_g_h, con_g_v, u_sfc, ustar_sfc)
 
-  ! take into account additional resistance of litter to the water vapor flux.
-  ! not a good parameterization, but just using for sensitivity analyses now.
-  ! ignores differing biomass and litter turnover rates.
-  call get_soil_litter_C(soil, litter_fast_C, litter_slow_C, litter_deadmic_C)
-  rav_lit = rav_lit_0 + rav_lit_vi * (vegn_tile_LAI(vegn)+vegn_tile_SAI(vegn)) &
-                      + rav_lit_fsc * litter_fast_C &
-                      + rav_lit_ssc * litter_slow_C &
-                      + rav_lit_deadmic * litter_deadmic_C &
-                      + rav_lit_bwood * sum(cc(:)%bwood*cc(:)%nindivs)
-  con_g_v = con_g_v/(1.0+rav_lit*con_g_v)
+!   if (snow) then
+!
+!   else
+     rav_lit  = evap_resistance_litter(soil,vegn)
+     rav_soil = evap_resistance_soil(soil,u_sfc,ustar_sfc,p_surf)
+!      rsens_sfc = soil_sens_resistance(u_sfc,ustar_sfc,T_surf,p_surf)
+!   endif
+  con_g_v = con_g_v/(1.0+rav_lit*con_g_v+rav_soil*con_g_v)
+!   con_g_h = con_g_h/(1.0+rsens_sfc*con_g_v)
 
   if(is_watch_point()) then
      __DEBUG1__(con_v_h)

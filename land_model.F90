@@ -67,6 +67,7 @@ use river_mod, only : river_init, river_end, update_river, river_stock_pe, &
      save_river_restart, river_tracers_init, num_river_tracers, river_tracer_index, &
      river_tracer_names, get_river_water
 use topo_rough_mod, only : topo_rough_init, topo_rough_end, update_topo_rough
+use surface_resistance_mod, only : surface_resistance_init, surface_resistance_end
 use soil_tile_mod, only : soil_tile_stock_pe, soil_tile_heat, soil_roughness
 use vegn_cohort_mod, only : plant_C
 use vegn_tile_mod, only : vegn_cover_cold_start, &
@@ -478,6 +479,7 @@ subroutine land_model_init &
   call cana_init ()
   call nitrogen_sources_init ( lnd%time, id_ug )
   call topo_rough_init( lnd%time, lnd%sg_lonb, lnd%sg_latb, lnd%sg_domain, lnd%ug_domain, id_ug)
+  call surface_resistance_init()
 
   call river_init( lnd%sg_lon, lnd%sg_lat, lnd%time, lnd%dt_fast, &
           lnd%sg_domain, lnd%ug_domain, lnd%sg_landfrac, discharge_tol, clw, csw )
@@ -644,6 +646,7 @@ subroutine land_model_end (cplr2land, land2cplr)
   call cana_end ()
   call nitrogen_sources_end ()
   call topo_rough_end()
+  call surface_resistance_end ()
   call river_end()
 
   call dealloc_land2cplr(land2cplr, dealloc_discharges=.TRUE.)

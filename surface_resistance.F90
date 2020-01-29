@@ -40,7 +40,7 @@ character(len=*), parameter :: module_name = 'surface_resistance_mod'
 ! ==== module variables ======================================================
 logical :: module_is_initialized = .FALSE.
 
-logical :: do_evap_resiatance_soil = .FALSE. ! if TRUE, evaporation is slowed down by
+logical :: do_evap_resistance_soil = .FALSE. ! if TRUE, evaporation is slowed down by
   ! resistances in soil upper layer and viscous sublayer
 real :: rav_lit_0         = 0.0 ! constant litter resistance to vapor
 real :: rav_lit_vi        = 0.0 ! litter resistance to vapor per LAI+SAI
@@ -50,7 +50,7 @@ real :: rav_lit_deadmic   = 0.0 ! litter resistance to vapor per dead microbe C
 real :: rav_lit_bwood     = 0.0 ! litter resistance to vapor per bwood
 
 namelist /surface_resistance_nml/ &
-    do_evap_resiatance_soil, &
+    do_evap_resistance_soil, &
     rav_lit_0, rav_lit_vi, rav_lit_fsc, rav_lit_ssc, rav_lit_deadmic, rav_lit_bwood
 
 contains ! -=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-
@@ -118,7 +118,7 @@ real function evap_resistance_soil(soil,u_sfc,ustar_sfc,p) result(res)
   real, intent(in) :: ustar_sfc ! friction velocity at the soil surface, m/s
   real, intent(in) :: p         ! surface pressure, N/m2
 
-  if (do_evap_resiatance_soil) then
+  if (do_evap_resistance_soil) then
      res = soil_evap_sv_resistance(soil) &
          + soil_evap_bl_resistance(soil, u_sfc, ustar_sfc, p)
   else
