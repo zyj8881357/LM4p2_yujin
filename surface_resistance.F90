@@ -139,7 +139,7 @@ real function soil_evap_sv_resistance(soil) result(r_sv)
    real :: vlc(1), vsc(1) ! volumetric soil and ice content
    real :: psi(1)   ! soil matric potential
    real :: DThDP(1), DKDP(1), DPsi_min, DPsi_max ! unused
-   real :: K_z(1)   ! hydraulic conductivity in vertical, m/s
+   real :: K_z(1)   ! hydraulic conductivity in vertical, kg/(m2 s)
    real :: K_x(1)   ! hydraulic conductivity in horizontal, unused
    ! perhaps we can make soil_data_hydraulic_properties return only requested parameters?
 
@@ -148,7 +148,7 @@ real function soil_evap_sv_resistance(soil) result(r_sv)
    call soil_data_hydraulic_properties (soil, vlc, vsc, &
                     psi, DThDP, K_z, K_x, DKDP, DPsi_min, DPsi_max )
    ! calculate resistance to transport within soil upper layer
-   r_sv = gam/(4*K_z(1))
+   r_sv = gam*dens_h2o/(4*K_z(1))
 end function soil_evap_sv_resistance
 
 ! ---------------------------------------------------------------------------------------
