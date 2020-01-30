@@ -920,7 +920,7 @@ subroutine lake_abstraction_est(tot_irr_flux)
   real, dimension(num_l) :: lake_wl, lake_ws, lake_T  
   real :: tot_irr_flux_thres = 1.e-20 !m3/s
   real :: lake_ws_thres = 1. !kg/m2
-  real :: ResMin = 0.1
+  real :: ResMin = 0.5 !yujin test
   real :: res_capacity, lake_avail, delta_time, lake_abst_tot, lake_collected, lake_this_lev, lake_temp_tile, &
           lake_area, lake_depth_sill
 
@@ -954,6 +954,7 @@ subroutine lake_abstraction_est(tot_irr_flux)
           lake_avail = sum(lake_wl+lake_ws)*lake_area/DENS_H2O - ResMin*res_capacity   !m3
           if (lake_avail.le.0.) exit !we want to retain some water above ResMin*res_capacity at here because we want a conservative first guess
           if ((lake_collected+lake_this_lev).gt.0.) lake_temp_tile = (lake_temp_tile*lake_collected + lake_T(lev)*lake_this_lev)/(lake_collected+lake_this_lev) !K*kg/kg=K
+             
           lake_collected = lake_collected + lake_this_lev !kg
           if (lake_collected .ge. lake_abst_tot) exit !kg
        enddo
@@ -962,8 +963,8 @@ subroutine lake_abstraction_est(tot_irr_flux)
        !lake_abst_flux(l) = lake_abst_flux(l) + lake_collected/DENS_H2O/delta_time !m3/s
        tot_irr_flux(l) = max(0.,tot_irr_flux(l) - lake_collected/DENS_H2O/delta_time) !m3/s 
        tile%lake%abst_est = lake_collected/lake_area/delta_time !kg/(m2 s)
-       tile%lake%abst_temp_est = lake_temp_tile !K
-       tile%lake%area = lake_area !m2
+       tile%lake%abst_temp_est = tile%lake%abst_est*lake_temp_tile !K kg/(m2 s)
+       if(lake_collected.gt.0.) tile%lake%abst_area = lake_area !m2
      enddo
    enddo     
 end subroutine lake_abstraction_est   
@@ -978,46 +979,51 @@ subroutine lake_abstraction (lake,diag)
   real :: abst_thres = 1.e-20 !m3/s
   integer :: lev,n
   integer :: n_max=5000
+  real :: fac=1.
 
 
   delta_time  = time_type_to_real(lnd%dt_fast)
-  lake_avail = sum(lake%wl)*lake%area/DENS_H2O !m3
-  lake_abst_vol = lake%abst_est*delta_time*lake%area/DENS_H2O !m3
+  lake_avail = fac*sum(lake%wl)*lake%abst_area/DENS_H2O !m3
+  lake_abst_vol = lake%abst_est*delta_time*lake%abst_area/DENS_H2O !m3
   if(lake_avail.lt.lake_abst_vol)then
     call error_mesg('lake_abstraction', 'available lake water is less than our first guess', NOTE)
     lake_abst_vol = lake_avail !m3
   endif
-  if (lake_abst_vol/delta_time.le.abst_thres) return  !m3/s
-  lake_abst_tot = lake_abst_vol*DENS_H2O !kg 
-  lake_collected = 0. !kg  
-  lake_temp_tile = tfreeze !K
-  n=0
-  do while( n<=n_max )
-    lake_this_lev = max(0.,min((lake_abst_tot-lake_collected), (lake%area*lake%wl(1)))) !kg   
-    lake%wl(1) = lake%wl(1)-lake_this_lev/lake%area !kg/m2
-    if ((lake_collected+lake_this_lev).gt.0.) lake_temp_tile = (lake_temp_tile*lake_collected + lake%T(1)*lake_this_lev)/(lake_collected+lake_this_lev) !K*kg/kg=K
-    lake_collected = lake_collected + lake_this_lev !kg
-    if (lake_collected >= (lake_abst_tot-abst_thres*DENS_H2O*delta_time)) exit !kg
-    if(  (lake%wl(1)+lake%ws(1)) &
-        /(lake%wl(2)+lake%ws(2)) .ge. min_rat) then !special case, move top water to next level to force lake_relayer
-      lake%wl(2) = lake%wl(2) + lake%wl(1)  
-      lake%ws(2) = lake%ws(2) + lake%ws(1)
-      lake%wl(1) = 0.
-      lake%ws(1) = 0.
-    endif
-    call lake_relayer ( lake )
-    n=n+1
-  enddo
-  if(n>=n_max) call error_mesg('lake_abstraction', 'abstract too many times', NOTE)
-  lake_abst_act = lake_collected/lake%area/delta_time !kg/(m2 s)
+  if (lake_abst_vol/delta_time.gt.abst_thres)then  !m3/s
+    lake_abst_tot = lake_abst_vol*DENS_H2O !kg 
+    lake_collected = 0. !kg  
+    lake_temp_tile = tfreeze !K
+    n=0
+    do while( n<=n_max )
+      lake_this_lev = max(0.,min((lake_abst_tot-lake_collected), (lake%abst_area*lake%wl(1)))) !kg   
+      lake%wl(1) = lake%wl(1)-lake_this_lev/lake%abst_area !kg/m2
+      if ((lake_collected+lake_this_lev).gt.0.) lake_temp_tile = (lake_temp_tile*lake_collected + lake%T(1)*lake_this_lev)/(lake_collected+lake_this_lev) !K*kg/kg=K
+      lake_collected = lake_collected + lake_this_lev !kg
+      if (lake_collected >= (lake_abst_tot-abst_thres*DENS_H2O*delta_time)) exit !kg
+      !if(  (lake%wl(1)+lake%ws(1)) &
+      !    /(lake%wl(2)+lake%ws(2)) .ge. min_rat) then !special case, move top water to next level to force lake_relayer
+      !  lake%wl(2) = lake%wl(2) + lake%wl(1)  
+      !  lake%ws(2) = lake%ws(2) + lake%ws(1)
+      !  lake%wl(1) = 0.
+      !  lake%ws(1) = 0.
+      !endif
+      call lake_relayer ( lake )
+      n=n+1
+    enddo
+    if(n>=n_max) call error_mesg('lake_abstraction', 'abstract too many times', NOTE)
+    lake_abst_act = lake_collected/lake%abst_area/delta_time !kg/(m2 s)
+  else
+    lake_abst_act = 0.
+    lake_temp_tile = tfreeze !K    
+  endif
 
   call send_tile_data(id_lake_abst_est,lake%abst_est, diag) !kg/(m2 s)
   call send_tile_data(id_lake_abst_act,lake_abst_act,diag) !kg/(m2 s)
   call send_tile_data(id_lake_abst_dif,lake%abst_est-lake_abst_act,diag) !kg/(m2 s)
 
-  call send_tile_data(id_lake_abst_temp_est,lake%abst_temp_est, diag) !K
-  call send_tile_data(id_lake_abst_temp_act,lake_temp_tile, diag) !K
-  call send_tile_data(id_lake_abst_temp_dif,lake%abst_temp_est-lake_temp_tile, diag) !K
+  call send_tile_data(id_lake_abst_temp_est,lake%abst_temp_est, diag) !K kg/(m2 s)
+  call send_tile_data(id_lake_abst_temp_act,lake_abst_act*lake_temp_tile, diag) !K kg/(m2 s)
+  call send_tile_data(id_lake_abst_temp_dif,lake%abst_temp_est-lake_abst_act*lake_temp_tile, diag) !K kg/(m2 s)
 
 end subroutine lake_abstraction 
  
@@ -1077,11 +1083,11 @@ subroutine lake_diag_init(id_ug)
   id_lake_abst_dif  = register_tiled_diag_field ( module_name, 'lake_abst_dif',  axes(1:1),  &
        lnd%time, 'difference between lake_abst_est and lake_abst_act', 'kg/(m2 s)',  missing_value=-100.0 )
   id_lake_abst_temp_est  = register_tiled_diag_field ( module_name, 'lake_abst_temp_est',  axes(1:1),        &
-       lnd%time, 'estimated temperature of lake/reservoir water withdrawal for irrigation',  'degK',  missing_value=-100.0 )
+       lnd%time, 'estimated product of temperature and abstraction of lake/reservoir water withdrawal for irrigation',  'degK kg/(m2 s)',  missing_value=-100.0 )
   id_lake_abst_temp_act  = register_tiled_diag_field ( module_name, 'lake_abst_temp_act',  axes(1:1),        &
-       lnd%time, 'actual temperature of lake/reservoir water withdrawal for irrigation',  'degK',  missing_value=-100.0 )
+       lnd%time, 'actual product of temperature of lake/reservoir water withdrawal for irrigation',  'degK kg/(m2 s)',  missing_value=-100.0 )
   id_lake_abst_temp_dif  = register_tiled_diag_field ( module_name, 'lake_abst_temp_dif',  axes(1:1),        &
-       lnd%time, 'difference between lake_abst_temp_est and lake_abst_temp_act',  'degK',  missing_value=-100.0 )                
+       lnd%time, 'difference between lake_abst_temp_est and lake_abst_temp_act',  'degK kg/(m2 s)',  missing_value=-100.0 )                
 
   call add_tiled_static_field_alias (id_silld, module_name, 'sill_depth', &
        axes(1:1), 'obsolete, pls use lake_depth (static)','m', &

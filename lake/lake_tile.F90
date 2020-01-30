@@ -117,8 +117,8 @@ type :: lake_tile_type
    real, allocatable :: e(:),f(:)
    real, allocatable :: heat_capacity_dry(:)
    real :: abst_est = 0.0
-   real :: abst_temp_est = tfreeze
-   real :: area = 0.0
+   real :: abst_temp_est = 0.0 !abst*temperature
+   real :: abst_area = 0.0
 end type lake_tile_type
 
 ! ==== module data ===========================================================

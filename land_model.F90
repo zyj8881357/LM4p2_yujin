@@ -1201,6 +1201,8 @@ subroutine update_land_model_fast ( cplr2land, land2cplr )
   call irrigation_deficit(tot_irr_flux, tot_irr_flux_start, irr_area)
   ! Estimate lake/reservoir water withdrawal fluxes for irrigation
   call lake_abstraction_est(tot_irr_flux)
+  ! Estimate river water withdrawal fluxes for irrigation
+  !call river_abstraction_est(tot_irr_flux)  
 
   ! main tile loop
 !$OMP parallel do default(none) shared(lnd,land_tile_map,cplr2land,land2cplr,phot_co2_overridden, &

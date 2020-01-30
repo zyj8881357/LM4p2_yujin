@@ -1050,6 +1050,38 @@ end subroutine print_river_tracer_data
 
   end subroutine river_end
 
+!#####################################################################
+  !--- Estimate river water withdrawal fluxes for irrigation
+  !subroutine river_abstraction_est(tot_irr_flux)
+  !  real, dimension(:), intent(inout)  :: tot_irr_flux    !m3/s
+  !  
+  !  integer l,i,j,k
+  !  real, dimension(lnd%ls:lnd%le) :: River_storage, River_temperature, threshold_river
+  !  real, dimension(lnd%ls:lnd%le, num_species) :: River_storage_c    
+  !  character(len=256)  :: river_threshold = 'INPUT/threshold.nc'
+  !  real :: small_thres=1.e-20
+  !  real :: river_avail
+
+  !  if(.not.do_river_abst) return
+
+  !  call read_field( river_threshold, 'Threshold', threshold_river) !kg/m2 uture modified
+  !  threshold_river=threshold_river*lnd%ug_cellarea(lnd%ls:lnd%le)/DENS_H2O !kg/m2*m2/kg/m3 = m3
+
+  !  call mpp_pass_SG_to_UG(lnd%ug_domain, River%storage, River_storage) !m3
+  !  call mpp_pass_SG_to_UG(lnd%ug_domain, River%storage_c, River_storage_c) !m3
+  !  call mpp_pass_SG_to_UG(lnd%ug_domain, River%temperature, River_temperature) !K
+  !  do l=lnd%ls, lnd%le 
+  !    if(tot_irr_flux(l) < small_thres) cycle
+  !    river_avail = max(0.,River_storage(l)-River_storage_c(l,1)-threshold_river(l))
+  !    if(river_avail <= 0.) cycle
+  !    river_abst = min(tot_irr_flux(l)*River%dt_fast, river_avail) !m3
+  !    river_abst_temp = River_temperature(l)
+      
+
+  !  enddo
+  !end  subroutine river_abstraction_est(tot_irr_flux)
+
+
 
 !#####################################################################
   !--- write to restart file
