@@ -41,8 +41,7 @@ use land_tracer_driver_mod, only: land_tracer_driver_init, land_tracer_driver_en
 use glacier_mod, only : read_glac_namelist, glac_init, glac_end, glac_get_sfc_temp, &
      glac_radiation, glac_step_1, glac_step_2, save_glac_restart
 use lake_mod, only : read_lake_namelist, lake_init, lake_end, lake_get_sfc_temp, &
-     lake_radiation, lake_step_1, lake_step_2, save_lake_restart, &
-     lake_abstraction_est
+     lake_radiation, lake_step_1, lake_step_2, save_lake_restart
 use soil_mod, only : read_soil_namelist, soil_init, soil_end, soil_get_sfc_temp, &
      soil_radiation, soil_step_1, soil_step_2, soil_step_3, save_soil_restart, &
      ! moved here to eliminate circular dependencies with hillslope mods:
@@ -1150,10 +1149,7 @@ subroutine update_land_model_fast ( cplr2land, land2cplr )
 
   real :: snc(lnd%ls:lnd%le), snow_depth, snow_area ! snow cover, for CMIP6 diagnostics
 
-  real :: &
-       tot_irr_flux(lnd%ls:lnd%le), & ! irrigation demand left
-       tot_irr_flux_start(lnd%ls:lnd%le), & !t total irrigation demand
-       irr_area(lnd%ls:lnd%le) !actual irrigated area 
+  real :: irr_area(lnd%ls:lnd%le) !actual irrigated area 
 
   logical :: used          ! return value of send_data diagnostics routine
   integer :: i,j,k,l   ! lon, lat, and tile indices
@@ -1198,11 +1194,7 @@ subroutine update_land_model_fast ( cplr2land, land2cplr )
   ! ZMS: Eventually pass these args into river or main tile loop.
 
   ! Calculate demand of irrigation rate for each gridcell
-  call irrigation_deficit(tot_irr_flux, tot_irr_flux_start, irr_area)
-  ! Estimate lake/reservoir water withdrawal fluxes for irrigation
-  call lake_abstraction_est(tot_irr_flux)
-  ! Estimate river water withdrawal fluxes for irrigation
-  !call river_abstraction_est(tot_irr_flux)  
+  call irrigation_deficit(irr_area)
 
   ! main tile loop
 !$OMP parallel do default(none) shared(lnd,land_tile_map,cplr2land,land2cplr,phot_co2_overridden, &
@@ -1274,7 +1266,7 @@ subroutine update_land_model_fast ( cplr2land, land2cplr )
                             (lnd%js<=jwatch.and.jwatch<=lnd%je).and.&
                             is_watch_time()) then
      __DEBUG1__(runoff_sg(iwatch,jwatch))
-     __DEBUG1__(runoff_c_sg(iwatch,jwatch,:))
+     __DEBUG1__(runoff_c_sg(iwatch,jwatch,:)) 
   endif
 
   !--- update river state
@@ -1524,6 +1516,9 @@ subroutine update_land_model_fast_0d ( tile, l,itile, N, land2cplr, &
   character(*), parameter :: tag = 'update_land_model_fast_0d'
   real :: lswept, fswept, hlswept, hfswept ! amounts of liquid and frozen snow, and corresponding
                                            ! heat swept with tiny snow
+  real :: irr_flux !actual irrigation flux kg/(m2 s) 
+  real :: hirr_flux !heat of irrigated water W/m2 
+  real :: hirr_fac                                
 
   calc_water_cons  = do_check_conservation.or.(id_water_cons>0)
   calc_carbon_cons = do_check_conservation.or.(id_carbon_cons>0)
@@ -1626,6 +1621,8 @@ subroutine update_land_model_fast_0d ( tile, l,itile, N, land2cplr, &
   cana_T   = tile%cana%T
   cana_q   = tile%cana%tr(isphum)
   cana_co2 = tile%cana%tr(ico2)
+  irr_flux = 0.
+  hirr_flux = 0.
 
   if (associated(tile%vegn)) then
      ! calculate net short-wave radiation input to the vegetation
@@ -1643,9 +1640,12 @@ subroutine update_land_model_fast_0d ( tile, l,itile, N, land2cplr, &
      cana_co2_mol = cana_co2*mol_air/mol_CO2/(1-cana_q)
      if (phot_co2_overridden) cana_co2_mol = phot_co2_data
 
+     irr_flux = tile%soil%irr_rate !kg/(m2 s)
+     hirr_flux = tile%soil%hirr_rate !W/m2
+
      call vegn_step_1 ( tile%vegn, tile%soil, tile%diag, &
         p_surf, ustar, drag_q, &
-        swdn, swnet, precip_l, precip_s, &
+        swdn, swnet, precip_l+irr_flux, precip_s, &
         tile%land_d, tile%land_z0s, tile%land_z0m, grnd_z0s, &
         cana_T, cana_q, cana_co2_mol, &
         ! output
@@ -1663,11 +1663,11 @@ subroutine update_land_model_fast_0d ( tile, l,itile, N, land2cplr, &
         Esi0,  DEsiDTv,  DEsiDqc,  DEsiDwl,  DEsiDwf, &
         soil_uptake_T )
      ! assign cohort layer area fractions (calculated in update_derived_vegn_properties)
-     f(:) = tile%vegn%cohorts(1:N)%layerfrac
-     vegn_layer(:) = tile%vegn%cohorts(1:N)%layer
+     f(:) = tile%vegn%cohorts(1:N)%layerfrac     
+     vegn_layer(:) = tile%vegn%cohorts(1:N)%layer     
      ! calculate precipitation intercepted by vegetation; need to be calculated here
      ! since vegn_lprec and vegn_fprec get modified with drip and overflow later
-     prveg = precip_l + precip_s - vegn_lprec - vegn_fprec
+     prveg = precip_l + irr_flux + precip_s - vegn_lprec - vegn_fprec !kg/(m2 s)
   else ! i.e., no vegetation
      swnet    = 0
      con_g_h = con_fac_large ; con_g_v = con_fac_large
@@ -1734,6 +1734,7 @@ subroutine update_land_model_fast_0d ( tile, l,itile, N, land2cplr, &
     eT = evap_T
     gT = grnd_T
     vT = vegn_T
+    hirr_fac = 1.
   else
     hlv_Tv = hlv    + cpw*(vegn_T-tfreeze)
     hls_Tv = hlf    + hlv_Tv
@@ -1743,6 +1744,11 @@ subroutine update_land_model_fast_0d ( tile, l,itile, N, land2cplr, &
     eT = evap_T-tfreeze
     gT = grnd_T-tfreeze
     vT = vegn_T-tfreeze
+    if(irr_flux.gt.0.)then
+      hirr_fac = (clw*(precip_T-tfreeze)*precip_l + hirr_flux) / (clw*(precip_T-tfreeze)*(precip_l+irr_flux)) ! J/(kg K) * K * kg/(m2 s) = W/m2
+    else
+      hirr_fac = 1.
+    endif
   endif
 
 ! [X.X] using long-wave optical properties, calculate the explicit long-wave
@@ -1880,7 +1886,7 @@ subroutine update_land_model_fast_0d ( tile, l,itile, N, land2cplr, &
              +hlv_Tu(k)*DEtDwf(k) + hlv_Tv(k)*DEliDwf(k) + hls_Tv(k)*DEsiDwf(k)
            B0(iTv+k-1) = sum(swnet(k,:)) &
              + flwv0(k) - Hv0(k) - hlv_Tu(k)*Et0(k) - Hlv_Tv(k)*Eli0(k) - hls_Tv(k)*Esi0(k) &
-             + clw*vegn_prec_l(k)*vegn_ifrac(k)*pT + csw*vegn_prec_s(k)*vegn_ifrac(k)*pT & ! this is incorrect, needs to be modified. Is it?
+             + clw*vegn_prec_l(k)*vegn_ifrac(k)*pT*hirr_fac + csw*vegn_prec_s(k)*vegn_ifrac(k)*pT & ! this is incorrect, needs to be modified. Is it?
              - clw*vegn_drip_l(k)*vT(k) - csw*vegn_drip_s(k)*vT(k)
            B1(iTv+k-1) = DflwvDTg(k)
            B2(iTv+k-1) = 0
@@ -2124,7 +2130,7 @@ subroutine update_land_model_fast_0d ( tile, l,itile, N, land2cplr, &
           vegn_ovfl_l,   vegn_ovfl_s, &
           vegn_ovfl_Hl, vegn_ovfl_Hs )
      ! calculate heat carried by liquid and solid precipitation below the canopy
-     vegn_hlprec = clw*(vegn_lprec*(precip_T-tfreeze) &
+     vegn_hlprec = clw*(vegn_lprec*(precip_T-tfreeze)*hirr_fac &
                       + sum(f(:)*vegn_drip_l(:)*(vegn_T(:)+delta_Tv(:)-tfreeze)) &
                       ) + vegn_ovfl_Hl
      vegn_hfprec = csw*(vegn_fprec*(precip_T-tfreeze) &
@@ -2283,7 +2289,7 @@ subroutine update_land_model_fast_0d ( tile, l,itile, N, land2cplr, &
   endif
 
   call update_cana_tracers(tile, l, tr_flux, dfdtr, &
-           precip_l, precip_s, p_surf, ustar, con_g_v, con_v_v, con_st_v )
+           precip_l+irr_flux, precip_s, p_surf, ustar, con_g_v, con_v_v, con_st_v )
 
   call update_land_bc_fast (tile, N, l, itile, land2cplr)
 
@@ -2311,7 +2317,7 @@ subroutine update_land_model_fast_0d ( tile, l,itile, N, land2cplr, &
   if (calc_water_cons) then
      call get_tile_water(tile,lmass1,fmass1)
      if (do_check_conservation) call check_conservation (tag,'water', &
-         lmass0+fmass0+(precip_l+precip_s-land_evap-(snow_frunf+subs_lrunf+snow_lrunf))*delta_time, &
+         lmass0+fmass0+(precip_l+irr_flux+precip_s-land_evap-(snow_frunf+subs_lrunf+snow_lrunf))*delta_time, &
          lmass1+fmass1, water_cons_tol)
      v0=lmass0+fmass0+(precip_l+precip_s-land_evap-(snow_frunf+subs_lrunf+snow_lrunf))*delta_time
      call send_tile_data(id_water_cons, (lmass1+fmass1-v0)/delta_time, tile%diag)

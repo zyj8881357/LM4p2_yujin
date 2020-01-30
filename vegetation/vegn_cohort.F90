@@ -212,8 +212,7 @@ type :: vegn_cohort_type
   real :: nitrogen_stress_smoothed = 1.0
 
 ! ---- irrigation-related variables
-  real :: evap_demand = 0.0 !transpiration water demand, kg/(indiv s)
-  real :: irr_rate = 0.0 !actual irrigation rate, kg(m2 s)
+  real :: evap_demand = 0.0 !transpiration water demand, kg/(indiv s) !possible in restart
 end type vegn_cohort_type
 
 contains ! -=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-

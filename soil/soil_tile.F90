@@ -270,6 +270,10 @@ type :: soil_tile_type
                                      ! out of tile
    real, allocatable :: div_hlsp_NO3(:)  ! dimension (num_l) [kg N/m^2/s] net flux of nitrate out of tile
    real, allocatable :: div_hlsp_NH4(:)  ! dimension (num_l) [kg N/m^2/s] net flux of ammonium out of tile
+   ! For irrigation module
+   real :: irr_demand_ac = 0. !kg/m2
+   real :: irr_rate      = 0. !kg/(m2 s) 
+   real :: hirr_rate     = 0. !W/m2
 end type soil_tile_type
 
 ! ==== module data ===========================================================

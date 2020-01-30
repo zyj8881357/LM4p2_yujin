@@ -74,10 +74,11 @@ module river_mod
   use field_manager_mod, only: fm_field_name_len, fm_string_len, &
      fm_type_name_len, fm_path_name_len, fm_dump_list, fm_get_length, &
      fm_get_current_list, fm_loop_over_list, fm_change_list
-  use land_io_mod,         only : new_land_io
+  use land_io_mod,         only : new_land_io, read_field
   use fm_util_mod, only : fm_util_get_real, fm_util_get_logical, fm_util_get_string
   use tracer_manager_mod, only : NO_TRACER
   use table_printer_mod
+  use soil_tile_mod,      only : soil_tile_type, num_soil=>num_l, dz_soil=>dz
 
   implicit none
   private
@@ -118,16 +119,20 @@ character(len=*), parameter :: module_name = 'river_mod'
   ! ZMS
   logical :: tracers_from_runoff = .false. ! if true, use runoff_c(:,:,num_phys+1:num_species)
           ! rather than source concentration and flux files
+  logical :: do_groundwater_abstraction = .false.
+  logical :: do_deep_gw_abst = .false.  
 
   namelist /river_nml/ dt_slow, diag_freq, debug_river,                      &
                        Somin, outflowmean_min, ave_DHG_exp, ave_AAS_exp,     &
                        ave_DHG_coef, do_rivers, sinuosity, channel_tau,      &
                        land_area_called_cellarea, all_big_outlet_ctn0,       &
                        lake_area_bug, stop_on_mask_mismatch,                 &
-                       tracers_from_runoff
+                       tracers_from_runoff, &
+                       do_groundwater_abstraction, do_deep_gw_abst
 
   character(len=128) :: river_src_file   = 'INPUT/river_data.nc'
   character(len=128) :: river_Omean_file = 'INPUT/river_Omean.nc'
+  character(len=128) :: river_threshold_file = 'INPUT/threshold.nc'
 !---------------------------------------------------------------------
   logical :: module_is_initialized = .FALSE.
   integer :: isc, iec, jsc, jec                         ! compute domain decomposition
@@ -137,6 +142,9 @@ character(len=*), parameter :: module_name = 'river_mod'
   integer :: num_lake_lev
   integer :: id_outflowmean, id_lake_depth_sill
   integer :: id_dx, id_basin, id_So, id_depth, id_width, id_vel
+  integer :: id_lake_abst, id_lake_habst
+  integer :: id_irr_full, id_irr_met, id_irr_unmet
+  integer :: id_gw_s_abst, id_gw_d_abst, id_gw_s_habst, id_gw_d_habst
   integer :: id_LWSr, id_FWSr, id_HSr, id_meltr
   integer :: id_travel, id_elev, id_tocell
   integer :: maxtravel
@@ -153,10 +161,10 @@ character(len=*), parameter :: module_name = 'river_mod'
   real,  allocatable, dimension(:,:,:) :: discharge2ocean_next_c ! store discharge value
   ! IDs of diag fields normalized per land area
   integer, allocatable, dimension(:)   :: id_infloc,  id_storage, id_stordis, id_inflow, &
-        id_run_stor, id_outflow, id_removal, id_dis, id_lake_outflow
+        id_run_stor, id_outflow, id_removal, id_dis, id_lake_outflow, id_abstflow
   ! IDs of diag fields normalized per cell area
   integer, allocatable, dimension(:)   :: id_infloc_c,  id_storage_c, id_stordis_c, id_inflow_c, &
-        id_run_stor_c, id_outflow_c, id_removal_c, id_dis_c, id_lake_outflow_c
+        id_run_stor_c, id_outflow_c, id_removal_c, id_dis_c, id_lake_outflow_c, id_abstflow_c
   integer :: id_dis_liq,  id_dis_ice,  id_dis_heat, id_dis_sink, id_dis_DOC, id_no_riv
   integer :: num_fast_calls
   integer :: slow_step = 0          ! record number of slow time step run.
@@ -300,6 +308,7 @@ contains
     allocate(id_inflow (0:num_species), id_outflow(0:num_species))
     allocate(id_dis    (0:num_species), id_lake_outflow (0:num_species))
     allocate(id_removal(0:num_species), id_stordis(0:num_species), id_run_stor(0:num_species))
+    allocate(id_abstflow(0:num_species))    
     discharge2ocean_next = 0
     discharge2ocean_next_c = 0
     ! IDs of diag fields normalized per cell area
@@ -307,6 +316,7 @@ contains
     allocate(id_inflow_c (0:num_species), id_outflow_c(0:num_species))
     allocate(id_dis_c    (0:num_species), id_lake_outflow_c (0:num_species))
     allocate(id_removal_c(0:num_species), id_stordis_c(0:num_species), id_run_stor_c(0:num_species))
+    allocate(id_abstflow_c(0:num_species))
 
 !--- read the data from the file river_src_file -- has all static river network data
     call get_river_data(land_lon, land_lat, land_frac)
@@ -650,14 +660,14 @@ end subroutine print_river_tracer_data
     if(n == num_fast_calls) then
         call mpp_clock_begin(slowclock)
         call update_river_slow(River%run_stor/real(num_fast_calls), &
-             River%run_stor_c(:,:,:)/real(num_fast_calls) )
+             River%run_stor_c(:,:,:)/real(num_fast_calls))
         call mpp_clock_end(slowclock)
         call mpp_clock_begin(bndslowclock)
         call update_river_bnd_slow
         call mpp_clock_end(bndslowclock)
         n = 0
         River%run_stor = 0
-        River%run_stor_c = 0
+        River%run_stor_c = 0    
     endif
 
     discharge_l = discharge_l/lnd%sg_cellarea
@@ -732,12 +742,12 @@ end subroutine print_river_tracer_data
 !#####################################################################
   subroutine update_river_slow(runoff, runoff_c)
     real, dimension(:,:),   intent(in)  :: runoff
-    real, dimension(:,:,:), intent(in)  :: runoff_c
+    real, dimension(:,:,:), intent(in)  :: runoff_c  
 
     real, dimension(isd:ied,jsd:jed) :: &
                              lake_sfc_A, lake_sfc_bot, lake_conn
     real, dimension(isd:ied,jsd:jed,num_lake_lev) :: &
-                             lake_wl, lake_ws
+                             lake_wl, lake_ws, lake_dz
     real, dimension(isc:iec,jsc:jec) :: &
                              lake_depth_sill, lake_width_sill, lake_backwater, &
                              lake_backwater_1, &
@@ -745,20 +755,23 @@ end subroutine print_river_tracer_data
                              rivr_LMASS,       & ! mass of liquid water in rivers in cell
                              rivr_FMASS,       & ! mass of ice in rivers in cell
                              rivr_MELT,        & ! net mass melt in rivers in cell
-                             rivr_HEAT           ! sensible heat content of rivers in cell
+                             rivr_HEAT,        & ! sensible heat content of rivers in cell
+                             irr_demand          ! left irrigation demand
     real, dimension(isc:iec,jsc:jec,num_lake_lev) :: &
                              lake_T
 
     real, dimension(lnd%ls:lnd%le) :: &
                              lake_sfc_A_ug, lake_sfc_bot_ug, lake_conn_ug
     real, dimension(lnd%ls:lnd%le,num_lake_lev) :: &
-                             lake_wl_ug, lake_ws_ug
+                             lake_wl_ug, lake_ws_ug, lake_dz_ug
     real, dimension(lnd%ls:lnd%le) :: &
                              lake_depth_sill_ug, lake_width_sill_ug, lake_backwater_ug, &
                              lake_backwater_1_ug, &
-                             lake_whole_area_ug
+                             lake_whole_area_ug, &
+                             irr_demand_ug, lake_abst_ug, lake_habst_ug, river_abst_ug
     real, dimension(lnd%ls:lnd%le,num_lake_lev) :: &
                              lake_T_ug
+    real, dimension(lnd%ls:lnd%le,num_species) :: river_abstflow_c_ug
 
     integer                             :: travelnow, lev, l
     type(Leo_Mad_trios)   :: DHG_exp
@@ -767,10 +780,21 @@ end subroutine print_river_tracer_data
     integer i,j,k, i_next, j_next, i_species
     type(land_tile_enum_type)     :: ce    ! land tile enumerator
     type(land_tile_type), pointer :: tile  ! pointer to current tile
+    type(soil_tile_type), pointer :: soil    
     logical :: used
     ! variables for data override
     real, dimension(isc:iec,jsc:jec) :: src_conc, src_flux
-    logical :: src_flux_overridden, src_conc_overridden
+    logical :: src_flux_overridden, src_conc_overridden   
+    real, dimension(lnd%ls:lnd%le) :: tot_demand_full !kg
+    real :: tile_demand_full !kg
+    real :: demand_left_tile !kg/m2
+    real, dimension(lnd%ls:lnd%le) :: demand_full_ug, demand_met_ug, demand_unmet_ug !m3
+    real, dimension(lnd%ls:lnd%le) :: gw_s_abst_ug, gw_d_abst_ug !m3
+    real, dimension(lnd%ls:lnd%le) :: gw_s_habst_ug, gw_d_habst_ug !J    
+    real, dimension(isc:iec,jsc:jec) :: demand_full, demand_met, demand_unmet !m3
+    real, dimension(isc:iec,jsc:jec) :: gw_s_abst, gw_d_abst !m3
+    real, dimension(isc:iec,jsc:jec) :: gw_s_habst, gw_d_habst !J    
+    real :: tot_abst, tot_habst, shallow_abst, shallow_habst, deep_abst, deep_habst, frac
 
     slow_step = slow_step + 1
 
@@ -800,23 +824,31 @@ end subroutine print_river_tracer_data
     lake_T  = 0
     lake_wl = 0
     lake_ws = 0
+    lake_dz = 0
     lake_depth_sill  = 0
     lake_width_sill  = 0
     lake_whole_area  = 0
     lake_conn   = 0
     lake_backwater = 0
     lake_backwater_1 = 0
+    irr_demand = 0
     lake_sfc_A_ug  = 0
     lake_sfc_bot_ug= 0
     lake_T_ug  = 0
     lake_wl_ug = 0
     lake_ws_ug = 0
+    lake_dz_ug = 0
     lake_depth_sill_ug  = 0
     lake_width_sill_ug  = 0
     lake_whole_area_ug  = 0
     lake_conn_ug   = 0
     lake_backwater_ug = 0
     lake_backwater_1_ug = 0
+    irr_demand_ug = 0
+    lake_abst_ug = 0
+    lake_habst_ug = 0
+    river_abst_ug = 0
+    river_abstflow_c_ug = 0
 
     ce = first_elmt(land_tile_map, ls=lnd%ls)
     do while(loop_over_tiles(ce, tile, l,k))
@@ -830,6 +862,7 @@ end subroutine print_river_tracer_data
          lake_T_ug (l,lev)   = tile%lake%T(lev)
          lake_wl_ug(l,lev)   = tile%lake%wl(lev)
          lake_ws_ug(l,lev)   = tile%lake%ws(lev)
+         lake_dz_ug(l,lev)   = tile%lake%dz(lev)
        enddo
        lake_sfc_bot_ug(l) = (sum(tile%lake%wl(:)+tile%lake%ws(:)) &
                                -tile%lake%wl(1)-tile%lake%ws(1) ) &
@@ -841,12 +874,22 @@ end subroutine print_river_tracer_data
        lake_backwater_ug(l)   = tile%lake%pars%backwater
        lake_backwater_1_ug(l) = tile%lake%pars%backwater_1
     enddo
+    ! get irrigation demand
+    tot_demand_full(:) = 0. !kg
+    do l = lnd%ls,lnd%le
+      ce = first_elmt(land_tile_map(l))
+      do while(loop_over_tiles(ce,tile))
+        if (.not.associated(tile%soil)) cycle
+        tot_demand_full(l) = tot_demand_full(l) + tile%frac*lnd%ug_area(l) * tile%soil%irr_demand_ac !m2 * kg/m2 = kg
+      enddo
+    enddo 
 
 !z1l: The following might be changed for performance issue. This might be a temporary solution.
     call mpp_pass_UG_to_SG(lnd%ug_domain, lake_sfc_A_ug, lake_sfc_A)
     call mpp_pass_UG_to_SG(lnd%ug_domain, lake_T_ug, lake_T)
     call mpp_pass_UG_to_SG(lnd%ug_domain, lake_wl_ug, lake_wl)
     call mpp_pass_UG_to_SG(lnd%ug_domain, lake_ws_ug, lake_ws)
+    call mpp_pass_UG_to_SG(lnd%ug_domain, lake_dz_ug, lake_dz)    
     call mpp_pass_UG_to_SG(lnd%ug_domain, lake_sfc_bot_ug, lake_sfc_bot)
     call mpp_pass_UG_to_SG(lnd%ug_domain, lake_depth_sill_ug, lake_depth_sill)
     call mpp_pass_UG_to_SG(lnd%ug_domain, lake_width_sill_ug, lake_width_sill)
@@ -854,10 +897,13 @@ end subroutine print_river_tracer_data
     call mpp_pass_UG_to_SG(lnd%ug_domain, lake_conn_ug, lake_conn)
     call mpp_pass_UG_to_SG(lnd%ug_domain, lake_backwater_ug, lake_backwater)
     call mpp_pass_UG_to_SG(lnd%ug_domain, lake_backwater_1_ug, lake_backwater_1)
+    call mpp_pass_UG_to_SG(lnd%ug_domain, tot_demand_full, irr_demand) !kg
+    irr_demand = irr_demand/DENS_H2O !kg / kg/m3 = m3
     call mpp_update_domains (lake_sfc_A,  domain)
     call mpp_update_domains (lake_sfc_bot,domain)
     call mpp_update_domains (lake_wl, domain)
     call mpp_update_domains (lake_ws, domain)
+    call mpp_update_domains (lake_dz, domain)    
     call mpp_update_domains (lake_conn,   domain)
     do i=isc,iec
        do j=jsc,jec
@@ -908,7 +954,7 @@ end subroutine print_river_tracer_data
        call river_physics_step (River, travelnow, &
          lake_sfc_A, lake_sfc_bot, lake_depth_sill, &
          lake_width_sill, lake_whole_area,         &
-         lake_T, lake_wl, lake_ws )
+         lake_T, lake_wl, lake_ws, lake_dz, irr_demand )
 !***************************************************************
        call mpp_clock_end(physicsclock)
     enddo
@@ -916,6 +962,12 @@ end subroutine print_river_tracer_data
     call mpp_pass_SG_to_UG(lnd%ug_domain, lake_T, lake_T_ug)
     call mpp_pass_SG_to_UG(lnd%ug_domain, lake_wl, lake_wl_ug)
     call mpp_pass_SG_to_UG(lnd%ug_domain, lake_ws, lake_ws_ug)
+    call mpp_pass_SG_to_UG(lnd%ug_domain, lake_dz, lake_dz_ug)
+    call mpp_pass_SG_to_UG(lnd%ug_domain, irr_demand, irr_demand_ug) !m3
+    call mpp_pass_SG_to_UG(lnd%ug_domain, River%lake_abst, lake_abst_ug) !m3 
+    call mpp_pass_SG_to_UG(lnd%ug_domain, River%lake_habst, lake_habst_ug) !J        
+    call mpp_pass_SG_to_UG(lnd%ug_domain, River%abst, river_abst_ug) !m3
+    call mpp_pass_SG_to_UG(lnd%ug_domain, River%abstflow_c, river_abstflow_c_ug)  ! m3/s, J m3/kg / s
 
     ce = first_elmt(land_tile_map, ls=lnd%ls)
     do while(loop_over_tiles(ce, tile, l,k))
@@ -924,8 +976,58 @@ end subroutine print_river_tracer_data
          tile%lake%T(lev)  = lake_T_ug (l,lev)
          tile%lake%wl(lev) = lake_wl_ug(l,lev)
          tile%lake%ws(lev) = lake_ws_ug(l,lev)
+         tile%lake%dz(lev) = lake_dz_ug(l,lev)
        enddo
     enddo
+
+    ! account for groundwater abstraction and calculate irrigaition rate for next dt_slow  
+    demand_full_ug(:) = 0.  !m3
+    demand_met_ug(:) = 0.   !m3
+    demand_unmet_ug(:) = 0. !m3
+    gw_s_abst_ug(:) = 0. ; gw_d_abst_ug(:) = 0. !m3
+    gw_s_habst_ug(:) = 0. ; gw_d_habst_ug(:) = 0. !J  
+    do l=lnd%ls, lnd%le
+      ce = first_elmt(land_tile_map(l))
+      do while(loop_over_tiles(ce,tile,k=k))   
+        if (.not.associated(tile%soil)) cycle
+        soil => tile%soil
+        tile_demand_full = tile%frac*lnd%ug_area(l) * soil%irr_demand_ac !m2 * kg/m2 = kg
+        frac = 0.
+        if(tot_demand_full(l)>0.) frac = tile_demand_full/tot_demand_full(l)
+        demand_left_tile = frac*irr_demand_ug(l) * DENS_H2O/(tile%frac*lnd%ug_area(l)) !m3 * kg/m3 / m2 = kg/m2
+        call groundwater_abstraction(soil, demand_left_tile, shallow_abst, shallow_habst, deep_abst, deep_habst)
+        tot_abst = frac*lake_abst_ug(l) * DENS_H2O/(tile%frac*lnd%ug_area(l)) & !m3 * kg/m3 / m2 = kg/m2
+                  +frac*river_abst_ug(l) * DENS_H2O/(tile%frac*lnd%ug_area(l)) & !kg/m2
+                  +shallow_abst &  !kg/m2
+                  +deep_abst !kg/m2
+        soil%irr_rate = tot_abst/River%dt_slow !kg/(m2 s)
+        tot_habst = frac*lake_habst_ug(l)/(tile%frac*lnd%ug_area(l)) & !J/m2
+                   +frac*(river_abstflow_c_ug(l,2)*DENS_H2O*River%dt_slow)/(tile%frac*lnd%ug_area(l)) & ! (J m3/kg / s) * kg/m3 * s / m2 = J/m2
+                   +shallow_habst & !J/m2
+                   +deep_habst !J/m2
+        soil%hirr_rate = tot_habst/River%dt_slow !W/m2
+        gw_s_abst_ug(l) = gw_s_abst_ug(l) + shallow_abst * (tile%frac*lnd%ug_area(l))/DENS_H2O !kg/m2 * m2 / kg/m3 = m3
+        gw_d_abst_ug(l) = gw_d_abst_ug(l) + deep_abst * (tile%frac*lnd%ug_area(l))/DENS_H2O !kg/m2 * m2 / kg/m3 = m3  
+        gw_s_habst_ug(l) = gw_s_habst_ug(l) + shallow_habst * (tile%frac*lnd%ug_area(l)) !J/m2 * m2 = J  
+        gw_d_habst_ug(l) = gw_d_habst_ug(l) + deep_habst * (tile%frac*lnd%ug_area(l)) !J/m2 * m2 = J 
+        demand_full_ug(l) =  demand_full_ug(l) + soil%irr_demand_ac * (tile%frac*lnd%ug_area(l))/DENS_H2O !kg/m2 * m2 / kg/m3 = m3
+        demand_met_ug(l) = demand_met_ug(l) + soil%irr_rate*River%dt_slow * (tile%frac*lnd%ug_area(l))/DENS_H2O !kg/(m2 s) * s * m2 / kg/m3 = m3               
+        demand_unmet_ug(l) = demand_unmet_ug(l) &
+                         +(demand_left_tile-shallow_abst-deep_abst) * (tile%frac*lnd%ug_area(l))/DENS_H2O !kg/m2 * m2 / kg/m3 = m3
+        soil%irr_demand_ac = 0.     
+      enddo
+    enddo     
+    demand_full(:,:) = 0. ; demand_met(:,:) = 0. ; demand_unmet(:,:) = 0. !m3    
+    gw_s_abst(:,:) = 0. ; gw_d_abst(:,:) = 0. !m3
+    gw_s_habst(:,:) = 0. ; gw_d_habst(:,:) = 0. !J  
+    call mpp_pass_UG_to_SG(lnd%ug_domain, demand_full_ug, demand_full)  !m3   
+    call mpp_pass_UG_to_SG(lnd%ug_domain, demand_met_ug, demand_met)  !m3        
+    call mpp_pass_UG_to_SG(lnd%ug_domain, demand_unmet_ug, demand_unmet)  !m3  
+    call mpp_pass_UG_to_SG(lnd%ug_domain, gw_s_abst_ug, gw_s_abst) !m3
+    call mpp_pass_UG_to_SG(lnd%ug_domain, gw_d_abst_ug, gw_d_abst) !m3
+    call mpp_pass_UG_to_SG(lnd%ug_domain, gw_s_habst_ug, gw_s_habst)  !J
+    call mpp_pass_UG_to_SG(lnd%ug_domain, gw_d_habst_ug, gw_d_habst)  !J          
+
 
     River%outflowmean = River%outflowmean + &
        (River%outflow-River%outflowmean)*River%dt_slow/River%channel_tau
@@ -950,10 +1052,10 @@ end subroutine print_river_tracer_data
        River%stordis_c(:,:,i_species) = River%dt_slow*River%disc2o(:,:,i_species)
     enddo
 
-    rivr_FMASS = DENS_H2O * (River%storage_c(:,:,1) + River%stordis_c(:,:,1))
-    rivr_LMASS = DENS_H2O * (River%storage + River%stordis) - rivr_FMASS
-    rivr_MELT  = DENS_H2O *  River%melt / River%dt_slow
-    rivr_HEAT  = DENS_H2O * (River%storage_c(:,:,2) + River%stordis_c(:,:,2)) &
+    rivr_FMASS = DENS_H2O * (River%storage_c(:,:,1) + River%stordis_c(:,:,1)) !kg
+    rivr_LMASS = DENS_H2O * (River%storage + River%stordis) - rivr_FMASS !kg
+    rivr_MELT  = DENS_H2O *  River%melt / River%dt_slow ! J m3/kg * kg/m3 / s = J/s = W
+    rivr_HEAT  = DENS_H2O * (River%storage_c(:,:,2) + River%stordis_c(:,:,2)) & !kg/m3 * J m3/kg = J
                       - hlf*rivr_FMASS
 
     call mpp_clock_begin(diagclock)
@@ -961,28 +1063,97 @@ end subroutine print_river_tracer_data
   ! using land area for stores, cell area for fluxes to ocean
     if (id_LWSr > 0) then
        where (lnd%sg_area > 0) &
-            rivr_LMASS = rivr_LMASS / lnd%sg_area
+            rivr_LMASS = rivr_LMASS / lnd%sg_area !kg/m2
        used = send_data (id_LWSr, rivr_LMASS, River%time, mask=lnd%sg_area>0)
     endif
     if (id_FWSr > 0) then
        where (lnd%sg_area > 0) &
-            rivr_FMASS = rivr_FMASS / lnd%sg_area
+            rivr_FMASS = rivr_FMASS / lnd%sg_area !kg/m2
        used = send_data (id_FWSr, rivr_FMASS, River%time, mask=lnd%sg_area>0)
     endif
     if (id_HSr > 0) then
        where (lnd%sg_area > 0) &
-            rivr_HEAT = rivr_HEAT / lnd%sg_area
+            rivr_HEAT = rivr_HEAT / lnd%sg_area !J/m2
        used = send_data (id_HSr, rivr_HEAT, River%time, mask=lnd%sg_area>0)
     endif
     if (id_meltr > 0) then
        where (lnd%sg_area > 0) &
-            rivr_MELT = rivr_MELT / lnd%sg_area
+            rivr_MELT = rivr_MELT / lnd%sg_area !W/m2
        used = send_data (id_meltr, rivr_MELT, River%time, mask=lnd%sg_area>0)
     end if
+
+    if (id_gw_s_abst > 0) then
+       gw_s_abst = gw_s_abst*DENS_H2O / (River%land_area*River%dt_slow)  ! m3 * kg/m3 / (m2 s) = kg/(m2 s) 
+       used = send_data (id_gw_s_abst, gw_s_abst, River%time, mask=River%mask)      
+    end if
+
+    if (id_gw_d_abst > 0) then
+       gw_d_abst = gw_d_abst*DENS_H2O / (River%land_area*River%dt_slow)  ! m3 * kg/m3 / (m2 s) = kg/(m2 s) 
+       used = send_data (id_gw_d_abst, gw_d_abst, River%time, mask=River%mask)      
+    end if
+
+    if (id_gw_s_habst > 0) then
+       gw_s_habst = gw_s_habst / (River%land_area*River%dt_slow)  ! J / (m2 s) = W/m2
+       used = send_data (id_gw_s_habst, gw_s_habst, River%time, mask=River%mask)      
+    end if
+
+    if (id_gw_d_habst > 0) then
+       gw_d_habst = gw_d_habst / (River%land_area*River%dt_slow)  ! J / (m2 s) = W/m2
+       used = send_data (id_gw_d_habst, gw_d_habst, River%time, mask=River%mask)      
+    end if
+
+    if (id_irr_full > 0) then
+       demand_full = demand_full*DENS_H2O / (River%land_area*River%dt_slow)  ! m3 * kg/m3 / (m2 s) = kg/(m2 s) 
+       used = send_data (id_irr_full, demand_full, River%time, mask=River%mask)      
+    end if
+
+    if (id_irr_met > 0) then
+       demand_met = demand_met*DENS_H2O / (River%land_area*River%dt_slow)  ! m3 * kg/m3 / (m2 s) = kg/(m2 s) 
+       used = send_data (id_irr_met, demand_met, River%time, mask=River%mask)      
+    end if    
+
+    if (id_irr_unmet > 0) then
+       demand_unmet = demand_unmet*DENS_H2O / (River%land_area*River%dt_slow)  ! m3 * kg/m3 / (m2 s) = kg/(m2 s) 
+       used = send_data (id_irr_unmet, demand_unmet, River%time, mask=River%mask)      
+    end if
+
     if(mod(slow_step, diag_freq) == 0)  call river_diag(lake_depth_sill)
-    call mpp_clock_end(diagclock)
+    call mpp_clock_end(diagclock)    
+
 
   end subroutine update_river_slow
+
+!--------------------------------------------------------  
+subroutine groundwater_abstraction(soil,irr_demand, abst_s, habst_s, abst_d, habst_d)
+
+  type(soil_tile_type), intent(inout) :: soil
+  real, intent(in) :: irr_demand !kg/m2
+  real, intent(out) :: abst_s, abst_d !kg/m2
+  real, intent(out) :: habst_s, habst_d !J/m2
+
+  integer :: lev
+  real :: avail, abst_lev
+  real :: abst_thres = 1.e-20 !kg/m2
+
+  abst_s = 0.; abst_d = 0. !kg/m2
+  habst_s = 0.; habst_d = 0. !J/m2
+  if(.not.do_groundwater_abstraction) return
+  if(irr_demand<=abst_thres) return
+  do lev = 1, num_soil
+    avail = soil%wl(lev)-soil%w_fc(lev)*(DENS_H2O*dz_soil(lev)) !1 * kg/m3 * m = kg/m2
+    if(avail <= 0.) cycle 
+    abst_lev = max(0., min(irr_demand-abst_s, avail)) !kg/m2
+    soil%wl(lev) = soil%wl(lev) - abst_lev !kg/m2
+    abst_s = abst_s + abst_lev !kg/m2
+    habst_s = habst_s + clw*(soil%T(lev)-tfreeze)*abst_lev  !J/m2
+    if((irr_demand-abst_s)<=abst_thres) exit
+  enddo
+  if((irr_demand-abst_s)>abst_thres .and. do_deep_gw_abst)then
+    abst_d = max(0., irr_demand-abst_s) !kg/m2
+    habst_d = clw*(soil%T(num_soil)-tfreeze)*abst_d !J/m2
+  endif
+
+end subroutine groundwater_abstraction  
 
 !#####################################################################
 
@@ -1044,44 +1215,16 @@ end subroutine print_river_tracer_data
     deallocate(River%removal_c )
     deallocate(River%vf_ref,River%t_ref,River%q10,River%kinv)
     deallocate(River%d_coef,River%o_coef,River%w_coef)
+    deallocate(River%threshold)
+    deallocate(River%abst)
+    deallocate(River%abstflow_c)    
+    deallocate(River%lake_abst)
+    deallocate(River%lake_habst)
 
     deallocate(trdata)
     module_is_initialized = .FALSE.
 
   end subroutine river_end
-
-!#####################################################################
-  !--- Estimate river water withdrawal fluxes for irrigation
-  !subroutine river_abstraction_est(tot_irr_flux)
-  !  real, dimension(:), intent(inout)  :: tot_irr_flux    !m3/s
-  !  
-  !  integer l,i,j,k
-  !  real, dimension(lnd%ls:lnd%le) :: River_storage, River_temperature, threshold_river
-  !  real, dimension(lnd%ls:lnd%le, num_species) :: River_storage_c    
-  !  character(len=256)  :: river_threshold = 'INPUT/threshold.nc'
-  !  real :: small_thres=1.e-20
-  !  real :: river_avail
-
-  !  if(.not.do_river_abst) return
-
-  !  call read_field( river_threshold, 'Threshold', threshold_river) !kg/m2 uture modified
-  !  threshold_river=threshold_river*lnd%ug_cellarea(lnd%ls:lnd%le)/DENS_H2O !kg/m2*m2/kg/m3 = m3
-
-  !  call mpp_pass_SG_to_UG(lnd%ug_domain, River%storage, River_storage) !m3
-  !  call mpp_pass_SG_to_UG(lnd%ug_domain, River%storage_c, River_storage_c) !m3
-  !  call mpp_pass_SG_to_UG(lnd%ug_domain, River%temperature, River_temperature) !K
-  !  do l=lnd%ls, lnd%le 
-  !    if(tot_irr_flux(l) < small_thres) cycle
-  !    river_avail = max(0.,River_storage(l)-River_storage_c(l,1)-threshold_river(l))
-  !    if(river_avail <= 0.) cycle
-  !    river_abst = min(tot_irr_flux(l)*River%dt_fast, river_avail) !m3
-  !    river_abst_temp = River_temperature(l)
-      
-
-  !  enddo
-  !end  subroutine river_abstraction_est(tot_irr_flux)
-
-
 
 !#####################################################################
   !--- write to restart file
@@ -1133,6 +1276,7 @@ end subroutine print_river_tracer_data
     integer                           :: ni, nj, i, j, siz(4), ntiles
     real, dimension(:,:), allocatable :: xt, yt, frac, glon, glat, lake_frac
     integer :: nerrors ! number of errors detected during initialization
+    real, dimension(lnd%ls:lnd%le) :: threshold
 
     ntiles = mpp_get_ntile_count(domain)
 
@@ -1176,7 +1320,7 @@ end subroutine print_river_tracer_data
     allocate(River%lake_outflow(isc:iec, jsc:jec) )
     allocate(River%storage   (isc:iec, jsc:jec) )
     allocate(River%stordis   (isc:iec, jsc:jec) )
-    allocate(River%run_stor  (isc:iec, jsc:jec) )
+    allocate(River%run_stor  (isc:iec, jsc:jec) )  
     allocate(River%melt      (isc:iec, jsc:jec) )
     allocate(River%disw2o    (isc:iec, jsc:jec) )
     allocate(River%infloc    (isc:iec, jsc:jec))
@@ -1199,7 +1343,13 @@ end subroutine print_river_tracer_data
     allocate(River%w_coef    (isc:iec, jsc:jec) )
     allocate(River%outflowmean(isc:iec, jsc:jec) )
     allocate(River%t_ref(num_phys+1:num_species),River%vf_ref(num_phys+1:num_species))
-    allocate(River%q10  (num_phys+1:num_species),River%kinv  (num_phys+1:num_species))
+    allocate(River%q10  (num_phys+1:num_species),River%kinv  (num_phys+1:num_species))   
+    allocate(River%threshold  (isc:iec, jsc:jec) )   
+    allocate(River%abst  (isc:iec, jsc:jec) )        
+    allocate(River%abstflow_c (isc:iec, jsc:jec, num_species) )   
+    allocate(River%lake_abst (isc:iec, jsc:jec) )
+    allocate(River%lake_habst (isc:iec, jsc:jec) )              
+
 
     if(ntiles == 1) then   ! lat-lon grid, use actual grid location
        River%lon_1d(:)      = glon(:,1)
@@ -1219,7 +1369,7 @@ end subroutine print_river_tracer_data
     River%storage   = 0.0
     River%storage_c = 0.0
     River%stordis   = 0.0
-    River%run_stor  = 0.0
+    River%run_stor  = 0.0  
     River%stordis_c = 0.0
     River%run_stor_c= 0.0
     River%removal_c = 0.0
@@ -1229,7 +1379,13 @@ end subroutine print_river_tracer_data
     River%outflow   = 0.
     River%outflow_c = 0.
     River%inflow    = 0.
-    River%inflow_c  = 0.
+    River%inflow_c  = 0. 
+    River%threshold = 0.   
+    River%abst      = 0.  
+    River%abstflow_c= 0.
+    River%lake_abst = 0.  
+    River%lake_habst = 0.  
+
 !--- read the data from the source file
     call read_data(river_src_file, 'tocell', River%tocell, domain)
 
@@ -1292,6 +1448,14 @@ end subroutine print_river_tracer_data
     River%So = 0.0
     where (River%So .LT. 0.0) River%So = Somin
 
+    if(file_exist(river_threshold_file))then
+      call read_field(river_threshold_file, 'Threshold', threshold) !kg/m2
+      threshold = threshold*lnd%ug_cellarea/DENS_H2O !kg/m2 * m2 / kg/m3 = m3
+      call mpp_pass_UG_to_SG(lnd%ug_domain,threshold,River%threshold) 
+    else
+      River%threshold = 0.
+    endif   
+
     deallocate(lake_frac)
 
   end subroutine get_river_data
@@ -1332,6 +1496,9 @@ end subroutine print_river_tracer_data
       id_outflow(i) = register_diag_field ( mod_name, 'rv_o_'//trim(trdata(i)%name),     &
            (/id_lon, id_lat/), River%Time, 'river outflow, '//trim(trdata(i)%longname),  &
            trdata(i)%flux_units, missing_value=missing )
+      id_abstflow(i) = register_diag_field ( mod_name, 'rv_a_'//trim(trdata(i)%name),     &
+           (/id_lon, id_lat/), River%Time, 'river abstraction flow, '//trim(trdata(i)%longname),  &
+           trdata(i)%flux_units, missing_value=missing )      
       id_dis(i)     = register_diag_field ( mod_name, 'rv_d_'//trim(trdata(i)%name),     &
            (/id_lon, id_lat/), River%Time, 'ocean_discharge, '//trim(trdata(i)%longname),&
            trdata(i)%flux_units, missing_value=missing, area=id_area_land )
@@ -1368,6 +1535,11 @@ end subroutine print_river_tracer_data
            (/id_lon, id_lat/), River%Time, 'river outflow, '//trim(trdata(i)%longname)//', per unit cell area',  &
            trdata(i)%flux_units, missing_value=missing, area = id_cellarea )
       call diag_field_add_attribute(id_outflow_c(i),'cell_methods', 'area: mean')
+
+      id_abstflow_c(i) = register_diag_field ( mod_name, 'rv_a_c_'//trim(trdata(i)%name),   &
+           (/id_lon, id_lat/), River%Time, 'river abstraction flow, '//trim(trdata(i)%longname)//', per unit cell area',  &
+           trdata(i)%flux_units, missing_value=missing, area = id_cellarea )
+      call diag_field_add_attribute(id_abstflow_c(i),'cell_methods', 'area: mean')      
 
       id_dis_c(i)     = register_diag_field ( mod_name, 'rv_d_c_'//trim(trdata(i)%name),   &
            (/id_lon, id_lat/), River%Time, 'ocean_discharge, '//trim(trdata(i)%longname)//', per unit cell area',&
@@ -1415,6 +1587,27 @@ end subroutine print_river_tracer_data
          River%Time, 'river flow width', 'm', missing_value=missing )
     id_vel       = register_diag_field ( mod_name, 'rv_veloc', (/id_lon, id_lat/), &
          River%Time, 'river flow velocity', 'm/s', missing_value=missing )
+
+
+    id_lake_abst   = register_diag_field ( mod_name, 'lake_abst', (/id_lon, id_lat/), &
+         River%Time, 'lake abstraction rate over land', 'kg/(m2 s)', missing_value=missing )  
+    id_lake_habst   = register_diag_field ( mod_name, 'lake_habst', (/id_lon, id_lat/), &
+         River%Time, 'heat associated with lake abstraction over land', 'W/m2', missing_value=missing )            
+    id_gw_s_abst   = register_diag_field ( mod_name, 'gw_s_abst', (/id_lon, id_lat/), &
+         River%Time, 'shallow groundwater abstraction rate over land', 'kg/(m2 s)', missing_value=missing )  
+    id_gw_d_abst   = register_diag_field ( mod_name, 'gw_d_abst', (/id_lon, id_lat/), &
+         River%Time, 'deep groundwater abstraction rate over land', 'kg/(m2 s)', missing_value=missing ) 
+    id_gw_s_habst   = register_diag_field ( mod_name, 'gw_s_habst', (/id_lon, id_lat/), &
+         River%Time, 'heat associated with shallow groundwater abstraction over land', 'W/m2', missing_value=missing )  
+    id_gw_d_habst   = register_diag_field ( mod_name, 'gw_d_habst', (/id_lon, id_lat/), &
+         River%Time, 'heat associated with deep groundwater abstraction over land', 'W/m2', missing_value=missing ) 
+    id_irr_full   = register_diag_field ( mod_name, 'irr_full', (/id_lon, id_lat/), &
+         River%Time, 'needed irrigation rate over land', 'kg/(m2 s)', missing_value=missing )
+    id_irr_met   = register_diag_field ( mod_name, 'irr_met', (/id_lon, id_lat/), &
+         River%Time, 'met irrigation rate over land', 'kg/(m2 s)', missing_value=missing )     
+    id_irr_unmet   = register_diag_field ( mod_name, 'irr_unmet', (/id_lon, id_lat/), &
+         River%Time, 'unmet irrigation rate over land', 'kg/(m2 s)', missing_value=missing )                               
+
 
     id_LWSr   = register_diag_field ( mod_name, 'LWSr', (/id_lon, id_lat/), &
          River%Time, 'river liquid mass storage', 'kg/m2', missing_value=-1.0e+20, area=id_area_land )
@@ -1499,13 +1692,13 @@ end subroutine print_river_tracer_data
     real diag_factor_2(isc:iec,jsc:jec)
     integer :: tr ! iteratior over river tracers
 
-    diag_factor   = DENS_H2O/lnd%sg_cellarea(:,:)
-    diag_factor_2 = 1.0/(lnd%sg_cellarea(:,:)*River%dt_slow)
+    diag_factor   = DENS_H2O/lnd%sg_cellarea(:,:) !kg/m3 / m2
+    diag_factor_2 = 1.0/(lnd%sg_cellarea(:,:)*River%dt_slow) ! 1/(m2 s)
 
     if (id_inflow_c(0) > 0) used = send_data (id_inflow_c(0), &
             diag_factor*River%inflow(isc:iec,jsc:jec), River%Time, mask=River%mask )
     if (id_outflow_c(0) > 0) used = send_data (id_outflow_c(0), &
-            diag_factor*River%outflow(isc:iec,jsc:jec), River%Time, mask=River%mask )
+            diag_factor*River%outflow(isc:iec,jsc:jec), River%Time, mask=River%mask ) !kg/m3 / m2 * m3/s = kg/(m2 s)
     if (id_storage_c(0) > 0) used = send_data (id_storage_c(0), &
             diag_factor*River%storage(isc:iec,jsc:jec), River%Time, mask=River%mask )
     if (id_stordis_c(0) > 0) used = send_data (id_stordis_c(0), &
@@ -1517,13 +1710,17 @@ end subroutine print_river_tracer_data
     if (id_dis_c(0) > 0)    used = send_data (id_dis_c(0), &
             diag_factor*River%disw2o(isc:iec,jsc:jec), River%Time)
     if (id_lake_outflow_c(0) > 0) used = send_data (id_lake_outflow_c(0), &
-            diag_factor_2*River%lake_outflow(isc:iec,jsc:jec), River%Time, mask=River%mask )
+            diag_factor_2*River%lake_outflow(isc:iec,jsc:jec), River%Time, mask=River%mask ) !kg/(m2 s), River%lake_outflow: kg
+    if (id_abstflow_c(0) > 0) used = send_data (id_abstflow_c(0), &
+            diag_factor_2*River%abst(isc:iec,jsc:jec)*DENS_H2O, River%Time, mask=River%mask ) !m3 * kg/m3  /(m2 s) = kg/(m2 s)
 
     do tr = 1, num_species
        if (id_outflow_c(tr) > 0) used = send_data (id_outflow_c(tr), &
-         diag_factor*River%outflow_c(isc:iec,jsc:jec,tr), River%Time, mask=River%mask )
+         diag_factor*River%outflow_c(isc:iec,jsc:jec,tr), River%Time, mask=River%mask ) !m3/s * kg/m3 / m2 = kg/(m2 s), J m3/kg / s  * kg/m3 / m2 = W/m2
+       if (id_abstflow_c(tr) > 0) used = send_data (id_abstflow_c(tr), &
+         diag_factor*River%abstflow_c(isc:iec,jsc:jec,tr), River%Time, mask=River%mask )  !abstflow_c units are same as River%outflow_c       
        if (id_lake_outflow_c(tr) > 0) used = send_data (id_lake_outflow_c(tr), &
-         diag_factor_2*River%lake_outflow_c(isc:iec,jsc:jec,tr), River%Time, mask=River%mask )
+         diag_factor_2*River%lake_outflow_c(isc:iec,jsc:jec,tr), River%Time, mask=River%mask )     
        if (id_inflow_c(tr) > 0) used = send_data (id_inflow_c(tr), &
          diag_factor*River%inflow_c(isc:iec,jsc:jec,tr), River%Time, mask=River%mask )
        if (id_storage_c(tr) > 0) used = send_data (id_storage_c(tr), &
@@ -1563,11 +1760,15 @@ end subroutine print_river_tracer_data
     if (id_dis(0) > 0)    used = send_data (id_dis(0), &
             diag_factor*River%disw2o(isc:iec,jsc:jec), River%Time)
     if (id_lake_outflow(0) > 0) used = send_data (id_lake_outflow(0), &
-            diag_factor_2*River%lake_outflow(isc:iec,jsc:jec), River%Time, mask=River%mask )
+            diag_factor_2*River%lake_outflow(isc:iec,jsc:jec), River%Time, mask=River%mask )  
+    if (id_abstflow(0) > 0) used = send_data (id_abstflow(0), &
+            diag_factor_2*River%abst(isc:iec,jsc:jec)*DENS_H2O, River%Time, mask=River%mask ) !m3 * kg/m3  /(m2 s) = kg/(m2 s)    
 
     do tr = 1, num_species
        if (id_outflow(tr) > 0) used = send_data (id_outflow(tr), &
          diag_factor*River%outflow_c(isc:iec,jsc:jec,tr), River%Time, mask=River%mask )
+       if (id_abstflow(tr) > 0) used = send_data (id_abstflow(tr), &
+         diag_factor*River%abstflow_c(isc:iec,jsc:jec,tr), River%Time, mask=River%mask )  !abstflow_c units are same as River%outflow_c        
        if (id_lake_outflow(tr) > 0) used = send_data (id_lake_outflow(tr), &
          diag_factor_2*River%lake_outflow_c(isc:iec,jsc:jec,tr), River%Time, mask=River%mask )
        if (id_inflow(tr) > 0) used = send_data (id_inflow(tr), &
@@ -1589,13 +1790,17 @@ end subroutine print_river_tracer_data
     if (id_lake_depth_sill > 0) used = send_data (id_lake_depth_sill, &
             lake_depth_sill, River%Time, mask=River%mask )
     if (id_outflowmean > 0) used = send_data (id_outflowmean, &
-            River%outflowmean(isc:iec,jsc:jec), River%Time, mask=River%mask )
+            River%outflowmean(isc:iec,jsc:jec), River%Time, mask=River%mask ) !m3/s
     if (id_width > 0) used = send_data (id_width, &
             River%width(isc:iec,jsc:jec), River%Time, mask=River%mask )
     if (id_depth > 0) used = send_data (id_depth, &
             River%depth(isc:iec,jsc:jec), River%Time, mask=River%mask )
     if (id_vel > 0) used = send_data (id_vel, &
             River%vel(isc:iec,jsc:jec), River%Time, mask=River%mask )
+    if (id_lake_abst > 0) used = send_data (id_lake_abst, &
+            diag_factor_2*River%lake_abst(isc:iec,jsc:jec)*DENS_H2O, River%Time, mask=River%mask )   !kg/(m2 s), River%lake_abst: m3      
+    if (id_lake_habst > 0) used = send_data (id_lake_habst, &
+            diag_factor_2*River%lake_habst(isc:iec,jsc:jec), River%Time, mask=River%mask )   ! J / (m2 s) = W/m2 River%lake_habst: J    
 
   end subroutine river_diag
 

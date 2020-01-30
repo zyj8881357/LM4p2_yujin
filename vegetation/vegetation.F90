@@ -254,8 +254,7 @@ integer :: id_vegn_type, id_height, id_height_ave, &
    id_brsw, id_topyear, id_growth_prev_day, &
    id_lai_kok, id_DanDlai, id_PAR_dn, id_PAR_net, &
    id_T_inhib_P, id_T_inhib_R, id_Ag_uninhib, id_resp_uninhib, &
-   id_age_since_disturbance, id_age_since_landuse, &
-   id_irr_rate
+   id_age_since_disturbance, id_age_since_landuse
 integer, dimension(N_LITTER_POOLS, N_C_TYPES) :: &
    id_litter_buff_C, id_litter_buff_N, &
    id_litter_rate_C, id_litter_rate_N
@@ -1051,10 +1050,6 @@ subroutine vegn_diag_init ( id_ug, id_band, time )
   id_PAR_net = register_cohort_diag_field ( module_name, 'PAR_net',  &
        (/id_ug/), time, 'net flux of photosynthetically-active radiation to the canopy', &
        'W/m2', missing_value=-1.0 )
-
-  id_irr_rate = register_cohort_diag_field ( module_name, 'irr_rate',  &
-       (/id_ug/), time, 'actual irrigation rate', &
-       'kg/(m2 s)', missing_value=-1.0 )  
 
   id_species = register_tiled_diag_field ( module_name, 'species',  &
        (/id_ug/), time, 'vegetation species number', missing_value=-1.0 )
@@ -1857,10 +1852,6 @@ subroutine vegn_step_1 ( vegn, soil, diag, &
         current_layer = cc(i)%layer
      endif
 
-     ! account for irrigation
-     precip_above_l = precip_above_l + cc(i)%irr_rate
-     precip_under_l = precip_under_l + cc(i)%irr_rate*cc(i)%layerfrac     
-
      ! accumulate precipitation under current layer: it is equal to precipitation
      ! above minus the intercepted rainfall
      precip_under_l = precip_under_l - precip_above_l*vegn_ifrac(i)*cc(i)%layerfrac
@@ -2009,8 +2000,6 @@ subroutine vegn_step_1 ( vegn, soil, diag, &
   call send_cohort_data(id_T_inhib_R, diag, cc(:), T_inhib_R(:), weight=cc(:)%layerfrac*cc(:)%lai, op=OP_AVERAGE)
   call send_cohort_data(id_Ag_uninhib, diag, cc(:), Ag_uninhib(:), weight=cc(:)%layerfrac*cc(:)%lai, op=OP_AVERAGE)
   call send_cohort_data(id_resp_uninhib, diag, cc(:), resp_uninhib(:), weight=cc(:)%layerfrac*cc(:)%lai, op=OP_AVERAGE)
-
-  call send_cohort_data(id_irr_rate,diag, cc(:), cc(:)%irr_rate,    weight=cc(:)%layerfrac, op=OP_SUM)
 
 end subroutine vegn_step_1
 

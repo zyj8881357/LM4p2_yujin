@@ -1235,7 +1235,7 @@ subroutine soil_diag_init(id_ug,id_band,id_zfull)
   id_macro_infilt = register_tiled_diag_field (module_name, 'macro_inf', axes(1:1), &
        lnd%time, 'infiltration (decrease to IE runoff) at soil surface due to vertical macroporosity', 'mm/s', missing_value=-100.0 )
   id_irr_demand = register_tiled_diag_field ( module_name, 'irr_demand', axes(1:1), &
-       lnd%time, 'irrigation demand on soil area, only meaningful when the transpiration has been maximized', 'kg/(m2 s)',  missing_value=-100.0 )  
+       lnd%time, 'irrigation demand rate on soil area, only meaningful when the all demand has been maximized', 'kg/(m2 s)',  missing_value=-100.0 )  
 
   id_type = register_tiled_static_field ( module_name, 'soil_type',  &
        axes(1:1), 'soil type', missing_value=-1.0 )
@@ -4803,10 +4803,8 @@ end subroutine init_soil_twc
 
 ! ============================================================================
 ! Calculate irrigation demand for each gridcell
-subroutine irrigation_deficit(tot_irr_flux, tot_irr_flux_start, irr_area)
-  real, dimension(:), intent(out)  :: tot_irr_flux
-  real, dimension(:), intent(out)  :: tot_irr_flux_start             
-  real, dimension(:), intent(out)  :: irr_area                        
+subroutine irrigation_deficit(irr_area)   
+  real, dimension(:), intent(out)  :: irr_area !m2                       
   ! ---- local vars ----------------------------------------------------------
   type(land_tile_enum_type)     :: te,ce  ! tail and current tile list elements
   type(land_tile_type), pointer :: tile   ! pointer to current tile
@@ -4834,8 +4832,6 @@ subroutine irrigation_deficit(tot_irr_flux, tot_irr_flux_start, irr_area)
   real :: w_scale_thres = 0.99
 !----------------------------------------------------
 
- tot_irr_flux = 0.
- tot_irr_flux_start = 0.
  irr_area = 0.
 
  if (.not. use_irrigation_routine) return
@@ -4844,8 +4840,6 @@ subroutine irrigation_deficit(tot_irr_flux, tot_irr_flux_start, irr_area)
  !call read_field(irr_fac_file, 'irr_fac', irr_fac)
 
  do l=lnd%ls, lnd%le  
-     tot_irr_flux(l)=0.
-     irr_area(l) = 0.    
      ce = first_elmt(land_tile_map(l))
      do while(loop_over_tiles(ce,tile,k=k))
        if (.not.associated(tile%soil)) cycle
@@ -4853,11 +4847,10 @@ subroutine irrigation_deficit(tot_irr_flux, tot_irr_flux_start, irr_area)
        vegn => tile%vegn
        if(vegn%landuse == LU_IRRIG) then
          irr_area_temp =tile%frac*lnd%ug_area(l)
-         irr_demand = 0. !kg/m2 s
+         irr_demand = 0. !kg/(m2 s)
          do i = 1, vegn%n_cohorts
             if(vegn%cohorts(i)%w_scale < w_scale_thres .and. vegn%cohorts(i)%lai > 0) then
-              irr_demand =  irr_demand + max(0.,vegn%cohorts(i)%layerfrac * vegn%cohorts(i)%evap_demand*(1.-vegn%cohorts(i)%w_scale) * vegn%cohorts(i)%nindivs)  !kg/m2 s
-              vegn%cohorts(i)%irr_rate = max(0.,vegn%cohorts(i)%evap_demand*(1.-vegn%cohorts(i)%w_scale) * vegn%cohorts(i)%nindivs)  !kg/m2 s for yujin test
+              irr_demand =  irr_demand + max(0.,vegn%cohorts(i)%layerfrac * vegn%cohorts(i)%evap_demand*(1.-vegn%cohorts(i)%w_scale) * vegn%cohorts(i)%nindivs)  !kg/(m2 s) evap_demand maybe in restart
             endif
          enddo
          if(irr_demand == 0.) irr_area_temp = 0.
@@ -4865,13 +4858,12 @@ subroutine irrigation_deficit(tot_irr_flux, tot_irr_flux_start, irr_area)
          irr_demand=0.
          irr_area_temp = 0.                           
        endif
-       tot_irr_flux(l)=tot_irr_flux(l) + irr_demand/DENS_H2O*irr_area_temp !m3/s
-       irr_area(l) = irr_area(l) + irr_area_temp
-       call send_tile_data(id_irr_demand, irr_demand, tile%diag) !kg/m2 s
+       soil%irr_demand_ac = soil%irr_demand_ac + irr_demand*delta_time ! kg/m2, maybe in restart
+       irr_area(l) = irr_area(l) + irr_area_temp !m2
+       call send_tile_data(id_irr_demand, irr_demand, tile%diag) !kg/(m2 s)
      enddo
-     tot_irr_flux_start(l) = tot_irr_flux(l) !m3/s
-  enddo
+ enddo   
 
- end subroutine 
-
+ end subroutine irrigation_deficit
+! ============================================================================
 end module soil_mod
