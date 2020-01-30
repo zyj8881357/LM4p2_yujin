@@ -62,7 +62,7 @@ use vegn_cohort_mod, only : vegn_cohort_type, &
 use canopy_air_mod, only : cana_turbulence
 use soil_mod, only : soil_data_beta, redistribute_peat_carbon, &
      register_litter_soilc_diag_fields
-use surface_resistance_mod, only : evap_resistance_litter, evap_resistance_soil
+use surface_resistance_mod, only : surface_resistances
 
 use cohort_io_mod, only :  read_create_cohorts, create_cohort_dimension, &
      add_cohort_data, add_int_cohort_data, get_cohort_data, get_int_cohort_data
@@ -1611,8 +1611,9 @@ end subroutine vegn_diffusion
 subroutine vegn_step_1 ( vegn, soil, diag, &
         p_surf, ustar, drag_q, &
         SWdn, RSv, precip_l, precip_s, &
-        land_d, land_z0s, land_z0m, grnd_z0s, &
+        land_d, land_z0s, land_z0m, grnd_z0s, grnd_T, &
         cana_T, cana_q, cana_co2_mol, &
+        snow_active, &
         ! output
         con_g_h, con_g_v, & ! aerodynamic conductance between canopy air and ground, for heat and vapor flux
         con_v_v, & ! aerodynamic conductance between canopy air and canopy
@@ -1641,9 +1642,11 @@ subroutine vegn_step_1 ( vegn, soil, diag, &
        precip_l, precip_s, & ! liquid and solid precipitation rates, kg/(m2 s)
        land_d, land_z0s, land_z0m, & ! land displacement height and roughness, m
        grnd_z0s, & ! roughness of ground surface (including snow effect)
+       grnd_T,    & ! temperature of ground surface, deg K
        cana_T,    & ! temperature of canopy air, deg K
        cana_q,    & ! specific humidity of canopy air, kg/kg
        cana_co2_mol ! co2 mixing ratio in the canopy air, mol CO2/mol dry air
+  logical, intent(in) :: snow_active ! indicator of snow on the ground, for soil evaporation resistance calculations
   ! output -- coefficients of linearized expressions for fluxes
   real, intent(out), dimension(:) ::   &
        con_v_v, & ! aerodyn. conductance between canopy and CAS, for vapor (and tracers)
@@ -1698,8 +1701,7 @@ subroutine vegn_step_1 ( vegn, soil, diag, &
   integer :: i, current_layer, band, N
   real :: indiv2area ! conversion factor from X per indiv. to X per unit cohort area
   real :: area2indiv ! reciprocal of the indiv2area conversion factor
-  real :: rav_lit    ! litter resistance to water vapor
-  real :: rav_soil   ! soil and viscous sublayer resistance for water vapor
+  real :: r_evap, r_sens ! surface resistance to water vapor and heat fluxes, respectively, s/m
   real :: u_sfc      ! near-surface wind speed, m/s
   real :: ustar_sfc  ! near-surface friction speed, m/s
 
@@ -1760,16 +1762,10 @@ subroutine vegn_step_1 ( vegn, soil, diag, &
      land_d, land_z0m, land_z0s, grnd_z0s, &
      ! output:
      con_v_h, con_v_v, con_g_h, con_g_v, u_sfc, ustar_sfc)
-
-!   if (snow) then
-!
-!   else
-     rav_lit  = evap_resistance_litter(soil,vegn)
-     rav_soil = evap_resistance_soil(soil,u_sfc,ustar_sfc,p_surf)
-!      rsens_sfc = soil_sens_resistance(u_sfc,ustar_sfc,T_surf,p_surf)
-!   endif
-  con_g_v = con_g_v/(1.0+rav_lit*con_g_v+rav_soil*con_g_v)
-!   con_g_h = con_g_h/(1.0+rsens_sfc*con_g_v)
+  call surface_resistances(soil, vegn, diag, grnd_T, u_sfc, ustar_sfc, p_surf, snow_active, &
+       r_evap, r_sens)
+  con_g_v = con_g_v/(1.0+r_evap*con_g_v)
+  con_g_h = con_g_h/(1.0+r_sens*con_g_h)
 
   if(is_watch_point()) then
      __DEBUG1__(con_v_h)

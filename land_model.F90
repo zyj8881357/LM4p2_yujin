@@ -479,7 +479,7 @@ subroutine land_model_init &
   call cana_init ()
   call nitrogen_sources_init ( lnd%time, id_ug )
   call topo_rough_init( lnd%time, lnd%sg_lonb, lnd%sg_latb, lnd%sg_domain, lnd%ug_domain, id_ug)
-  call surface_resistance_init()
+  call surface_resistance_init(id_ug)
 
   call river_init( lnd%sg_lon, lnd%sg_lat, lnd%time, lnd%dt_fast, &
           lnd%sg_domain, lnd%ug_domain, lnd%sg_landfrac, discharge_tol, clw, csw )
@@ -1454,7 +1454,8 @@ subroutine update_land_model_fast_0d ( tile, l,itile, N, land2cplr, &
        grnd_q,         & ! specific humidity at ground surface
        grnd_rh,        & ! explicit relative humidity at ground surface
        grnd_rh_psi,    & ! psi derivative of relative humidity at ground surface
-       grnd_liq, grnd_ice, grnd_subl, &
+       grnd_liq, grnd_ice, &
+       grnd_subl, & ! fraction of water vapor flux from the ground that comes from sublimation, unitless [0,1]
        grnd_tf, &  ! temperature of freezing on the ground
        grnd_qsat, & ! saturated water vapor on the ground
        grnd_latent, &
@@ -1633,8 +1634,9 @@ subroutine update_land_model_fast_0d ( tile, l,itile, N, land2cplr, &
      call vegn_step_1 ( tile%vegn, tile%soil, tile%diag, &
         p_surf, ustar, drag_q, &
         swdn, swnet, precip_l, precip_s, &
-        tile%land_d, tile%land_z0s, tile%land_z0m, grnd_z0s, &
+        tile%land_d, tile%land_z0s, tile%land_z0m, grnd_z0s, grnd_T, &
         cana_T, cana_q, cana_co2_mol, &
+        snow_active, &
         ! output
         con_g_h, con_g_v, &
         con_v_v, con_st_v, & ! aerodyn. and stomatal conductances
