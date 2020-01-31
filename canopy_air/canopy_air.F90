@@ -336,7 +336,7 @@ subroutine cana_turbulence (u_star,&
   u_sfc = wind*exp(-a)
   ! simplified equation, probably wrong, assuming that momentum loss on every surface is
   ! the same. Factor 2 is because leaves are two-sided
-  ustar_sfc = u_star/(2*vegn_idx+1)
+  ustar_sfc = u_star/sqrt(2*vegn_idx+1)
 end subroutine cana_turbulence
 
 ! ============================================================================
