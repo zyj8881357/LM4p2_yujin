@@ -59,10 +59,9 @@ use vegn_cohort_mod, only : vegn_cohort_type, &
      update_species, update_bio_living_fraction, get_vegn_wet_frac, &
      vegn_data_cover, btotal, height_from_biomass, leaf_area_from_biomass, &
      update_cohort_root_properties
-use canopy_air_mod, only : cana_turbulence
+use canopy_air_mod, only : cana_turbulence, surface_resistances
 use soil_mod, only : soil_data_beta, redistribute_peat_carbon, &
      register_litter_soilc_diag_fields
-use surface_resistance_mod, only : surface_resistances
 
 use cohort_io_mod, only :  read_create_cohorts, create_cohort_dimension, &
      add_cohort_data, add_int_cohort_data, get_cohort_data, get_int_cohort_data
