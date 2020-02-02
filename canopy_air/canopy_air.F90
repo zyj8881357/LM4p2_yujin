@@ -18,7 +18,7 @@ use field_manager_mod, only : parse, MODEL_ATMOS, MODEL_LAND
 use tracer_manager_mod, only : get_tracer_index, get_tracer_names, &
      query_method, NO_TRACER
 
-use land_constants_mod, only : mol_CO2, mol_air, diffusivity_h2o, kin_visc_air, heat_cond_air
+use land_constants_mod, only : mol_CO2, mol_air, diffusivity_h2o, kin_visc_air, thermal_diff_air
 use land_numerics_mod, only : gamma
 use land_tracers_mod, only : ntcana, isphum, ico2
 use land_debug_mod, only : is_watch_point
@@ -552,7 +552,7 @@ subroutine surface_resistances(soil, vegn, diag, T_sfc, u_sfc, ustar_sfc, p, sno
       r_sv_evap = soil_evap_sv_resistance(soil)
       d_visc    = sfc_visc_bl_depth(u_sfc, ustar_sfc, T_sfc, p)
       r_bl_evap = soil_evap_bl_resistance(soil, theta_sfc, T_sfc, p, d_visc)
-      r_bl_sens = d_visc/heat_cond_air(T_sfc)
+      r_bl_sens = d_visc/thermal_diff_air(T_sfc)
   case default
      call error_mesg(module_name, 'invalid surface resistance option', FATAL)
   end select

@@ -32,7 +32,7 @@ real, public, parameter :: MPa_per_m = dens_h2o*grav*1.0e-6 ! pressure of one me
 public :: diffusivity_h2o ! (T,p) diffusivity of H2O in air, m2/s
 public :: dyn_visc_air    ! (T)   dynamic viscosity of air, kg/(m s)
 public :: kin_visc_air    ! (T,p) kinematic viscosity of dry air, m2/s
-public :: heat_cond_air   ! (T)   molecular heat conductivity of air, W/(m K)
+public :: thermal_diff_air! (T)   thermal diffusivity of air, m2/s
 contains
 
 ! ---------------------------------------------------------------------------------------
@@ -74,14 +74,14 @@ real function kin_visc_air(T, p) result(nu)
 end function kin_visc_air
 
 ! ---------------------------------------------------------------------------------------
-! molecular heat conductivity of air, W/(m K)
+! thermal diffusivity of air, m2/s
 ! https://en.wikipedia.org/wiki/Prandtl_number
-real function heat_cond_air(T) result(k)
+real function thermal_diff_air(T) result(k)
     real, intent(in) :: T ! temperature, degK
 
     real, parameter :: Pr = 0.71 ! Prandtl number for air
-    k = dyn_visc_air(T) * cp_air / Pr
-end function heat_cond_air
+    k = dyn_visc_air(T) / Pr
+end function thermal_diff_air
 
 
 end module
