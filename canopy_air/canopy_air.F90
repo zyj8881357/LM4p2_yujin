@@ -99,8 +99,9 @@ integer :: turbulence_option ! selected option of turbulence parameters
 integer :: soil_resistance_option = -1 ! option of soil resistance parameterization
 
 ! ---- diag field IDs
-integer :: id_r_litt_evap, id_r_bl_sens, id_r_bl_evap, id_r_sv_evap, id_d_visc, &
-           id_ustar_sfc, id_u_sfc
+integer :: id_r_litt_evap, id_r_bl_sens, id_r_bl_evap, id_r_sv_evap, &
+           id_c_litt_evap, id_c_bl_sens, id_c_bl_evap, id_c_sv_evap, &
+           id_d_visc, id_ustar_sfc, id_u_sfc, id_theta_sfc
 
 contains
 
@@ -242,20 +243,31 @@ subroutine cana_init (id_ug)
   ! set the default sub-sampling filter for the fields below
   call set_default_diag_filter('soil')
   id_r_litt_evap = register_tiled_diag_field( diag_mod_name, 'r_litt_evap', &
-       (/id_ug/), lnd%time, 'resistance of litter layer for water vapor', 's/m', missing_value=-1.0 )
+       (/id_ug/), lnd%time, 'resistance of litter layer to water vapor flux', 's/m', missing_value=-1.0 )
   id_r_bl_sens = register_tiled_diag_field( diag_mod_name, 'r_bl_sens', &
-       (/id_ug/), lnd%time, 'resistance of viscous boundary layer for heat', 's/m', missing_value=-1.0 )
+       (/id_ug/), lnd%time, 'resistance of viscous boundary layer to heat flux', 's/m', missing_value=-1.0 )
   id_r_bl_evap = register_tiled_diag_field( diag_mod_name, 'r_bl_evap', &
-       (/id_ug/), lnd%time, 'resistance of viscous boundary layer for water vapor', 's/m', missing_value=-1.0 )
+       (/id_ug/), lnd%time, 'resistance of viscous boundary layer to water vapor flux', 's/m', missing_value=-1.0 )
   id_r_sv_evap = register_tiled_diag_field( diag_mod_name, 'r_sv_evap', &
-       (/id_ug/), lnd%time, 'resistance of soil surface layer for water vapor', 's/m', missing_value=-1.0 )
+       (/id_ug/), lnd%time, 'resistance of near-surface soil to for water flux', 's/m', missing_value=-1.0 )
+
+  id_c_litt_evap = register_tiled_diag_field( diag_mod_name, 'c_litt_evap', &
+       (/id_ug/), lnd%time, 'conductance of litter layer for water vapor', 'm/s', missing_value=-1.0 )
+  id_c_bl_sens = register_tiled_diag_field( diag_mod_name, 'c_bl_sens', &
+       (/id_ug/), lnd%time, 'conductance of viscous boundary layer for heat', 'm/s', missing_value=-1.0 )
+  id_c_bl_evap = register_tiled_diag_field( diag_mod_name, 'c_bl_evap', &
+       (/id_ug/), lnd%time, 'conductance of viscous boundary layer for water vapor', 'm/s', missing_value=-1.0 )
+  id_c_sv_evap = register_tiled_diag_field( diag_mod_name, 'c_sv_evap', &
+       (/id_ug/), lnd%time, 'conductance of near-surface soil for water flux', 'm/s', missing_value=-1.0 )
+
   id_d_visc = register_tiled_diag_field( diag_mod_name, 'd_visc', &
        (/id_ug/), lnd%time, 'thickness of viscous sublayer', 'm', missing_value=-1.0 )
   id_u_sfc = register_tiled_diag_field( diag_mod_name, 'u_sfc', &
        (/id_ug/), lnd%time, 'near-surface wind velocity', 'm/s', missing_value=-1.0 )
   id_ustar_sfc = register_tiled_diag_field( diag_mod_name, 'ustar_sfc', &
        (/id_ug/), lnd%time, 'friction velocity at the surface', 'm/s', missing_value=-1.0 )
-
+  id_theta_sfc = register_tiled_diag_field( diag_mod_name, 'theta_sfc', &
+       (/id_ug/), lnd%time, 'relative soil wetness', 'unitless', missing_value=-1.0 )
 end subroutine cana_init
 
 
@@ -295,7 +307,7 @@ subroutine save_cana_restart (tile_dim_length, timestamp)
 end subroutine save_cana_restart
 
 ! ============================================================================
-subroutine cana_turbulence (u_star,&
+subroutine cana_turbulence (u_star, &
      vegn_cover, vegn_layerfrac, vegn_height, vegn_bottom, vegn_lai, vegn_sai, vegn_d_leaf, &
      land_d, land_z0m, land_z0s, grnd_z0s, &
      con_v_h, con_v_v, con_g_h, con_g_v, u_sfc, ustar_sfc )
@@ -511,9 +523,10 @@ subroutine surface_resistances(soil, vegn, diag, T_sfc, u_sfc, ustar_sfc, p, sno
   real, intent(in) :: p         ! surface pressure, N/m2
   logical, intent(in) :: snow_active ! if TRUE, ground is covered by snow
   ! output
-  real, intent(out) :: r_evap ! surface resistance for evaporation
-  real, intent(out) :: r_sens ! surface resistance for sensible heat
+  real, intent(out) :: r_evap ! surface resistance for evaporation, s/m
+  real, intent(out) :: r_sens ! surface resistance for sensible heat, s/m
 
+  real :: theta_sfc   ! relative soil wetness at the surface, unitless
   real :: r_litt_evap ! litter resistance, s/m
   real :: r_sv_evap   ! soil surface resistance to evaporation, s/m
   real :: r_bl_evap   ! viscous sublayer resistance to evaporation, s/m
@@ -526,6 +539,9 @@ subroutine surface_resistances(soil, vegn, diag, T_sfc, u_sfc, ustar_sfc, p, sno
      r_litt_evap = evap_resistance_litter(soil,vegn)
   endif
 
+  ! relative wetness of the surface:
+  theta_sfc = max(0.0, soil%wl(1) / (dens_h2o * dz(1)))/soil%pars%vwc_sat
+
   select case(soil_resistance_option)
   case(RESIST_NONE)
       r_sv_evap = 0
@@ -535,7 +551,7 @@ subroutine surface_resistances(soil, vegn, diag, T_sfc, u_sfc, ustar_sfc, p, sno
   case(RESIST_HO2013)
       r_sv_evap = soil_evap_sv_resistance(soil)
       d_visc    = sfc_visc_bl_depth(u_sfc, ustar_sfc, T_sfc, p)
-      r_bl_evap = soil_evap_bl_resistance(soil, T_sfc, p, d_visc)
+      r_bl_evap = soil_evap_bl_resistance(soil, theta_sfc, T_sfc, p, d_visc)
       r_bl_sens = d_visc/heat_cond_air(T_sfc)
   case default
      call error_mesg(module_name, 'invalid surface resistance option', FATAL)
@@ -552,9 +568,26 @@ subroutine surface_resistances(soil, vegn, diag, T_sfc, u_sfc, ustar_sfc, p, sno
   call send_tile_data(id_r_bl_sens,   r_bl_sens,   diag)
   call send_tile_data(id_r_bl_evap,   r_bl_evap,   diag)
   call send_tile_data(id_r_sv_evap,   r_sv_evap,   diag)
+
+  call send_tile_data(id_c_litt_evap, inverse(r_litt_evap), diag)
+  call send_tile_data(id_c_bl_sens,   inverse(r_bl_sens),   diag)
+  call send_tile_data(id_c_bl_evap,   inverse(r_bl_evap),   diag)
+  call send_tile_data(id_c_sv_evap,   inverse(r_sv_evap),   diag)
+
   call send_tile_data(id_d_visc,      d_visc,      diag)
   call send_tile_data(id_u_sfc,       u_sfc,       diag)
   call send_tile_data(id_ustar_sfc,   ustar_sfc,   diag)
+  call send_tile_data(id_theta_sfc,   theta_sfc,   diag)
+
+  contains
+  real elemental function inverse(r)
+     real, intent(in) :: r
+     if (r==0) then
+        inverse = 9999.0
+     else
+        inverse = 1.0/r
+     endif
+  end function inverse
 
 end subroutine surface_resistances
 
@@ -585,23 +618,23 @@ end function evap_resistance_litter
 !     are dominated by diffusion. Water Resources Research, 49, No.3, 1602–1610,
 !     doi:10.1002/wrcr.20166.
 real function soil_evap_sv_resistance(soil) result(r_sv)
-   type(soil_tile_type), intent(in) :: soil ! soil properties and parameters
+  type(soil_tile_type), intent(in) :: soil ! soil properties and parameters
 
-   real, parameter :: gam = 1.73e-5 ! unit conversion constant (Haghighi et al. 2013) eq(13)
+  real, parameter :: gam = 1.73e-5 ! unit conversion constant (Haghighi et al. 2013) eq(13)
 
-   real :: vlc(1), vsc(1) ! volumetric soil and ice content
-   real :: psi(1)   ! soil matric potential
-   real :: DThDP(1), DKDP(1), DPsi_min, DPsi_max ! unused
-   real :: K_z(1)   ! hydraulic conductivity in vertical, kg/(m2 s)
-   real :: K_x(1)   ! hydraulic conductivity in horizontal, unused
-   ! perhaps we can make soil_data_hydraulic_properties return only requested parameters?
+  real :: vlc(1), vsc(1) ! volumetric soil and ice content
+  real :: psi(1)   ! soil matric potential
+  real :: DThDP(1), DKDP(1), DPsi_min, DPsi_max ! unused
+  real :: K_z(1)   ! hydraulic conductivity in vertical, kg/(m2 s)
+  real :: K_x(1)   ! hydraulic conductivity in horizontal, unused
+  ! perhaps we can make soil_data_hydraulic_properties return only requested parameters?
 
-   vlc(1) = max(0.0, soil%wl(1) / (dens_h2o * dz(1)))
-   vsc(1) = max(0.0, soil%ws(1) / (dens_h2o * dz(1)))
-   call soil_data_hydraulic_properties (soil, vlc, vsc, &
-                    psi, DThDP, K_z, K_x, DKDP, DPsi_min, DPsi_max )
-   ! calculate resistance to transport within soil upper layer
-   r_sv = gam*dens_h2o/(4*K_z(1))
+  vlc(1) = max(0.0, soil%wl(1) / (dens_h2o * dz(1)))
+  vsc(1) = max(0.0, soil%ws(1) / (dens_h2o * dz(1)))
+  call soil_data_hydraulic_properties (soil, vlc, vsc, &
+                   psi, DThDP, K_z, K_x, DKDP, DPsi_min, DPsi_max )
+  ! calculate resistance to transport within soil upper layer
+  r_sv = gam*dens_h2o/(4*K_z(1))
 end function soil_evap_sv_resistance
 
 ! ============================================================================
@@ -609,44 +642,42 @@ end function soil_evap_sv_resistance
 ! Haghighi and Or (2013): Evaporation from porous surfaces into turbulent airflows: Coupling
 !      eddy characteristics with pore scale vapor diffusion. Water Resources Research, 49,
 !      8432–8442, doi:10.1002/2012WR013324View.
-real function soil_evap_bl_resistance(soil, T_sfc, p, d_bl) result(r_bl)
-   type(soil_tile_type), intent(in) :: soil
-   real, intent(in) :: T_sfc     ! surface temperature, K
-   real, intent(in) :: p         ! pressure, N/m2
-   real, intent(in) :: d_bl      ! thickness of viscous sublayer, m
+real function soil_evap_bl_resistance(soil, theta_sfc, T_sfc, p, d_bl) result(r_bl)
+  type(soil_tile_type), intent(in) :: soil
+  real, intent(in) :: theta_sfc ! relative soil wetness at the surface, unitless
+  real, intent(in) :: T_sfc     ! surface temperature, K
+  real, intent(in) :: p         ! pressure, N/m2
+  real, intent(in) :: d_bl      ! thickness of viscous sublayer, m
 
-   real, parameter :: sfc_tension_h2o = 0.071 ! surface tension of liquid water, J/m2
+  real, parameter :: sfc_tension_h2o = 0.071 ! surface tension of liquid water, J/m2
 
-   real :: f_diff   ! surface wetness dependency factor, unitless
-   real :: psi_sat_sfc ! saturated matric water potential at the surface, m
-   real :: theta_sfc ! relative soil wetness at the surface, unitless
-   real :: r_pores  ! surface pore radius, m
-   real :: diff_h2o ! diffusivity of water vapor
+  real :: f_diff   ! surface wetness dependency factor, unitless
+  real :: psi_sat_sfc ! saturated matric water potential at the surface, m
+  real :: r_pores  ! surface pore radius, m
+  real :: diff_h2o ! diffusivity of water vapor
 
-   ! relative wetness of the surface:
-   theta_sfc = max(0.0, soil%wl(1) / (dens_h2o * dz(1)))/soil%pars%vwc_sat
-   if (theta_sfc > 0) then
-      ! surface wetness dependency model, Schlunder (1988):
-      f_diff = (sqrt(pi/(4*theta_sfc))-1)/(pi*sqrt(theta_sfc))
-      ! to set reasonable value for theta_sfc > pi/4: f_diff = 0 means that water diffuses
-      ! like from a completely wet surface
-      f_diff = max(f_diff,0.0)
-      ! pore radius (should really be moved into initialization or soil properties update):
-      psi_sat_sfc = abs(soil%pars%psi_sat_ref/soil%alpha(1)) ! saturated matric water potential at the surface, m
-      r_pores = 2*sfc_tension_h2o/(dens_h2o*grav*psi_sat_sfc)
-      ! diffusivity of water vapor for current conditions:
-      diff_h2o = diffusivity_h2o(T_sfc,p)
-      ! finally, calculate resistance
-      r_bl = (d_bl + r_pores*sqrt(pi)*f_diff)/diff_h2o
-      if (is_watch_point()) then
-         __DEBUG5__(theta_sfc,f_diff,r_pores,diff_h2o,r_bl)
-      endif
-   else ! theta_sfc <= 0
-      r_bl = HUGE(r_bl)
-      if (is_watch_point()) then
-         __DEBUG2__(theta_sfc,r_bl)
-      endif
-   endif
+  if (theta_sfc > 0) then
+     ! surface wetness dependency model, Schlunder (1988):
+     f_diff = (sqrt(pi/(4*theta_sfc))-1)/(pi*sqrt(theta_sfc))
+     ! to set reasonable value for theta_sfc > pi/4: f_diff = 0 means that water diffuses
+     ! like from a completely wet surface
+     f_diff = max(f_diff,0.0)
+     ! pore radius (should really be moved into initialization or soil properties update):
+     psi_sat_sfc = abs(soil%pars%psi_sat_ref/soil%alpha(1)) ! saturated matric water potential at the surface, m
+     r_pores = 2*sfc_tension_h2o/(dens_h2o*grav*psi_sat_sfc)
+     ! diffusivity of water vapor for current conditions:
+     diff_h2o = diffusivity_h2o(T_sfc,p)
+     ! finally, calculate resistance
+     r_bl = (d_bl + r_pores*sqrt(pi)*f_diff)/diff_h2o
+     if (is_watch_point()) then
+        __DEBUG5__(theta_sfc,f_diff,r_pores,diff_h2o,r_bl)
+     endif
+  else ! theta_sfc <= 0
+     r_bl = HUGE(r_bl)
+     if (is_watch_point()) then
+        __DEBUG2__(theta_sfc,r_bl)
+     endif
+  endif
 end function soil_evap_bl_resistance
 
 ! ============================================================================
@@ -655,29 +686,29 @@ end function soil_evap_bl_resistance
 !      eddy characteristics with pore scale vapor diffusion. Water Resources Research, 49,
 !      8432–8442, doi:10.1002/2012WR013324View.
 real function sfc_visc_bl_depth(u_sfc, ustar_sfc, T, p) result(d_bl)
-   real, intent(in) :: u_sfc     ! near-surface wind velocity, m/s
-   real, intent(in) :: ustar_sfc ! friction velocity at the soil surface, m/s
-   real, intent(in) :: T         ! temperature, degK
-   real, intent(in) :: p         ! pressure, N/m2
+  real, intent(in) :: u_sfc     ! near-surface wind velocity, m/s
+  real, intent(in) :: ustar_sfc ! friction velocity at the soil surface, m/s
+  real, intent(in) :: T         ! temperature, degK
+  real, intent(in) :: p         ! pressure, N/m2
 
-   real, parameter :: c2 = 2.2   ! parameter of viscous sublayer depth (Haghighi & Or 2013),
-                                 ! eq (11), (Haghighi & Or 2015) eq (10a)
-   real, parameter :: c3 = 112.0 ! parameter of average eddy exposure time (Haghighi & Or,
-                                 ! 2013) eq (15)
+  real, parameter :: c2 = 2.2   ! parameter of viscous sublayer depth (Haghighi & Or 2013),
+                                ! eq (11), (Haghighi & Or 2015) eq (10a)
+  real, parameter :: c3 = 112.0 ! parameter of average eddy exposure time (Haghighi & Or,
+                                ! 2013) eq (15)
 
-   real :: alpha    ! parameter of eddy exposure time probability distribution, unitless
-   real :: visc
+  real :: alpha    ! parameter of eddy exposure time probability distribution, unitless
+  real :: visc
 
-   ! parameter of eddy exposure time probability distribution, (Haghighi & Or 2013) eq (A4)
-   ! for ustar_sfc > 0.3 u_sfc we set alpha to zero, effectively turning gamma-distribution
-   ! to exponential distribution.
-   alpha = max(0.3 * u_sfc/ustar_sfc-1.0,0.0)
-   ! kinematic viscosity of air
-   visc = kin_visc_air(T,p)
-   d_bl = visc/ustar_sfc * c2*sqrt(c3)/sqrt(alpha+1) * gamma(alpha+1.5)/gamma(alpha+1)
-   if (is_watch_point()) then
-   __DEBUG5__(d_bl, alpha, visc, u_sfc, ustar_sfc)
-   endif
+  ! parameter of eddy exposure time probability distribution, (Haghighi & Or 2013) eq (A4)
+  ! for ustar_sfc > 0.3 u_sfc we set alpha to zero, effectively turning gamma-distribution
+  ! to exponential distribution.
+  alpha = max(0.3 * u_sfc/ustar_sfc-1.0,0.0)
+  ! kinematic viscosity of air
+  visc = kin_visc_air(T,p)
+  d_bl = visc/ustar_sfc * c2*sqrt(c3)/sqrt(alpha+1) * gamma(alpha+1.5)/gamma(alpha+1)
+  if (is_watch_point()) then
+  __DEBUG5__(d_bl, alpha, visc, u_sfc, ustar_sfc)
+  endif
 end function sfc_visc_bl_depth
 
 
