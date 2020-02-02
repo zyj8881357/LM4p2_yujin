@@ -254,12 +254,32 @@ real function soil_evap_bl_resistance(soil, T_sfc, p, d_bl) result(r_bl)
    real :: psi_sat_sfc ! saturated matric water potential at the surface, m
    real :: theta_sfc ! relative soil wetness at the surface, unitless
    real :: r_pores  ! surface pore radius, m
+   real :: diff_h2o ! diffusivity of water vapor
 
+   ! relative wetness of the surface:
    theta_sfc = max(0.0, soil%wl(1) / (dens_h2o * dz(1)))/soil%pars%vwc_sat
-   f_diff = (sqrt(pi/theta_sfc)-1)/(pi*sqrt(theta_sfc)) ! surface wetness dependency model, Schlunder (1988)
-   psi_sat_sfc = abs(soil%pars%psi_sat_ref/soil%alpha(1)) ! saturated matric water potential at the surface, m
-   r_pores = 2*sfc_tension_h2o/(dens_h2o*grav*psi_sat_sfc)
-   r_bl = (d_bl + r_pores*f_diff)/diffusivity_h2o(T_sfc,p)
+   if (theta_sfc > 0) then
+      ! surface wetness dependency model, Schlunder (1988):
+      f_diff = (sqrt(pi/(4*theta_sfc))-1)/(pi*sqrt(theta_sfc))
+      ! to set reasonable value for theta_sfc > pi/4: f_diff = 0 means that water diffuses
+      ! like from a completely wet surface
+      f_diff = max(f_diff,0.0)
+      ! pore radius (should really be moved into initialization or soil properties update):
+      psi_sat_sfc = abs(soil%pars%psi_sat_ref/soil%alpha(1)) ! saturated matric water potential at the surface, m
+      r_pores = 2*sfc_tension_h2o/(dens_h2o*grav*psi_sat_sfc)
+      ! diffusivity of water vapor for current conditions:
+      diff_h2o = diffusivity_h2o(T_sfc,p)
+      ! finally, calculate resistance
+      r_bl = (d_bl + r_pores*sqrt(pi)*f_diff)/diff_h2o
+      if (is_watch_point()) then
+         __DEBUG5__(theta_sfc,f_diff,r_pores,diff_h2o,r_bl)
+      endif
+   else ! theta_sfc <= 0
+      r_bl = HUGE(r_bl)
+      if (is_watch_point()) then
+         __DEBUG2__(theta_sfc,r_bl)
+      endif
+   endif
 end function soil_evap_bl_resistance
 
 ! ---------------------------------------------------------------------------------------
@@ -279,10 +299,18 @@ real function sfc_visc_bl_depth(u_sfc, ustar_sfc, T, p) result(d_bl)
                                  ! 2013) eq (15)
 
    real :: alpha    ! parameter of eddy exposure time probability distribution, unitless
+   real :: visc
 
-   alpha = 0.3 * u_sfc/ustar_sfc ! parameter of eddy exposure time probablity distribution,
-                                 ! (Haghighi & Or 2013) eq (A4)
-   d_bl = c2*sqrt(c3)*kin_visc_air(T,p)/(sqrt(alpha+1)*ustar_sfc)*gamma(alpha+1.5)/gamma(alpha+0.5)
+   ! parameter of eddy exposure time probability distribution, (Haghighi & Or 2013) eq (A4)
+   ! for ustar_sfc > 0.3 u_sfc we set alpha to zero, effectively turning gamma-distribution
+   ! to exponential distribution.
+   alpha = max(0.3 * u_sfc/ustar_sfc-1.0,0.0)
+   ! kinematic viscosity of air
+   visc = kin_visc_air(T,p)
+   d_bl = visc/ustar_sfc * c2*sqrt(c3)/sqrt(alpha+1) * gamma(alpha+1.5)/gamma(alpha+1)
+   if (is_watch_point()) then
+   __DEBUG5__(d_bl, alpha, visc, u_sfc, ustar_sfc)
+   endif
 end function sfc_visc_bl_depth
 
 end module surface_resistance_mod
