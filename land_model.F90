@@ -255,6 +255,8 @@ integer :: &
   id_hlevap,   id_hlevapv,  id_hlevaps,  id_hlevapg,                       &
   id_fevap,    id_fevapv,   id_fevaps,   id_fevapg,                        &
   id_hfevap,   id_hfevapv,  id_hfevaps,  id_hfevapg,                       &
+  id_evapv,    id_evaps,    id_evapg,    id_evapu,                         &
+
   id_runf,                                                                 &
   id_hrunf,                                                                &
   id_lrunf,                 id_lrunfs,   id_lrunfg,                        &
@@ -2372,7 +2374,7 @@ subroutine update_land_model_fast_0d ( tile, l,itile, N, land2cplr, &
   call send_tile_data(id_hlevaps, cpw*snow_levap*(snow_T-tfreeze),    tile%diag)
   call send_tile_data(id_hlevapg, cpw*subs_levap*(grnd_T-tfreeze),    tile%diag)
   call send_tile_data(id_fevap,   sum(f(:)*vegn_fevap)+snow_fevap+subs_fevap, tile%diag)
-  call send_tile_data(id_fevapv,  sum(f(:)*vegn_fevap),                 tile%diag)
+  call send_tile_data(id_fevapv,  sum(f(:)*vegn_fevap),               tile%diag)
   call send_tile_data(id_fevaps,  snow_fevap,                         tile%diag)
   call send_tile_data(id_fevapg,  subs_fevap,                         tile%diag)
   call send_tile_data(id_hfevap,  sum(f(:)*cpw*vegn_fevap*(vegn_T-tfreeze)) &
@@ -2393,6 +2395,12 @@ subroutine update_land_model_fast_0d ( tile, l,itile, N, land2cplr, &
   call send_tile_data(id_frunfs,  snow_frunf,                         tile%diag)
   call send_tile_data(id_hfrunf,  snow_hfrunf + subs_hfrunf,          tile%diag)
   call send_tile_data(id_hfrunfs, snow_hfrunf,                        tile%diag)
+
+  if (id_evapv > 0) &
+       call send_tile_data(id_evapv, sum(f(:)*vegn_levap)+sum(f(:)*vegn_fevap), tile%diag)
+  call send_tile_data(id_evapg, subs_levap+subs_fevap, tile%diag)
+  call send_tile_data(id_evaps, snow_levap+snow_fevap, tile%diag)
+  call send_tile_data(id_evapu, snow_levap+snow_fevap+subs_levap+subs_fevap, tile%diag)
   ! TODO: generalize diagnostic for runoff of tracers
   ! BNS: This fails because id_runf_tr is allocated and set in land_diag_init before n_river_tracers is set in land_model_init
   ! do tr = 3, n_river_tracers
@@ -3888,6 +3896,17 @@ subroutine land_diag_init(clonb, clatb, clon, clat, time, &
              'vapor heat from snow sol', 'W/m2', missing_value=-1.0e+20)
   id_hfevapg = register_tiled_diag_field ( module_name, 'hfevapg', axes, time, &
              'vapor heat from ground sol', 'W/m2', missing_value=-1.0e+20)
+  ! total water vapor fluxes leaving specific surfaces (combinations of fluxes from
+  ! liquid and frozen parts)
+  id_evapv = register_tiled_diag_field ( module_name, 'evapv', axes, time, &
+             'vapor flux leaving intercepted liquid and snow', 'kg/(m2 s)', missing_value=-1.0e+20)
+  id_evaps = register_tiled_diag_field ( module_name, 'evaps', axes, time, &
+             'vapor flux leaving snow', 'kg/(m2 s)', missing_value=-1.0e+20)
+  id_evapg = register_tiled_diag_field ( module_name, 'evapg', axes, time, &
+             'vapor flux leaving ground', 'kg/(m2 s)', missing_value=-1.0e+20)
+  id_evapu = register_tiled_diag_field ( module_name, 'evapu', axes, time, &
+             'vapor flux leaving surface (ground and snow)', 'kg/(m2 s)', missing_value=-1.0e+20)
+
   id_runf   = register_tiled_diag_field ( module_name, 'runf', axes, time, &
              'total runoff', 'kg/(m2 s)', missing_value=-1.0e+20 )
   id_hrunf   = register_tiled_diag_field ( module_name, 'hrunf', axes, time, &
