@@ -412,8 +412,14 @@ subroutine cana_turbulence (u_star, &
 
   u_sfc = wind*exp(-a)
   ! simplified equation, probably wrong, assuming that momentum loss on every surface is
-  ! the same. Factor 2 is because leaves are two-sided
-  ustar_sfc = u_star/sqrt(2*vegn_idx+1)
+  ! the same. Factor 2 is because leaves are two-sided. This scales well with the vegetation
+  ! properties in the limit of tiny vegetation: when LAI+SAI goes to 0, ustar_sfc goes
+  ! to atmospheric value. Unfortunately for realistic vegetation the resulting ustar_sfc
+  ! is often (if not always) higher than u_sfc, which is nonsense.
+  ! ustar_sfc = u_star/sqrt(2*vegn_idx+1)
+
+  ! an alternative simple formulation: just scale ustar down like the wind to get ustar_sfc
+  ustar_sfc = u_star*exp(-a)
 end subroutine cana_turbulence
 
 ! ============================================================================
