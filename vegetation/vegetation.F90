@@ -1755,13 +1755,15 @@ subroutine vegn_step_1 ( vegn, soil, diag, &
   enddo
   gaps = gaps*layer_gaps ! take the last layer into account
 
-  ! calculate the aerodynamic conductance coefficients
+  ! calculate aerodynamic conductance coefficients
   call cana_turbulence(ustar, 1-gaps, &
      cc(:)%layerfrac, cc(:)%height, cc(:)%zbot, cc(:)%lai, cc(:)%sai, cc(:)%leaf_size, &
      land_d, land_z0m, land_z0s, grnd_z0s, &
      ! output:
      con_v_h, con_v_v, con_g_h, con_g_v, u_sfc, ustar_sfc)
-  call surface_resistances(soil, vegn, diag, grnd_T, u_sfc, ustar_sfc, p_surf, snow_active, &
+  ! calculate surface resistances to evaporation and sensible heat
+  call surface_resistances(soil, vegn, diag, grnd_T, u_sfc, ustar_sfc, land_d, p_surf, snow_active, &
+     ! output:
        r_evap, r_sens)
   con_g_v = con_g_v/(1.0+r_evap*con_g_v)
   con_g_h = con_g_h/(1.0+r_sens*con_g_h)

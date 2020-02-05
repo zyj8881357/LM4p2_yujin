@@ -349,11 +349,11 @@ subroutine cana_turbulence (u_star, &
 
   select case(turbulence_option)
   case(TURB_LM3W)
+     a  = max(vegn_cover,0.0)*a_max
      if(vegn_cover > 0) then
         ztop   = maxval(vegn_height(:))
 
         wind  = u_star/VONKARM*log((ztop-land_d)/land_z0m) ! normalized wind on top of the canopy
-        a     = vegn_cover*a_max
         do i = 1,size(vegn_lai)
            height = vegn_height(i) ! effective height of the vegetation
            h0     = vegn_bottom(i) ! height of the bottom of the canopy
@@ -410,16 +410,15 @@ subroutine cana_turbulence (u_star, &
   end select
   con_g_v = con_g_h
 
-  u_sfc = wind*exp(-a)
-  ! simplified equation, probably wrong, assuming that momentum loss on every surface is
-  ! the same. Factor 2 is because leaves are two-sided. This scales well with the vegetation
-  ! properties in the limit of tiny vegetation: when LAI+SAI goes to 0, ustar_sfc goes
-  ! to atmospheric value. Unfortunately for realistic vegetation the resulting ustar_sfc
-  ! is often (if not always) higher than u_sfc, which is nonsense.
-  ! ustar_sfc = u_star/sqrt(2*vegn_idx+1)
+! u_sfc     = wind * exp(-a)
+! ustar_sfc = u_star * exp(-a)
+  u_sfc     = wind
+  ustar_sfc = u_star/sqrt(2*vegn_idx + 1)
 
-  ! an alternative simple formulation: just scale ustar down like the wind to get ustar_sfc
-  ustar_sfc = u_star*exp(-a)
+  if (is_watch_point()) then
+     __DEBUG3__(vegn_idx,land_d,Kh_top)
+     __DEBUG4__(ztop,u_star,wind,rah_sca)
+  endif
 end subroutine cana_turbulence
 
 ! ============================================================================
@@ -518,7 +517,7 @@ end subroutine cana_roughness
 
 ! ============================================================================
 ! calculate soil surface (laminar) resistances to evaporation and sensible heat
-subroutine surface_resistances(soil, vegn, diag, T_sfc, u_sfc, ustar_sfc, p, snow_active, &
+subroutine surface_resistances(soil, vegn, diag, T_sfc, u_sfc, ustar_sfc, land_d, p, snow_active, &
        r_evap, r_sens)
   type(soil_tile_type), intent(in) :: soil
   type(vegn_tile_type), intent(in) :: vegn
@@ -526,6 +525,7 @@ subroutine surface_resistances(soil, vegn, diag, T_sfc, u_sfc, ustar_sfc, p, sno
   real, intent(in) :: T_sfc     ! surface temperature, K
   real, intent(in) :: u_sfc     ! near-surface wind velocity, m/s
   real, intent(in) :: ustar_sfc ! friction velocity at the soil surface, m/s
+  real, intent(in) :: land_d    ! land displacement height, m
   real, intent(in) :: p         ! surface pressure, N/m2
   logical, intent(in) :: snow_active ! if TRUE, ground is covered by snow
   ! output
@@ -538,6 +538,7 @@ subroutine surface_resistances(soil, vegn, diag, T_sfc, u_sfc, ustar_sfc, p, sno
   real :: r_bl_evap   ! viscous sublayer resistance to evaporation, s/m
   real :: r_bl_sens   ! viscous sublayer resistance to heat flux, s/m
   real :: d_visc      ! thickness of viscous sublayer, m
+  real :: diff_air    ! thermal diffusivity of air, m/s
 
   if (snow_active) then
      r_litt_evap = 0
@@ -547,6 +548,12 @@ subroutine surface_resistances(soil, vegn, diag, T_sfc, u_sfc, ustar_sfc, p, sno
 
   ! relative wetness of the surface:
   theta_sfc = max(0.0, soil%wl(1) / (dens_h2o * dz(1)))/soil%pars%vwc_sat
+  if (is_watch_point()) then
+     write(*,*) '#### surface resistance input ####'
+     __DEBUG5__(T_sfc,u_sfc,ustar_sfc,p,snow_active)
+     __DEBUG4__(theta_sfc,soil%wl(1),soil%ws(1),soil%pars%vwc_sat)
+     write(*,*) '#### end of surface resistance input ####'
+  endif
 
   select case(soil_resistance_option)
   case(RESIST_NONE)
@@ -556,9 +563,10 @@ subroutine surface_resistances(soil, vegn, diag, T_sfc, u_sfc, ustar_sfc, p, sno
       d_visc    = 0
   case(RESIST_HO2013)
       r_sv_evap = soil_evap_sv_resistance(soil)
-      d_visc    = sfc_visc_bl_depth(u_sfc, ustar_sfc, T_sfc, p)
+      d_visc    = min(sfc_visc_bl_depth(u_sfc, ustar_sfc, T_sfc, p),land_d)
       r_bl_evap = soil_evap_bl_resistance(soil, theta_sfc, T_sfc, p, d_visc)
-      r_bl_sens = d_visc/thermal_diff_air(T_sfc)
+      diff_air  = thermal_diff_air(T_sfc)
+      r_bl_sens = d_visc/diff_air
   case default
      call error_mesg(module_name, 'invalid surface resistance option', FATAL)
   end select
@@ -566,7 +574,10 @@ subroutine surface_resistances(soil, vegn, diag, T_sfc, u_sfc, ustar_sfc, p, sno
   r_evap = r_bl_evap + r_sv_evap + r_litt_evap
   r_sens = r_bl_sens
   if (is_watch_point()) then
-     __DEBUG4__(r_bl_evap, r_bl_sens, r_sv_evap, d_visc)
+     __DEBUG5__(r_bl_evap, r_sv_evap, r_bl_sens, d_visc, diff_air)
+     write(*,*) '#### surface resistance output ####'
+     __DEBUG2__(r_evap, r_sens)
+     write(*,*) '#### end of surface resistance output ####'
   endif
 
   ! diagnostic section
@@ -629,7 +640,7 @@ real function soil_evap_sv_resistance(soil) result(r_sv)
   real, parameter :: gam = 1.73e-5 ! unit conversion constant (Haghighi et al. 2013) eq(13)
 
   real :: vlc(1), vsc(1) ! volumetric soil and ice content
-  real :: psi(1)   ! soil matric potential
+  real :: psi(1)   ! soil matric potential, unused
   real :: DThDP(1), DKDP(1), DPsi_min, DPsi_max ! unused
   real :: K_z(1)   ! hydraulic conductivity in vertical, kg/(m2 s)
   real :: K_x(1)   ! hydraulic conductivity in horizontal, unused
@@ -641,6 +652,9 @@ real function soil_evap_sv_resistance(soil) result(r_sv)
                    psi, DThDP, K_z, K_x, DKDP, DPsi_min, DPsi_max )
   ! calculate resistance to transport within soil upper layer
   r_sv = gam*dens_h2o/(4*K_z(1))
+  if(is_watch_point()) then
+     __DEBUG3__(psi(1),K_z(1),r_sv)
+  endif
 end function soil_evap_sv_resistance
 
 ! ============================================================================
@@ -676,12 +690,12 @@ real function soil_evap_bl_resistance(soil, theta_sfc, T_sfc, p, d_bl) result(r_
      ! finally, calculate resistance
      r_bl = (d_bl + r_pores*sqrt(pi)*f_diff)/diff_h2o
      if (is_watch_point()) then
-        __DEBUG5__(theta_sfc,f_diff,r_pores,diff_h2o,r_bl)
+        __DEBUG4__(f_diff,r_pores,diff_h2o,r_bl)
      endif
   else ! theta_sfc <= 0
      r_bl = HUGE(r_bl)
      if (is_watch_point()) then
-        __DEBUG2__(theta_sfc,r_bl)
+        __DEBUG1__(r_bl)
      endif
   endif
 end function soil_evap_bl_resistance
@@ -691,7 +705,7 @@ end function soil_evap_bl_resistance
 ! Haghighi and Or (2013): Evaporation from porous surfaces into turbulent airflows: Coupling
 !      eddy characteristics with pore scale vapor diffusion. Water Resources Research, 49,
 !      8432–8442, doi:10.1002/2012WR013324View.
-real function sfc_visc_bl_depth(u_sfc, ustar_sfc, T, p) result(d_bl)
+real function sfc_visc_bl_depth(u_sfc, ustar_sfc, T, p) result(d_visc)
   real, intent(in) :: u_sfc     ! near-surface wind velocity, m/s
   real, intent(in) :: ustar_sfc ! friction velocity at the soil surface, m/s
   real, intent(in) :: T         ! temperature, degK
@@ -711,9 +725,9 @@ real function sfc_visc_bl_depth(u_sfc, ustar_sfc, T, p) result(d_bl)
   alpha = max(0.3 * u_sfc/ustar_sfc-1.0,0.0)
   ! kinematic viscosity of air
   visc = kin_visc_air(T,p)
-  d_bl = visc/ustar_sfc * c2*sqrt(c3)/sqrt(alpha+1) * gamma(alpha+1.5)/gamma(alpha+1)
+  d_visc = visc/ustar_sfc * c2*sqrt(c3)/sqrt(alpha+1) * gamma(alpha+1.5)/gamma(alpha+1)
   if (is_watch_point()) then
-  __DEBUG5__(d_bl, alpha, visc, u_sfc, ustar_sfc)
+  __DEBUG5__(u_sfc, ustar_sfc, alpha, visc, d_visc)
   endif
 end function sfc_visc_bl_depth
 
