@@ -1721,6 +1721,7 @@ subroutine vegn_step_1 ( vegn, soil, diag, &
      write(*,*)'#### end of vegn_step_1 input ####'
      __DEBUG1__(cc%layer)
      __DEBUG1__(cc%species)
+     call dpri("cc%species",spdata(cc%species)%name); write(*,*)
      __DEBUG1__(cc%nindivs)
      __DEBUG1__(cc%crownarea)
      __DEBUG1__(cc%layerfrac)
