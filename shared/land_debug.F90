@@ -49,6 +49,7 @@ interface dpri
    module procedure debug_printout_t0d
    module procedure debug_printout_r1d
    module procedure debug_printout_i1d
+   module procedure debug_printout_t1d
    module procedure debug_printout_r2d
 end interface dpri
 
@@ -489,6 +490,18 @@ subroutine debug_printout_i1d(description,values)
   call print_label(description)
   do i = 1,size(values)
      write(*,value_format,advance='NO')values(i)
+  enddo
+end subroutine
+
+subroutine debug_printout_t1d(description,values)
+  character(*), intent(in) :: description
+  character(*), intent(in) :: values(:)
+
+  integer :: i
+
+  call print_label(description)
+  do i = 1,size(values)
+     write(*,value_format,advance='NO')'"'//trim(values(i))//'"'
   enddo
 end subroutine
 
