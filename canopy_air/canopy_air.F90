@@ -154,6 +154,7 @@ subroutine cana_init ()
      else
         tile%cana%T = init_T
      endif
+     tile%cana%fog = 0.0
      tile%cana%tr(:) = init_tr(:)
   enddo
 
@@ -164,6 +165,8 @@ subroutine cana_init ()
           'reading NetCDF restart "'//trim(restart_file_name)//'"',&
           NOTE)
      call get_tile_data(restart, 'temp', cana_T_ptr)
+     if (field_exists(restart,'fog')) &
+        call get_tile_data(restart, 'fog', cana_fog_ptr)
      do tr = 1, ntcana
         call get_tracer_names(MODEL_LAND, tr, name=name)
         if (field_exists(restart,trim(name))) then
@@ -220,6 +223,7 @@ subroutine save_cana_restart (tile_dim_length, timestamp)
 
   ! write temperature
   call add_tile_data(restart,'temp',cana_T_ptr,'canopy air temperature','degrees_K')
+  call add_tile_data(restart,'fog',cana_fog_ptr,'canopy air condensate mass','kg/m2')
   do tr = 1,ntcana
      call get_tracer_names(MODEL_LAND, tr, name, longname, units)
      if (tr==ico2.and..not.save_qco2) cycle
@@ -440,6 +444,16 @@ subroutine cana_T_ptr(t,p)
   p=>NULL()
   if(associated(t))then
      if(associated(t%cana))p=>t%cana%T
+  endif
+end subroutine
+
+subroutine cana_fog_ptr(t,p)
+  type(land_tile_type), pointer :: t
+  real,                 pointer :: p
+
+  p=>NULL()
+  if(associated(t))then
+     if(associated(t%cana))p=>t%cana%fog
   endif
 end subroutine
 
