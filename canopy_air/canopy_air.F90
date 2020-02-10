@@ -83,12 +83,14 @@ real :: rav_lit_fsc       = 0.0 ! litter resistance to vapor per fsc
 real :: rav_lit_ssc       = 0.0 ! litter resistance to vapor per ssc
 real :: rav_lit_deadmic   = 0.0 ! litter resistance to vapor per dead microbe C
 real :: rav_lit_bwood     = 0.0 ! litter resistance to vapor per bwood
-
+real :: d_visc_max        =-1.0 ! when positive, max thickness of viscous sublayer (m);
+                                ! negative or zero turn off limitation
 namelist /cana_nml/ &
   init_T, init_T_cold, init_q, init_co2, turbulence_to_use, use_SAI_for_heat_exchange, &
   canopy_air_mass, canopy_air_mass_for_tracers, cpw, save_qco2, bare_rah_sca, &
   ! soil resistance parameters
   soil_resistance_to_use, &
+  d_visc_max, &
   rav_lit_0, rav_lit_vi, rav_lit_fsc, rav_lit_ssc, rav_lit_deadmic, rav_lit_bwood
 
 !---- end of namelist --------------------------------------------------------
@@ -564,6 +566,7 @@ subroutine surface_resistances(soil, vegn, diag, T_sfc, u_sfc, ustar_sfc, land_d
   case(RESIST_HO2013)
       r_sv_evap = soil_evap_sv_resistance(soil)
       d_visc    = min(sfc_visc_bl_depth(u_sfc, ustar_sfc, T_sfc, p),land_d)
+      if (d_visc_max > 0) d_visc = min(d_visc,d_visc_max)
       r_bl_evap = soil_evap_bl_resistance(soil, theta_sfc, T_sfc, p, d_visc)
       diff_air  = thermal_diff_air(T_sfc)
       r_bl_sens = d_visc/diff_air
