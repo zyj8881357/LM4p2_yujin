@@ -1735,14 +1735,14 @@ subroutine update_land_model_fast_0d ( tile, l,itile, N, land2cplr, &
     vT = vegn_T-tfreeze
   endif
 
-  fc0    = 0
+  call qscomp(cana_T+delta_Tc,p_surf,cana_qsat,DqsatDTc)
+  if (do_fog.and.cana_q < cana_qsat) then
+      fc0 = -tile%cana%fog*(1-exp(-delta_time/fog_evap_time))/delta_time
+  else
+      fc0 = 0
+  endif
   DfcDqc = 0
   DfcDTc = 0
-!  call qscomp(cana_T,p_surf,cana_qsat,DqsatDTc)
-!   if (do_fog) then
-!      if (cana_q < cana_qsat) &
-!            fog_evap = tile%cana%fog*(1-exp(-delta_time/fog_evap_time))/delta_time
-!   endif
 
 ! [X.X] using long-wave optical properties, calculate the explicit long-wave
 !       radiative balances and their derivatives w.r.t. temperatures
@@ -2156,7 +2156,6 @@ subroutine update_land_model_fast_0d ( tile, l,itile, N, land2cplr, &
   ! update canopy air temperature and specific humidity
   tile%cana%T = tile%cana%T + delta_Tc
   tile%cana%tr(isphum) = tile%cana%tr(isphum) + delta_qc
-  __DEBUG3__(tile%cana%fog,delta_fog,tile%cana%fog+delta_fog)
   tile%cana%fog = tile%cana%fog + delta_fog
 
   if(associated(tile%vegn)) then
