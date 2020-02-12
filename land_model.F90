@@ -61,7 +61,7 @@ use vegn_disturbance_mod, only : vegn_nat_mortality_ppa
 use vegn_fire_mod, only : update_fire_fast, fire_transitions, save_fire_restart
 use cana_tile_mod, only : canopy_air_mass, canopy_air_mass_for_tracers, cana_tile_heat, cana_tile_carbon
 use canopy_air_mod, only : read_cana_namelist, cana_init, cana_end,&
-     cana_roughness, &
+     cana_roughness, do_fog, fog_cond_rate, fog_evap_time, &
      save_cana_restart
 use river_mod, only : river_init, river_end, update_river, river_stock_pe, &
      save_river_restart, river_tracers_init, num_river_tracers, river_tracer_index, &
@@ -276,7 +276,7 @@ integer :: &
   id_transp,                id_wroff,    id_sroff,                         &
   id_htransp,  id_huptake,  id_hroff,    id_gsnow,    id_gequil,           &
   id_grnd_flux,                                                            &
-  id_levapg_max,                                                           &
+  id_levapg_max,  id_fog,                                                  &
   id_water,    id_snow,     id_snow_frac,                                  &
   id_Trad,     id_Tca,      id_qca,      id_qco2,     id_qco2_dvmr,        &
   id_swdn_dir, id_swdn_dif, id_swup_dir, id_swup_dif, id_lwdn,             &
@@ -1330,6 +1330,8 @@ subroutine update_land_model_fast ( cplr2land, land2cplr )
      call send_tile_data(id_water, subs_LMASS+subs_FMASS, tile%diag)
      call send_tile_data(id_snow,  snow_LMASS+snow_FMASS, tile%diag)
 
+     call send_tile_data(id_fog,  tile%cana%fog, tile%diag)
+
      ! CMOR variables
      call send_tile_data(id_snw, snow_FMASS, tile%diag)
      call send_tile_data(id_lwsnl, snow_LMASS, tile%diag)
@@ -1394,12 +1396,12 @@ subroutine update_land_model_fast_0d ( tile, l,itile, N, land2cplr, &
        runoff_c(:) ! runoff of tracers (including ice/snow and heat)
 
   ! ---- local vars
-  real :: A(3*N+2,3*N+2),B0(3*N+2),B1(3*N+2),B2(3*N+2) ! implicit equation matrix and right-hand side vectors
-  real :: ALUD(3*N+2,3*N+2) ! LU-decomposed A
-  real :: X0(3*N+2),X1(3*N+2),X2(3*N+2) ! copy of the above, only for debugging
-  integer :: indx(3*N+2) ! permutation vector
+  real :: A(3*N+3,3*N+3),B0(3*N+3),B1(3*N+3),B2(3*N+3) ! implicit equation matrix and right-hand side vectors
+  real :: ALUD(3*N+3,3*N+3) ! LU-decomposed A
+  real :: X0(3*N+3),X1(3*N+3),X2(3*N+3) ! copy of the above, only for debugging
+  integer :: indx(3*N+3) ! permutation vector
   ! indices of variables and equations for implicit time stepping solution :
-  integer :: iqc, iTc, iTv, iwl, iwf
+  integer :: iqc, iFog, iTc, iTv, iwl, iwf
   ! linearization coefficients of various fluxes between components of land
   ! surface scheme
   real :: &
@@ -1408,8 +1410,10 @@ subroutine update_land_model_fast_0d ( tile, l,itile, N, land2cplr, &
        G0,    DGDTg,  &  ! ground heat flux
        Hg0,   DHgDTg,   DHgDTc, & ! linearization of the sensible heat flux from ground
        Eg0,   DEgDTg,   DEgDqc, DEgDpsig, & ! linearization of evaporation from ground
+       fc0,   DfcDqc,   DfcDTc, &  ! linearization of fog equation
        flwg0, DflwgDTg, DflwgDTv(N), &  ! linearization of net LW radiation on the ground
-       DqsatDTg   ! derivative of sat spec. humidity w.r.t. ground T, kg/kg/K
+       DqsatDTc, & ! derivative of sat. spec. humidity w.r.t. canopy air T, kg/kg/K
+       DqsatDTg    ! derivative of sat. spec. humidity w.r.t. ground T, kg/kg/K
   real, dimension(N) :: & ! by cohort
        Hv0,   DHvDTv,   DHvDTc, & ! sens heat flux from vegetation
        Et0,   DEtDTv,   DEtDqc,   DEtDwl,   DEtDwf,  & ! transpiration
@@ -1428,7 +1432,7 @@ subroutine update_land_model_fast_0d ( tile, l,itile, N, land2cplr, &
 
   ! increments of respective variables over time step, results of the implicit
   ! time step:
-  real :: delta_qc, delta_Tc, delta_Tv(N), delta_wl(N), delta_ws(N), delta_Tg, delta_psig, delta_co2
+  real :: delta_qc, delta_Tc, delta_Tv(N), delta_wl(N), delta_ws(N), delta_Tg, delta_psig, delta_co2, delta_fog
   real :: flwg ! updated value of long-wave ground energy balance
   real :: sum0, sum1, sum2
 
@@ -1500,7 +1504,7 @@ subroutine update_land_model_fast_0d ( tile, l,itile, N, land2cplr, &
   integer :: i, j, ii, jj ! indices for debug output
   integer :: ierr
   integer :: tr ! tracer index
-  logical :: conserve_glacier_mass, snow_active, redo_leaf_water
+  logical :: conserve_glacier_mass, snow_active, redo_leaf_water, redo_cana_q
   integer :: canopy_water_step, lw_step
   real :: subs_z0m, subs_z0s, snow_z0m, snow_z0s, grnd_z0s
   real :: lmass0, fmass0, heat0, cmass0, nmass0, nflux0, v0
@@ -1731,6 +1735,15 @@ subroutine update_land_model_fast_0d ( tile, l,itile, N, land2cplr, &
     vT = vegn_T-tfreeze
   endif
 
+  fc0    = 0
+  DfcDqc = 0
+  DfcDTc = 0
+!  call qscomp(cana_T,p_surf,cana_qsat,DqsatDTc)
+!   if (do_fog) then
+!      if (cana_q < cana_qsat) &
+!            fog_evap = tile%cana%fog*(1-exp(-delta_time/fog_evap_time))/delta_time
+!   endif
+
 ! [X.X] using long-wave optical properties, calculate the explicit long-wave
 !       radiative balances and their derivatives w.r.t. temperatures
   delta_Tv(:) = 0.0; delta_Tg = 0.0
@@ -1756,6 +1769,7 @@ subroutine update_land_model_fast_0d ( tile, l,itile, N, land2cplr, &
            __DEBUG2__(evap_T,eT)
            __DEBUG2__(precip_T,pT)
            __DEBUG2__(precip_l, precip_s)
+           __DEBUG1__(tile%cana%fog)
            __DEBUG1__(vegn_prec_l)
            __DEBUG1__(vegn_prec_s)
            __DEBUG1__(vegn_drip_l)
@@ -1774,9 +1788,15 @@ subroutine update_land_model_fast_0d ( tile, l,itile, N, land2cplr, &
            __DEBUG2__(G0, DGDTg)
            __DEBUG2__(Ha0, DHaDTc)
            __DEBUG2__(Ea0, DEaDqc)
+           __DEBUG3__(fc0, DfcDqc, DfcDTc)
            __DEBUG1__(Hv0)
            __DEBUG1__(DHvDTv)
            __DEBUG1__(DHvDTc)
+           call dpri("Ev0",Et0+Eli0+Esi0); write(*,*)
+           call dpri("DEvDTv",DEtDTv+DEliDTv+DEsiDTv); write(*,*)
+           call dpri("DEvDqc",DEtDqc+DEliDqc+DEsiDqc); write(*,*)
+           call dpri("DEvDwl",DEtDwl+DEliDwl+DEsiDwl); write(*,*)
+           call dpri("DEvDwf",DEtDwf+DEliDwf+DEsiDwf); write(*,*)
            __DEBUG1__(Et0)
            __DEBUG1__(DEtDTv)
            __DEBUG1__(DEtDqc)
@@ -1808,22 +1828,32 @@ subroutine update_land_model_fast_0d ( tile, l,itile, N, land2cplr, &
         endif
 
         ! calculate indices for equation system:
-        iqc=1;  iTc=2;  iTv=3;  iwl=iTv+N;  iwf=iwl+N
+        iqc=1;  iTc=2;  iFog=3;  iTv=4;  iwl=iTv+N;  iwf=iwl+N
 
         A(:,:) = 0
       ! [X.1] form the system of equations for implicit scheme, such that A*X = B1*delta_Tg+B2*delta_psig+B0
       ! [X.1.1] equation of canopy air mass balance
         A(iqc,iqc) = canopy_air_mass/delta_time &
-           -sum((DEtDqc(:)+DEliDqc(:)+DEsiDqc(:))*f(:))-DEgDqc+DEaDqc
-        A(iqc,iTc) = 0
+           -sum((DEtDqc(:)+DEliDqc(:)+DEsiDqc(:))*f(:))-DEgDqc+DEaDqc &
+           +DfcDqc
+        A(iqc,iTc) = -DfcDTc
         do k = 1,N
            A(iqc,iTv+k-1) = -f(k)*(DEtDTv(k)+DEliDTv(k)+DEsiDTv(k))
            A(iqc,iwl+k-1) = -f(k)*(DEtDwl(k)+DEliDwl(k)+DEsiDwl(k))
            A(iqc,iwf+k-1) = -f(k)*(DEtDwf(k)+DEliDwf(k)+DEsiDwf(k))
         enddo
-        B0(iqc)  = sum(f(:)*(Esi0(:)+Eli0(:)+Et0(:)))+Eg0-Ea0
+        B0(iqc)  = sum(f(:)*(Esi0(:)+Eli0(:)+Et0(:)))+Eg0-Ea0-fc0
         B1(iqc)  = DEgDTg
         B2(iqc)  = DEgDpsig
+
+      ! Fog mass balance
+        A(iFog,iFog) = 1.0/delta_time
+        A(iFog,iqc ) = -DfcDqc
+        A(iFog,iTc)  = -DfcDTc
+        B0(iFog) = fc0
+        B1(iFog) = 0
+        B2(iFog) = 0
+
       ! [X.1.2] equation of canopy air energy balance
 #ifdef USE_DRY_CANA_MASS
         A(iTc,iqc) = canopy_air_mass*cpw*cT/delta_time &
@@ -1831,13 +1861,15 @@ subroutine update_land_model_fast_0d ( tile, l,itile, N, land2cplr, &
         A(iTc,iqc) = canopy_air_mass*(cpw*cT-cp_air*cana_T)/delta_time &
 #endif
              - cpw*sum(f(:)*vT(:)*(DEtDqc(:)+DEliDqc(:)+DEsiDqc(:))) &
-             - cpw*gT*DEgDqc + cpw*eT*DEaDqc
+             - cpw*gT*DEgDqc + cpw*eT*DEaDqc &
+             - hlv*DfcDqc
 #ifdef USE_DRY_CANA_MASS
         A(iTc,iTc) = canopy_air_mass*cp_air/delta_time &
 #else
         A(iTc,iTc) = canopy_air_mass*(cp_air+cana_q*(cpw-cp_air))/delta_time &
 #endif
-             - sum(f(:)*DHvDTc(:)) - DHgDTc + DHaDTc
+             - sum(f(:)*DHvDTc(:)) - DHgDTc + DHaDTc &
+             - hlv*DfcDTc
         do k = 1,N
            A(iTc,iTv+k-1) = -f(k)*(DHvDTv(k)+cpw*vT(k)*(DEtDTv(k)+DEliDTv(k)+DEsiDTv(k)))
            A(iTc,iwl+k-1) =            -f(k)*cpw*vT(k)*(DEtDwl(k)+DEliDwl(k)+DEsiDwl(k))
@@ -1845,6 +1877,7 @@ subroutine update_land_model_fast_0d ( tile, l,itile, N, land2cplr, &
         enddo
         B0(iTc)  = sum(f(:)*Hv0(:)) + Hg0 - Ha0 &
            + cpw*sum(f(:)*vT(:)*(Et0(:)+Eli0(:)+Esi0(:)))+cpw*gT*Eg0-cpw*eT*Ea0 &
+           + hlv*fc0 &
            - tile%e_res_1 - tile%e_res_2
         B1(iTc)  = DHgDTg + cpw*gT*DEgDTg
         B2(iTc)  =          cpw*gT*DEgDpsig
@@ -2011,6 +2044,7 @@ subroutine update_land_model_fast_0d ( tile, l,itile, N, land2cplr, &
         delta_Tv(:) = X0(iTv:iTv+N-1) + X1(iTv:iTv+N-1)*delta_Tg + X2(iTv:iTv+N-1)*delta_psig
         delta_wl(:) = X0(iwl:iwl+N-1) + X1(iwl:iwl+N-1)*delta_Tg + X2(iwl:iwl+N-1)*delta_psig
         delta_ws(:) = X0(iwf:iwf+N-1) + X1(iwf:iwf+N-1)*delta_Tg + X2(iwf:iwf+N-1)*delta_psig
+        delta_fog = X0(iFog) + X1(iFog)*delta_Tg + X2(iFog)*delta_psig
 
       ! [X.6] calculate updated values of energy balance components used in further
       !       calculations
@@ -2044,6 +2078,7 @@ subroutine update_land_model_fast_0d ( tile, l,itile, N, land2cplr, &
            __DEBUG1__(delta_psig)
            __DEBUG2__(delta_qc, cana_q+delta_qc )
            __DEBUG2__(delta_Tc, cana_T+delta_Tc )
+           __DEBUG2__(delta_fog, tile%cana%fog+delta_fog )
            __DEBUG1__(delta_Tv)
            __DEBUG1__(delta_wl)
            __DEBUG1__(delta_ws)
@@ -2059,6 +2094,26 @@ subroutine update_land_model_fast_0d ( tile, l,itile, N, land2cplr, &
            __DEBUG1__(vegn_lwnet)
            __DEBUG1__(vegn_flw)
            __DEBUG1__(land_evap)
+        endif
+
+        redo_cana_q = .FALSE.
+        if (do_fog) then
+           call qscomp(cana_T+delta_Tc,p_surf,cana_qsat,DqsatDTc)
+           redo_cana_q = (cana_q+delta_qc > cana_qsat)
+           if (redo_cana_q) then
+              fc0    = fog_cond_rate*(cana_q - cana_qsat)
+              DfcDqc = fog_cond_rate
+              DfcDTc = 0.0! -fog_cond_rate*DqsatDTc
+              if (is_watch_point()) then
+                 write(*,*)'### fog triggered ###'
+                 __DEBUG4__(cana_q,cana_q+delta_qc,cana_qsat,tile%cana%fog)
+                 __DEBUG3__(fc0,DfcDqc,DfcDTc)
+              endif
+           else
+              fc0    = 0
+              DfcDqc = 0
+              DfcDTc = 0
+           endif
         endif
 
         redo_leaf_water = .FALSE.
@@ -2078,7 +2133,7 @@ subroutine update_land_model_fast_0d ( tile, l,itile, N, land2cplr, &
              endif
            enddo
         endif
-        if (.not.redo_leaf_water) exit ! from loop
+        if (.not.(redo_leaf_water.or.redo_cana_q)) exit ! from loop
      enddo ! canopy_water_step
      ! call check_var_range(delta_Tv,  -HUGE(1.0), lw_delta_T_thresh, 'for LW derivative improvement', 'delta_Tv', WARNING)
      ! call check_var_range(delta_Tg,  -HUGE(1.0), lw_delta_T_thresh, 'for LW derivative improvement', 'delta_Tg', WARNING)
@@ -2086,7 +2141,6 @@ subroutine update_land_model_fast_0d ( tile, l,itile, N, land2cplr, &
      ! otherwise redo longwave radiation calculations with new values of delta_Tv, delta_Tg
      ! to get better approximation of long-wave radiation derivatives.
   enddo ! lw_step
-
   ! calculate energy residuals due to cross-product of time tendencies
 #ifdef USE_DRY_CANA_MASS
   tile%e_res_1 = canopy_air_mass*cpw*delta_qc*delta_Tc/delta_time
@@ -2102,6 +2156,8 @@ subroutine update_land_model_fast_0d ( tile, l,itile, N, land2cplr, &
   ! update canopy air temperature and specific humidity
   tile%cana%T = tile%cana%T + delta_Tc
   tile%cana%tr(isphum) = tile%cana%tr(isphum) + delta_qc
+  __DEBUG3__(tile%cana%fog,delta_fog,tile%cana%fog+delta_fog)
+  tile%cana%fog = tile%cana%fog + delta_fog
 
   if(associated(tile%vegn)) then
      call vegn_step_2 ( tile%vegn, tile%diag, &
@@ -4007,6 +4063,8 @@ subroutine land_diag_init(clonb, clatb, clon, clat, time, &
              'column-integrated soil water', 'kg/m2', missing_value=-1.0e+20 )
   id_snow = register_tiled_diag_field ( module_name, 'snow', axes, time, &
              'column-integrated snow water', 'kg/m2', missing_value=-1.0e+20 )
+  id_fog = register_tiled_diag_field ( module_name, 'fog', axes, time, &
+             'canopy water condensate', 'kg/m2', missing_value=-1.0e+20 )
   id_Trad    = register_tiled_diag_field ( module_name, 'Trad', axes, time, &
              'radiative sfc temperature', 'degK', missing_value=-1.0e+20 )
   id_Tca     = register_tiled_diag_field ( module_name, 'Tca', axes, time, &

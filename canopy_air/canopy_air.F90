@@ -60,9 +60,13 @@ logical :: use_SAI_for_heat_exchange = .FALSE. ! if true, con_v_h is calculated 
    ! traditional treatment (default) is to only use SAI
 logical :: save_qco2     = .TRUE.
 real :: bare_rah_sca     = 0.01     ! bare-ground resistance between ground and canopy air, s/m
+logical, protected, public :: do_fog        = .FALSE.  ! if true, water vapore in canopy air can form condensate
+real,    protected, public :: fog_cond_rate = 1.0
+real,    protected, public :: fog_evap_time = 3600.0   ! time of fog evaporation in dry environment, s
 namelist /cana_nml/ &
   init_T, init_T_cold, init_q, init_co2, turbulence_to_use, use_SAI_for_heat_exchange, &
-  canopy_air_mass, canopy_air_mass_for_tracers, cpw, save_qco2, bare_rah_sca
+  canopy_air_mass, canopy_air_mass_for_tracers, cpw, save_qco2, bare_rah_sca, &
+  do_fog, fog_cond_rate, fog_evap_time
 !---- end of namelist --------------------------------------------------------
 
 logical :: module_is_initialized =.FALSE.
