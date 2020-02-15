@@ -276,7 +276,8 @@ integer :: &
   id_transp,                id_wroff,    id_sroff,                         &
   id_htransp,  id_huptake,  id_hroff,    id_gsnow,    id_gequil,           &
   id_grnd_flux,                                                            &
-  id_levapg_max,  id_fog,                                                  &
+  id_levapg_max,  &
+  id_fog,      id_fog_form, id_fog_diss,  id_qsat, id_qsat_lin,            &
   id_water,    id_snow,     id_snow_frac,                                  &
   id_Trad,     id_Tca,      id_qca,      id_qco2,     id_qco2_dvmr,        &
   id_swdn_dir, id_swdn_dif, id_swup_dir, id_swup_dif, id_lwdn,             &
@@ -1330,7 +1331,6 @@ subroutine update_land_model_fast ( cplr2land, land2cplr )
      call send_tile_data(id_water, subs_LMASS+subs_FMASS, tile%diag)
      call send_tile_data(id_snow,  snow_LMASS+snow_FMASS, tile%diag)
 
-     call send_tile_data(id_fog,  tile%cana%fog, tile%diag)
 
      ! CMOR variables
      call send_tile_data(id_snw, snow_FMASS, tile%diag)
@@ -1410,7 +1410,7 @@ subroutine update_land_model_fast_0d ( tile, l,itile, N, land2cplr, &
        G0,    DGDTg,  &  ! ground heat flux
        Hg0,   DHgDTg,   DHgDTc, & ! linearization of the sensible heat flux from ground
        Eg0,   DEgDTg,   DEgDqc, DEgDpsig, & ! linearization of evaporation from ground
-       fc0, fog_evap,  DfcDqc,   DfcDTc, &  ! linearization of fog equation
+       fc0,   fog_diss, fog_form,  DfcDqc, DfcDTc, &  ! linearization of fog equation
        flwg0, DflwgDTg, DflwgDTv(N), &  ! linearization of net LW radiation on the ground
        DqsatDTc, & ! derivative of sat. spec. humidity w.r.t. canopy air T, kg/kg/K
        DqsatDTg    ! derivative of sat. spec. humidity w.r.t. ground T, kg/kg/K
@@ -1735,15 +1735,13 @@ subroutine update_land_model_fast_0d ( tile, l,itile, N, land2cplr, &
     vT = vegn_T-tfreeze
   endif
 
-  call qscomp(cana_T+delta_Tc,p_surf,cana_qsat,DqsatDTc)
+  call qscomp(cana_T,p_surf,cana_qsat,DqsatDTc)
   if (do_fog.and.cana_q < cana_qsat) then
-      fog_evap = tile%cana%fog*(1-exp(-delta_time/fog_evap_time))/delta_time
+      fog_diss = tile%cana%fog*(1-exp(-delta_time/fog_evap_time))/delta_time
   else
-      fog_evap = 0
+      fog_diss = 0
   endif
-  fc0    = -fog_evap
-  DfcDqc = 0
-  DfcDTc = 0
+  fc0 = -fog_diss ; DfcDqc = 0 ; DfcDTc = 0
 
 ! [X.X] using long-wave optical properties, calculate the explicit long-wave
 !       radiative balances and their derivatives w.r.t. temperatures
@@ -1789,7 +1787,7 @@ subroutine update_land_model_fast_0d ( tile, l,itile, N, land2cplr, &
            __DEBUG2__(G0, DGDTg)
            __DEBUG2__(Ha0, DHaDTc)
            __DEBUG2__(Ea0, DEaDqc)
-           __DEBUG4__(fc0, DfcDqc, DfcDTc, fog_evap)
+           __DEBUG4__(fc0, DfcDqc, DfcDTc, fog_diss)
            __DEBUG1__(Hv0)
            __DEBUG1__(DHvDTv)
            __DEBUG1__(DHvDTc)
@@ -2102,7 +2100,8 @@ subroutine update_land_model_fast_0d ( tile, l,itile, N, land2cplr, &
            !call qscomp(cana_T+delta_Tc,p_surf,cana_qsat,DqsatDTc)
            redo_cana_q = (cana_q+delta_qc > cana_qsat+DqsatDTc*delta_Tc)
            if (redo_cana_q) then
-              fc0    =  fog_cond_rate*(cana_q - cana_qsat) - fog_evap
+              fog_form = fog_cond_rate*(cana_q - cana_qsat)
+              fc0    =  fog_form - fog_diss
               DfcDqc =  fog_cond_rate
               DfcDTc = -fog_cond_rate*DqsatDTc
               if (is_watch_point()) then
@@ -2111,9 +2110,7 @@ subroutine update_land_model_fast_0d ( tile, l,itile, N, land2cplr, &
                  __DEBUG3__(fc0,DfcDqc,DfcDTc)
               endif
            else
-              fc0    = 0
-              DfcDqc = 0
-              DfcDTc = 0
+              fog_form = 0 ; fc0 = 0 ; DfcDqc = 0 ; DfcDTc = 0
            endif
         endif
 
@@ -2508,10 +2505,15 @@ subroutine update_land_model_fast_0d ( tile, l,itile, N, land2cplr, &
   call send_tile_data(id_subs_emis,1-tile%surf_refl_lw,               tile%diag)
 
   call send_tile_data(id_grnd_rh, grnd_rh, tile%diag)
-  if (id_cana_rh > 0) then
+  call send_tile_data(id_qsat_lin,   cana_qsat+DqsatDTc*delta_Tc,     tile%diag)
+  if (id_cana_rh > 0.or.id_qsat>0) then
      call qscomp(tile%cana%T, p_surf, cana_qsat)
-     call send_tile_data(id_cana_rh, tile%cana%tr(isphum)/cana_qsat, tile%diag)
+     call send_tile_data(id_qsat,    cana_qsat,                       tile%diag)
+     call send_tile_data(id_cana_rh, tile%cana%tr(isphum)/cana_qsat,  tile%diag)
   endif
+  call send_tile_data(id_fog,        tile%cana%fog,                   tile%diag)
+  call send_tile_data(id_fog_form,   fog_form+DfcDqc*delta_qc+DfcDTc*delta_Tc,   tile%diag)
+  call send_tile_data(id_fog_diss,   fog_diss,                        tile%diag)
 
   ! CMOR/CMIP variables
   call send_tile_data(id_pcp,    precip_l+precip_s,                   tile%diag)
@@ -4064,7 +4066,11 @@ subroutine land_diag_init(clonb, clatb, clon, clat, time, &
   id_snow = register_tiled_diag_field ( module_name, 'snow', axes, time, &
              'column-integrated snow water', 'kg/m2', missing_value=-1.0e+20 )
   id_fog = register_tiled_diag_field ( module_name, 'fog', axes, time, &
-             'canopy water condensate', 'kg/m2', missing_value=-1.0e+20 )
+             'fog mass', 'kg/m2', missing_value=-1.0e+20 )
+  id_fog_form = register_tiled_diag_field ( module_name, 'fog_form', axes, time, &
+             'fog formation rate', 'kg/(m2 s)', missing_value=-1.0e+20 )
+  id_fog_diss = register_tiled_diag_field ( module_name, 'fog_diss', axes, time, &
+             'fog dissipation rate', 'kg/(m2 s)', missing_value=-1.0e+20 )
   id_Trad    = register_tiled_diag_field ( module_name, 'Trad', axes, time, &
              'radiative sfc temperature', 'degK', missing_value=-1.0e+20 )
   id_Tca     = register_tiled_diag_field ( module_name, 'Tca', axes, time, &
@@ -4073,6 +4079,10 @@ subroutine land_diag_init(clonb, clatb, clon, clat, time, &
              'canopy-air specific humidity', 'kg/kg', missing_value=-1.0 )
   id_cana_rh = register_tiled_diag_field ( module_name, 'rhca', axes, time, &
              'canopy-air relative humidity', 'kg/kg', missing_value=-1.0 )
+  id_qsat = register_tiled_diag_field ( module_name, 'qsat', axes, time, &
+             'saturated specific humidity', 'kg/kg', missing_value=-1.0e+20 )
+  id_qsat_lin = register_tiled_diag_field ( module_name, 'qsat_lin', axes, time, &
+             'saturated specific humidity, linearized estimate', 'kg/kg', missing_value=-1.0e+20 )
   id_qco2    = register_tiled_diag_field ( module_name, 'qco2', axes, time, &
              'canopy-air CO2 moist mass mixing ratio', 'kg/kg', missing_value=-1.0 )
   id_qco2_dvmr = register_tiled_diag_field ( module_name, 'qco2_dvmr', axes, time, &
