@@ -1410,7 +1410,7 @@ subroutine update_land_model_fast_0d ( tile, l,itile, N, land2cplr, &
        G0,    DGDTg,  &  ! ground heat flux
        Hg0,   DHgDTg,   DHgDTc, & ! linearization of the sensible heat flux from ground
        Eg0,   DEgDTg,   DEgDqc, DEgDpsig, & ! linearization of evaporation from ground
-       fc0,   DfcDqc,   DfcDTc, &  ! linearization of fog equation
+       fc0, fog_evap,  DfcDqc,   DfcDTc, &  ! linearization of fog equation
        flwg0, DflwgDTg, DflwgDTv(N), &  ! linearization of net LW radiation on the ground
        DqsatDTc, & ! derivative of sat. spec. humidity w.r.t. canopy air T, kg/kg/K
        DqsatDTg    ! derivative of sat. spec. humidity w.r.t. ground T, kg/kg/K
@@ -1737,10 +1737,11 @@ subroutine update_land_model_fast_0d ( tile, l,itile, N, land2cplr, &
 
   call qscomp(cana_T+delta_Tc,p_surf,cana_qsat,DqsatDTc)
   if (do_fog.and.cana_q < cana_qsat) then
-      fc0 = -tile%cana%fog*(1-exp(-delta_time/fog_evap_time))/delta_time
+      fog_evap = tile%cana%fog*(1-exp(-delta_time/fog_evap_time))/delta_time
   else
-      fc0 = 0
+      fog_evap = 0
   endif
+  fc0    = -fog_evap
   DfcDqc = 0
   DfcDTc = 0
 
@@ -1788,7 +1789,7 @@ subroutine update_land_model_fast_0d ( tile, l,itile, N, land2cplr, &
            __DEBUG2__(G0, DGDTg)
            __DEBUG2__(Ha0, DHaDTc)
            __DEBUG2__(Ea0, DEaDqc)
-           __DEBUG3__(fc0, DfcDqc, DfcDTc)
+           __DEBUG4__(fc0, DfcDqc, DfcDTc, fog_evap)
            __DEBUG1__(Hv0)
            __DEBUG1__(DHvDTv)
            __DEBUG1__(DHvDTc)
@@ -1836,7 +1837,7 @@ subroutine update_land_model_fast_0d ( tile, l,itile, N, land2cplr, &
         A(iqc,iqc) = canopy_air_mass/delta_time &
            -sum((DEtDqc(:)+DEliDqc(:)+DEsiDqc(:))*f(:))-DEgDqc+DEaDqc &
            +DfcDqc
-        A(iqc,iTc) = -DfcDTc
+        A(iqc,iTc) = DfcDTc
         do k = 1,N
            A(iqc,iTv+k-1) = -f(k)*(DEtDTv(k)+DEliDTv(k)+DEsiDTv(k))
            A(iqc,iwl+k-1) = -f(k)*(DEtDwl(k)+DEliDwl(k)+DEsiDwl(k))
@@ -2041,10 +2042,10 @@ subroutine update_land_model_fast_0d ( tile, l,itile, N, land2cplr, &
       ! [X.5] calculate final value of other tendencies
         delta_qc = X0(iqc) + X1(iqc)*delta_Tg + X2(iqc)*delta_psig
         delta_Tc = X0(iTc) + X1(iTc)*delta_Tg + X2(iTc)*delta_psig
+        delta_fog= X0(iFog) + X1(iFog)*delta_Tg + X2(iFog)*delta_psig
         delta_Tv(:) = X0(iTv:iTv+N-1) + X1(iTv:iTv+N-1)*delta_Tg + X2(iTv:iTv+N-1)*delta_psig
         delta_wl(:) = X0(iwl:iwl+N-1) + X1(iwl:iwl+N-1)*delta_Tg + X2(iwl:iwl+N-1)*delta_psig
         delta_ws(:) = X0(iwf:iwf+N-1) + X1(iwf:iwf+N-1)*delta_Tg + X2(iwf:iwf+N-1)*delta_psig
-        delta_fog = X0(iFog) + X1(iFog)*delta_Tg + X2(iFog)*delta_psig
 
       ! [X.6] calculate updated values of energy balance components used in further
       !       calculations
@@ -2098,15 +2099,15 @@ subroutine update_land_model_fast_0d ( tile, l,itile, N, land2cplr, &
 
         redo_cana_q = .FALSE.
         if (do_fog) then
-           call qscomp(cana_T+delta_Tc,p_surf,cana_qsat,DqsatDTc)
-           redo_cana_q = (cana_q+delta_qc > cana_qsat)
+           !call qscomp(cana_T+delta_Tc,p_surf,cana_qsat,DqsatDTc)
+           redo_cana_q = (cana_q+delta_qc > cana_qsat+DqsatDTc*delta_Tc)
            if (redo_cana_q) then
-              fc0    = fog_cond_rate*(cana_q - cana_qsat)
-              DfcDqc = fog_cond_rate
-              DfcDTc = 0.0! -fog_cond_rate*DqsatDTc
+              fc0    =  fog_cond_rate*(cana_q - cana_qsat) - fog_evap
+              DfcDqc =  fog_cond_rate
+              DfcDTc = -fog_cond_rate*DqsatDTc
               if (is_watch_point()) then
                  write(*,*)'### fog triggered ###'
-                 __DEBUG4__(cana_q,cana_q+delta_qc,cana_qsat,tile%cana%fog)
+                 __DEBUG4__(cana_q,cana_q+delta_qc,cana_qsat+DqsatDTc*delta_Tc,tile%cana%fog)
                  __DEBUG3__(fc0,DfcDqc,DfcDTc)
               endif
            else
