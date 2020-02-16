@@ -73,7 +73,7 @@ character(len=32) :: turbulence_to_use = 'lm3w' ! or lm3v
 logical :: use_SAI_for_heat_exchange = .FALSE. ! if true, con_v_h is calculated for LAI+SAI
    ! traditional treatment (default) is to only use SAI
 logical :: save_qco2     = .TRUE.
-
+! resistance-related namelist variables
 character(32) :: soil_resistance_to_use = 'none' ! or 'HO2013'
 real :: bare_rah_sca      = 0.01 ! bare-ground resistance between ground and canopy air, s/m
   ! resistances in soil upper layer and viscous sublayer
@@ -85,13 +85,21 @@ real :: rav_lit_deadmic   = 0.0 ! litter resistance to vapor per dead microbe C
 real :: rav_lit_bwood     = 0.0 ! litter resistance to vapor per bwood
 real :: d_visc_max        =-1.0 ! when positive, max thickness of viscous sublayer (m);
                                 ! negative or zero turn off limitation
+! fog-related namelist variables
+logical, protected, public :: do_fog        = .FALSE.  ! if true, water vapore in canopy air can form condensate
+real,    protected, public :: fog_form_rate = 1.0
+real,    protected, public :: fog_diss_time = 0.0   ! e-folding time of fog evaporation in dry environment, s
+                                                    ! 0 or below means instant dissipation
+
 namelist /cana_nml/ &
   init_T, init_T_cold, init_q, init_co2, turbulence_to_use, use_SAI_for_heat_exchange, &
   canopy_air_mass, canopy_air_mass_for_tracers, cpw, save_qco2, bare_rah_sca, &
   ! soil resistance parameters
   soil_resistance_to_use, &
   d_visc_max, &
-  rav_lit_0, rav_lit_vi, rav_lit_fsc, rav_lit_ssc, rav_lit_deadmic, rav_lit_bwood
+  rav_lit_0, rav_lit_vi, rav_lit_fsc, rav_lit_ssc, rav_lit_deadmic, rav_lit_bwood, &
+  ! fog-related namelists
+  do_fog, fog_form_rate, fog_diss_time
 
 !---- end of namelist --------------------------------------------------------
 
@@ -213,6 +221,7 @@ subroutine cana_init (id_ug)
      else
         tile%cana%T = init_T
      endif
+     tile%cana%fog = 0.0
      tile%cana%tr(:) = init_tr(:)
   enddo
 
@@ -223,6 +232,8 @@ subroutine cana_init (id_ug)
           'reading NetCDF restart "'//trim(restart_file_name)//'"',&
           NOTE)
      call get_tile_data(restart, 'temp', cana_T_ptr)
+     if (field_exists(restart,'fog')) &
+        call get_tile_data(restart, 'fog', cana_fog_ptr)
      do tr = 1, ntcana
         call get_tracer_names(MODEL_LAND, tr, name=name)
         if (field_exists(restart,trim(name))) then
@@ -299,6 +310,7 @@ subroutine save_cana_restart (tile_dim_length, timestamp)
 
   ! write temperature
   call add_tile_data(restart,'temp',cana_T_ptr,'canopy air temperature','degrees_K')
+  call add_tile_data(restart,'fog',cana_fog_ptr,'canopy air condensate mass','kg/m2')
   do tr = 1,ntcana
      call get_tracer_names(MODEL_LAND, tr, name, longname, units)
      if (tr==ico2.and..not.save_qco2) cycle
@@ -750,6 +762,16 @@ subroutine cana_T_ptr(t,p)
   p=>NULL()
   if(associated(t))then
      if(associated(t%cana))p=>t%cana%T
+  endif
+end subroutine
+
+subroutine cana_fog_ptr(t,p)
+  type(land_tile_type), pointer :: t
+  real,                 pointer :: p
+
+  p=>NULL()
+  if(associated(t))then
+     if(associated(t%cana))p=>t%cana%fog
   endif
 end subroutine
 

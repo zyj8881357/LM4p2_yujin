@@ -2,7 +2,7 @@ module cana_tile_mod
 
 use land_tracers_mod, only : ntcana, isphum, ico2
 use land_tile_selectors_mod, only : tile_selector_type
-use constants_mod, only : cp_air, tfreeze
+use constants_mod, only : cp_air, tfreeze, hlv
 use land_constants_mod, only : mol_C, mol_co2
 
 implicit none
@@ -38,7 +38,8 @@ end interface
 
 ! ==== data types ======================================================
 type :: cana_tile_type
-  real T                 ! temperature of canopy air, deg K
+  real :: T              ! temperature of canopy air, deg K
+  real :: fog            ! mass of condensate, kg/m2
   real, allocatable :: tr(:) ! concentrations of tracers in canopy air
 end type cana_tile_type
 
@@ -94,6 +95,7 @@ subroutine merge_cana_tiles(cana1,w1,cana2,w2)
   HEAT2 = canopy_air_mass*(cp_air+(cpw-cp_air)*cana2%tr(isphum))*cana2%T
 
   cana2%tr = cana1%tr*x1+cana2%tr*x2
+  cana2%fog = cana1%fog*x1+cana2%fog*x2
   if (canopy_air_mass > 0) then
      cana2%T = (HEAT1*x1+HEAT2*x2)/&
           (canopy_air_mass*(cp_air+(cpw - cp_air)*cana2%tr(isphum)))
@@ -126,14 +128,15 @@ subroutine cana_tile_stock_pe (cana, twd_liq, twd_sol)
   type(cana_tile_type), intent(in) :: cana
   real, intent(out) :: twd_liq, twd_sol
 
-  twd_liq = canopy_air_mass*cana%tr(isphum); twd_sol = 0
+  twd_liq = canopy_air_mass*cana%tr(isphum)+cana%fog; twd_sol = 0
 end subroutine
 
 ! =============================================================================
 function cana_tile_heat (cana) result(heat) ; real heat
   type(cana_tile_type), intent(in) :: cana
 
-  heat = canopy_air_mass*(cp_air+(cpw-cp_air)*cana%tr(isphum))*(cana%T-tfreeze)
+  heat = canopy_air_mass*(cp_air+(cpw-cp_air)*cana%tr(isphum))*(cana%T-tfreeze) &
+       + cana%fog*hlv
 end function
 
 ! =============================================================================
