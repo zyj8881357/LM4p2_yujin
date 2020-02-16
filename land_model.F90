@@ -61,7 +61,7 @@ use vegn_disturbance_mod, only : vegn_nat_mortality_ppa
 use vegn_fire_mod, only : update_fire_fast, fire_transitions, save_fire_restart
 use cana_tile_mod, only : canopy_air_mass, canopy_air_mass_for_tracers, cana_tile_heat, cana_tile_carbon
 use canopy_air_mod, only : read_cana_namelist, cana_init, cana_end,&
-     cana_roughness, do_fog, fog_cond_rate, fog_evap_time, &
+     cana_roughness, do_fog, fog_form_rate, fog_diss_time, &
      save_cana_restart
 use river_mod, only : river_init, river_end, update_river, river_stock_pe, &
      save_river_restart, river_tracers_init, num_river_tracers, river_tracer_index, &
@@ -1737,7 +1737,11 @@ subroutine update_land_model_fast_0d ( tile, l,itile, N, land2cplr, &
 
   call qscomp(cana_T,p_surf,cana_qsat,DqsatDTc)
   if (do_fog.and.cana_q < cana_qsat) then
-      fog_diss = tile%cana%fog*(1-exp(-delta_time/fog_evap_time))/delta_time
+      if (fog_diss_time > 0) then
+         fog_diss = tile%cana%fog*(1-exp(-delta_time/fog_diss_time))/delta_time
+      else
+         fog_diss = tile%cana%fog/delta_time
+      endif
   else
       fog_diss = 0
   endif
@@ -2096,21 +2100,20 @@ subroutine update_land_model_fast_0d ( tile, l,itile, N, land2cplr, &
         endif
 
         redo_cana_q = .FALSE.
+        fog_form = 0 ; fc0 = 0 ; DfcDqc = 0 ; DfcDTc = 0
         if (do_fog) then
            !call qscomp(cana_T+delta_Tc,p_surf,cana_qsat,DqsatDTc)
            redo_cana_q = (cana_q+delta_qc > cana_qsat+DqsatDTc*delta_Tc)
            if (redo_cana_q) then
-              fog_form = fog_cond_rate*(cana_q - cana_qsat)
+              fog_form = fog_form_rate*(cana_q - cana_qsat)
               fc0    =  fog_form - fog_diss
-              DfcDqc =  fog_cond_rate
-              DfcDTc = -fog_cond_rate*DqsatDTc
+              DfcDqc =  fog_form_rate
+              DfcDTc = -fog_form_rate*DqsatDTc
               if (is_watch_point()) then
                  write(*,*)'### fog triggered ###'
                  __DEBUG4__(cana_q,cana_q+delta_qc,cana_qsat+DqsatDTc*delta_Tc,tile%cana%fog)
                  __DEBUG3__(fc0,DfcDqc,DfcDTc)
               endif
-           else
-              fog_form = 0 ; fc0 = 0 ; DfcDqc = 0 ; DfcDTc = 0
            endif
         endif
 
