@@ -584,10 +584,10 @@ subroutine surface_resistances(soil, vegn, diag, T_sfc, u_sfc, ustar_sfc, land_d
   endif
 
   ! diagnostic section
-  call send_tile_data(id_r_litt_evap, r_litt_evap, diag)
-  call send_tile_data(id_r_bl_sens,   r_bl_sens,   diag)
-  call send_tile_data(id_r_bl_evap,   r_bl_evap,   diag)
-  call send_tile_data(id_r_sv_evap,   r_sv_evap,   diag)
+  call send_tile_data(id_r_litt_evap, limited(r_litt_evap),    diag)
+  call send_tile_data(id_r_bl_sens,   limited(r_bl_sens),      diag)
+  call send_tile_data(id_r_bl_evap,   limited(r_bl_evap),      diag)
+  call send_tile_data(id_r_sv_evap,   limited(r_sv_evap),      diag)
 
   call send_tile_data(id_c_litt_evap, reciprocal(r_litt_evap), diag)
   call send_tile_data(id_c_bl_sens,   reciprocal(r_bl_sens),   diag)
@@ -600,6 +600,14 @@ subroutine surface_resistances(soil, vegn, diag, T_sfc, u_sfc, ustar_sfc, land_d
   call send_tile_data(id_theta_sfc,   theta_sfc,   diag)
 
   contains
+
+  real elemental function limited(r)
+     real, intent(in) :: r
+     real, parameter :: max_val = 9999.0
+
+     limited = max(min(r,max_val),-max_val)
+  end function limited
+
   real elemental function reciprocal(r)
      real, intent(in) :: r
 
