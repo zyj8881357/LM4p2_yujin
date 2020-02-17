@@ -589,10 +589,10 @@ subroutine surface_resistances(soil, vegn, diag, T_sfc, u_sfc, ustar_sfc, land_d
   call send_tile_data(id_r_bl_evap,   r_bl_evap,   diag)
   call send_tile_data(id_r_sv_evap,   r_sv_evap,   diag)
 
-  call send_tile_data(id_c_litt_evap, inverse(r_litt_evap), diag)
-  call send_tile_data(id_c_bl_sens,   inverse(r_bl_sens),   diag)
-  call send_tile_data(id_c_bl_evap,   inverse(r_bl_evap),   diag)
-  call send_tile_data(id_c_sv_evap,   inverse(r_sv_evap),   diag)
+  call send_tile_data(id_c_litt_evap, reciprocal(r_litt_evap), diag)
+  call send_tile_data(id_c_bl_sens,   reciprocal(r_bl_sens),   diag)
+  call send_tile_data(id_c_bl_evap,   reciprocal(r_bl_evap),   diag)
+  call send_tile_data(id_c_sv_evap,   reciprocal(r_sv_evap),   diag)
 
   call send_tile_data(id_d_visc,      d_visc,      diag)
   call send_tile_data(id_u_sfc,       u_sfc,       diag)
@@ -600,14 +600,18 @@ subroutine surface_resistances(soil, vegn, diag, T_sfc, u_sfc, ustar_sfc, land_d
   call send_tile_data(id_theta_sfc,   theta_sfc,   diag)
 
   contains
-  real elemental function inverse(r)
+  real elemental function reciprocal(r)
      real, intent(in) :: r
-     if (r==0) then
-        inverse = 9999.0
+
+     real, parameter :: max_val = 9999.0
+     real, parameter :: min_val = 1.0/max_val
+
+     if (abs(r)<min_val) then
+        reciprocal = sign(max_val,r) ! sign(a,b) returns value of a with sign of b
      else
-        inverse = 1.0/r
+        reciprocal = 1.0/r
      endif
-  end function inverse
+  end function reciprocal
 
 end subroutine surface_resistances
 
