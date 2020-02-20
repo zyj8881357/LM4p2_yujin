@@ -125,6 +125,7 @@ type(time_type), allocatable :: time_in(:) ! time axis in input data
 type(time_type), allocatable :: state_time_in(:) ! time axis in input data
 type(horiz_interp_type), save :: interp ! interpolator for the input data
 type(time_type) :: time0 ! time of previous transition calculations
+type(time_type) :: timel0 ! time of previous lake transition calculations
 
 integer :: tran_distr_opt = -1 ! selector for transition distribution option, for efficiency
 integer :: overshoot_opt = -1 ! selector for overshoot handling options, for efficiency
@@ -217,13 +218,14 @@ logical :: irrigation_on = .TRUE.
 character(len=1024) :: input_file_lake  = '' ! input data set of lake transition dates
 character(len=1024) :: state_file_lake  = '' ! input data set of LU states (for initial transition only)
 character(len=1024) :: static_file_lake = '' ! static data file, for input land fraction
+logical :: do_lake_change = .FALSE.
 
 namelist/landuse_nml/do_landuse_change, input_file, state_file, static_file, data_type, &
      rangeland_is_pasture, distribute_transitions, &
      overshoot_handling, overshoot_tolerance, &
      conservation_handling, &
      manag_file, irrigation_on, &
-     input_file_lake, state_file_lake, static_file_lake
+     input_file_lake, state_file_lake, static_file_lake, do_lake_change
 
 
 contains ! ###################################################################
@@ -633,7 +635,7 @@ subroutine lake_transitions_init()
       do k3 = 1,size(input_tran_lake(k1,k2)%id(:))
          if (input_tran_lake(k1,k2)%id(k3)>0) then
             id_lake = input_tran_lake(k1,k2)%id(k3)
-            exit lz ! from all loops
+            exit lz1 ! from all loops
          endif
       enddo
    enddo
@@ -646,7 +648,7 @@ subroutine lake_transitions_init()
       do k3 = 1,size(input_state_lake(k1,k2)%id(:))
          if (input_state_lake(k1,k2)%id(k3)>0) then
             id_lake = input_state_lake(k1,k2)%id(k3)
-            exit lz ! from all loops
+            exit lz2 ! from all loops
          endif
       enddo
    enddo
