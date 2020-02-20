@@ -116,9 +116,7 @@ type :: lake_tile_type
    real :: geothermal_heat_flux
    real, allocatable :: e(:),f(:)
    real, allocatable :: heat_capacity_dry(:)
-   real :: abst_est = 0.0
-   real :: habst_est = 0.0 
-   real :: abst_area = 0.0
+   real :: res_frac = 0.
 end type lake_tile_type
 
 ! ==== module data ===========================================================

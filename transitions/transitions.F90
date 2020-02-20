@@ -175,7 +175,19 @@ real :: cost(M_LU_TYPES, M_LU_TYPES)=reshape((/0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 2.0
                                                0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 2.0, &
                                                0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 2.0, &
                                                0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 2.0, &
-                                               2.0, 2.0, 2.0, 2.0, 2.0, 2.0, 0.0 /), (/M_LU_TYPES,M_LU_TYPES/), order =(/ 2, 1 /))      
+                                               2.0, 2.0, 2.0, 2.0, 2.0, 2.0, 0.0 /), (/M_LU_TYPES,M_LU_TYPES/), order =(/ 2, 1 /))     
+! variables for reservoir
+integer :: tran_ncid_lake  = -1 ! netcdf id of the input file
+integer :: state_ncid_lake = -1 ! netcdf id of the input file, if any
+type(time_type), allocatable :: time_in_lake(:) ! time axis in input data
+type(time_type), allocatable :: state_time_in_lake(:) ! time axis in input data
+type(var_set_type) :: input_tran_lake  (2,2) ! input transition rate fields
+type(var_set_type) :: input_state_lake (2,2) ! input state field (for initial transition only)
+character(len=5), parameter  :: &
+     landuse_name_lake (2) = (/ 'lake','soil'/)
+type(horiz_interp_type), save :: interp_lake ! interpolator for the input data    
+real, allocatable :: norm_in_lake  (:,:) ! normalizing factor to convert input data to 
+integer :: nlon_in_lake, nlat_in_lake                                                                                  
 
 ! ---- namelist variables ---------------------------------------------------
 logical, protected, public :: do_landuse_change = .FALSE. ! if true, then the landuse changes with time
@@ -200,14 +212,18 @@ character(len=16) :: conservation_handling = 'stop' ! or 'report', or 'ignore'
 
 ! for irrigation
 character(len=1024) :: manag_file = '' ! management data file, for input land fraction irrigated area
-
 logical :: irrigation_on = .TRUE.
+
+character(len=1024) :: input_file_lake  = '' ! input data set of lake transition dates
+character(len=1024) :: state_file_lake  = '' ! input data set of LU states (for initial transition only)
+character(len=1024) :: static_file_lake = '' ! static data file, for input land fraction
 
 namelist/landuse_nml/do_landuse_change, input_file, state_file, static_file, data_type, &
      rangeland_is_pasture, distribute_transitions, &
      overshoot_handling, overshoot_tolerance, &
      conservation_handling, &
-     manag_file, irrigation_on
+     manag_file, irrigation_on, &
+     input_file_lake, state_file_lake, static_file_lake
 
 
 contains ! ###################################################################
@@ -355,6 +371,8 @@ subroutine land_transitions_init(id_ug, id_cellarea)
         if (tile%vegn%landuse == LU_RANGE) tile%vegn%landuse = LU_PAST
      enddo
   endif
+
+  call lake_transitions_init()
 
   if (.not.do_landuse_change) return ! do nothing more if no land use requested
 
@@ -540,6 +558,183 @@ l1:do k1 = 1,size(input_tran,1)
 
 end subroutine land_transitions_init
 
+!===========================================================================
+subroutine lake_transitions_init()
+
+  ! ---- local vars
+  integer        :: unit, ierr, io, ncid1, ncid1_lake, used_id
+  integer        :: year,month,day,hour,min,sec
+  integer        :: k1,k2,k3, id, n1,n2, id_lake, l
+
+  real           :: frac(lnd%ls:lnd%le)
+
+  real, allocatable :: lon_in_lake(:,:),lat_in_lake(:,:) ! horizontal grid of input data
+  real, allocatable :: buffer_in_lake(:,:) ! buffers for input data reading
+  real, allocatable :: mask_in_lake(:,:) ! valid data mask on the input data grid
+
+  integer :: dimids_lake(NF_MAX_VAR_DIMS), dimlens_lake(NF_MAX_VAR_DIMS)  
+  type(nfu_validtype) :: v_lake ! valid values range  
+  type(land_tile_enum_type)     :: ce    ! land tile enumerator
+  type(land_tile_type), pointer :: tile  ! pointer to current tile  
+
+  if (file_exist('INPUT/laketran.res')) then
+     call error_mesg('land_transitions_init','reading restart "INPUT/laketran.res"',&
+          NOTE)
+     call mpp_open(unit,'INPUT/laketran.res', action=MPP_RDONLY, form=MPP_ASCII)
+     read(unit,*) year,month,day,hour,min,sec
+     timel0 = set_date(year,month,day,hour,min,sec)   
+     call mpp_close(unit)
+  else
+     call error_mesg('land_transitions_init','cold-starting lake transitions',&
+          NOTE)
+     timel0 = set_date(0001,01,01)
+  endif
+
+  if((.not.file_exist(state_file_lake)).and.(.not.do_lake_change)) return
+
+  if (file_exist(state_file_lake)) then
+      ! open state file
+      ierr=nf_open(state_file_lake,NF_NOWRITE,state_ncid_lake)
+      if(ierr/=NF_NOERR) call error_mesg('land_transitions_init', 'lake state file "'// &
+          trim(state_file_lake)//'" could not be opened because '//nf_strerror(ierr), FATAL)
+      call get_time_axis(state_ncid_lake, state_time_in_lake)
+      ! initialize state variable array
+      do k2 = 1,2 !1 means lake, 2 means soil
+        if (k2==2) cycle !k2==1
+        input_state_lake(2,k2)%name='initial '//trim(landuse_name_lake(2))//'2'//trim(landuse_name_lake(k2))
+        call add_var_to_varset(input_state_lake(2,k2),state_ncid_lake,state_file_lake,trim(landuse_name_lake(k2)))
+      enddo
+  endif
+
+ if(do_lake_change) then
+    if (trim(input_file_lake)=='') call error_mesg('land_transitions_init', &
+       'do_lake_change is requested, but lake transition file is not specified', &
+        FATAL)  
+    ierr=nf_open(input_file_lake,NF_NOWRITE,tran_ncid_lake)
+    if(ierr/=NF_NOERR) call error_mesg('land_transitions_init', &
+       'do_lake_change is requested, but lake transition file "'// &
+       trim(input_file_lake)//'" could not be opened because '//nf_strerror(ierr), FATAL)
+    call get_time_axis(tran_ncid_lake,time_in_lake)
+    do k1 = 1,2
+    do k2 = 1,2
+      input_tran_lake(k1,k2)%name=trim(landuse_name_lake(k1))//'2'//trim(landuse_name_lake(k2))
+      if (k1==k2) cycle
+      call add_var_to_varset(input_tran_lake(k1,k2),tran_ncid_lake,input_file_lake,trim(landuse_name_lake(k1))//'_to_'//trim(landuse_name_lake(k2)))
+    enddo
+    enddo
+ endif
+
+ id_lake = -1
+ if(do_lake_change)then
+   used_id = tran_ncid_lake
+   lz1:do k1 = 1,size(input_tran_lake,1)
+   do k2 = 1,size(input_tran_lake,2)
+      if (.not.allocated(input_tran_lake(k1,k2)%id)) cycle
+      do k3 = 1,size(input_tran_lake(k1,k2)%id(:))
+         if (input_tran_lake(k1,k2)%id(k3)>0) then
+            id_lake = input_tran_lake(k1,k2)%id(k3)
+            exit lz ! from all loops
+         endif
+      enddo
+   enddo
+   enddo lz1   
+ else if(file_exist(state_file_lake))then
+   used_id = state_ncid_lake
+   lz2:do k1 = 1,size(input_state_lake,1)
+   do k2 = 1,size(input_state_lake,2)
+      if (.not.allocated(input_state_lake(k1,k2)%id)) cycle
+      do k3 = 1,size(input_state_lake(k1,k2)%id(:))
+         if (input_state_lake(k1,k2)%id(k3)>0) then
+            id_lake = input_state_lake(k1,k2)%id(k3)
+            exit lz ! from all loops
+         endif
+      enddo
+   enddo
+   enddo lz2  
+ endif
+ 
+
+  if (id_lake<=0) call error_mesg('land_transitions_init',&
+         'could not find any lake transition fields in the input file', FATAL)
+
+  ! we assume that all transition rate fields are specified on the same grid,
+  ! in both horizontal and time "directions". Therefore there is a single grid
+  ! for all fields, initialized only once.
+
+  __NF_ASRT__(nfu_inq_var(used_id,id_lake,dimids=dimids_lake,dimlens=dimlens_lake))
+  nlon_in_lake = dimlens_lake(1); nlat_in_lake = dimlens_lake(2)
+  ! allocate temporary variables
+  allocate(buffer_in_lake(nlon_in_lake,nlat_in_lake), &
+           mask_in_lake(nlon_in_lake,nlat_in_lake),   &
+           lon_in_lake(nlon_in_lake+1,1), lat_in_lake(1,nlat_in_lake+1) )
+  ! allocate module data
+  allocate(norm_in_lake(nlon_in_lake,nlat_in_lake))
+  ! get the boundaries of the horizontal axes and initialize horizontal
+  ! interpolator
+  __NF_ASRT__(nfu_get_dim_bounds(used_id, dimids_lake(1), lon_in_lake(:,1)))
+  __NF_ASRT__(nfu_get_dim_bounds(used_id, dimids_lake(2), lat_in_lake(1,:)))
+  if(lat_in_lake(1,1).gt.90.) lat_in_lake(1,1)=90.
+  if(lat_in_lake(1,nlat_in_lake+1).lt.-90.) lat_in_lake(1,nlat_in_lake+1)=-90.
+  ! get the first record from variable and obtain the mask of valid data
+  ! assume that valid mask does not change with time
+  __NF_ASRT__(nfu_get_rec(used_id,id_lake,1,buffer_in_lake))
+  ! get the valid range for the variable
+  __NF_ASRT__(nfu_get_valid_range(used_id,id_lake,v_lake))
+  ! get the mask
+  where (nfu_is_valid(buffer_in_lake,v_lake))
+     mask_in_lake = 1
+  elsewhere
+     mask_in_lake = 0
+  end where  
+  select case (trim(lowercase(data_type)))
+  case ('luh1')
+     ! LUH1 (CMIP5) data were converted on pre-processing
+     norm_in_lake = 1.0
+  case ('luh2')
+     ! read static file and calculate normalizing factor
+     ! LUH2 data are in [fraction of cell area per year]
+     if (trim(static_file_lake)=='') call error_mesg('land_transitions_init', &
+          'using LUH2 data set in lake transition, but static data file is not specified', FATAL)
+     ierr=nf_open(static_file_lake,NF_NOWRITE,ncid1_lake)
+     if(ierr/=NF_NOERR) call error_mesg('land_transitions_init', &
+          'using LUH2 data set, but static data file "'// &
+          trim(static_file_lake)//'" could not be opened because '//nf_strerror(ierr), FATAL)
+     __NF_ASRT__(nfu_get_var(ncid1_lake,'landfrac',buffer_in_lake))
+     where (buffer_in_lake > 0.0)
+        norm_in_lake = 1.0/buffer_in_lake
+     elsewhere
+        norm_in_lake = 0.0
+        mask_in_lake = 0
+     end where
+     ierr = nf_close(ncid1_lake)
+  case default
+     call error_mesg('land_transitions_init','unknown data_type "'&
+                    //trim(data_type)//'", use "luh1" or "luh2"', FATAL)
+  end select
+  ! initialize horizontal interpolator
+  call horiz_interp_new(interp_lake, lon_in_lake*PI/180,lat_in_lake*PI/180, &
+       lnd%sg_lonb, lnd%sg_latb, &
+       interp_method='conservative',&
+       mask_in=mask_in_lake, is_latlon_in=.TRUE. )
+  ! get rid of temporary allocated data
+  deallocate(buffer_in_lake, mask_in_lake,lon_in_lake,lat_in_lake)
+
+
+  if (file_exist(state_file_lake)) then
+    frac(:) = 0.0
+    n1 = size(state_time_in_lake)
+    call get_varset_data_lake(state_ncid_lake,input_state_lake(2,1),n1,frac) 
+    do l=lnd%ls, lnd%le
+      ce = first_elmt(land_tile_map(l))
+      do while(loop_over_tiles(ce,tile))
+        if (.not.associated(tile%lake)) cycle   
+        tile%lake%res_frac = frac(l)*(lnd%ug_area(l)/lnd%ug_cellarea(l))   
+      enddo
+    enddo
+  endif
+
+
+end subroutine lake_transitions_init
 !===========================================================================
 subroutine land_irrigatedareas_init(id_ug)
   integer, intent(in) :: id_ug ! the IDs of land diagnostic axes
@@ -778,6 +973,27 @@ subroutine get_varset_data(ncid,varset,rec,frac)
    enddo
    call horiz_interp_ug(interp,buff1*norm_in,frac)
 end subroutine get_varset_data
+
+subroutine get_varset_data_lake(ncid,varset,rec,frac)
+   integer, intent(in) :: ncid
+   type(var_set_type), intent(in) :: varset
+   integer, intent(in) :: rec
+   real, intent(out) :: frac(:)
+   
+   real :: buff0(nlon_in_lake,nlat_in_lake)
+   real :: buff1(nlon_in_lake,nlat_in_lake)
+   integer :: i
+
+   frac = 0.0
+   buff1 = 0.0
+   do i = 1,varset%nvars
+     if (varset%id(i)>0) then
+        __NF_ASRT__(nfu_get_rec(ncid,varset%id(i),rec,buff0))
+        buff1 = buff1 + buff0
+     endif
+   enddo
+   call horiz_interp_ug(interp_lake,buff1*norm_in_lake,frac)
+end subroutine get_varset_data_lake
 
 ! ============================================================================
 ! returns a string representing the parts of the transition
