@@ -194,7 +194,8 @@ contains
 
   subroutine river_physics_step(River, cur_travel, &
          lake_sfc_A, lake_sfc_bot, lake_depth_sill, lake_width_sill, &
-         lake_whole_area, lake_T, lake_wl, lake_ws, lake_dz, irr_demand )
+         lake_whole_area, lake_T, lake_wl, lake_ws, lake_dz, irr_demand, &
+         rsv_depth, Afrac_rsv, Vfrac_rsv, use_reservoir )
 
     type(river_type),     intent(inout) :: River
     integer,                 intent(in) :: cur_travel
@@ -207,12 +208,16 @@ contains
                 lake_depth_sill, lake_width_sill, lake_whole_area
     real, dimension(isc:iec,jsc:jec,num_lake_lev), intent(inout) :: &
                              lake_T
-    real, dimension(isc:iec,jsc:jec), intent(inout) :: irr_demand
+    real, dimension(isc:iec,jsc:jec), intent(inout) :: irr_demand !m3
+    real, dimension(isc:iec,jsc:jec), intent(in) :: rsv_depth
+    real, dimension(isd:ied,jsd:jed), intent(in) :: Afrac_rsv 
+    real, dimension(isd:ied,jsd:jed), intent(inout) :: Vfrac_rsv 
+    logical, intent(in) :: use_reservoir
 ! ---- local vars ----------------------------------------------------------
     integer   :: i, j, to_i, to_j, i_species, lev
     real      :: Q0, dQ_dV, dh_dQ, avail, out_frac, qmelt, abst_frac
     real      :: liq_to_flow, ice_to_flow, liq_this_lev, ice_this_lev
-    real      :: lake_area, h, ql, qs, qh, qt, h0, t_scale
+    real      :: tot_area, lake_area, h, ql, qs, qh, qt, h0, t_scale
     real      :: influx
     real      :: influx_c(River%num_species)
     real      :: v_r_d(River%num_species-River%num_c+1:River%num_species)
@@ -223,6 +228,13 @@ contains
          ice, temperature ! variables for diag output (were in River_type)
     logical :: used ! flag returned by the send_data
     real    :: abst_thres = 1.e-15 !m3
+    real    :: vr1 = 0.
+    real    :: v1 = 0.
+    real    :: rsv_outflow = 0.
+    real    :: rsv_outflow_s = 0.
+    real    :: rsv_outflow_h = 0.    
+    real    :: V2A_l = 0.
+    logical :: is_terminal = .False.
 
     ! invalidate diag_mask everywhere
     diag_mask = .FALSE.
@@ -239,10 +251,11 @@ contains
             ! River%landfrac(i,j).gt.0, so we get quebec (buggy) condition
 
             ! FIRST COMPUTE LAKE MASS BALANCE (FROM INFLOC AND INFLOW TO LAKE_OUTFLOW)
-
-            lake_area = lake_sfc_A(i,j)
-            influx   =(River%inflow  (i,j)  +River%infloc  (i,j))  *DENS_H2O*River%dt_slow
-            influx_c =(River%inflow_c(i,j,:)+River%infloc_c(i,j,:))*DENS_H2O*River%dt_slow
+            tot_area = lake_sfc_A(i,j)
+            lake_area = (1.-Afrac_rsv(i,j))*lake_sfc_A(i,j)
+            if(Afrac_rsv(i,j)<1.) V2A_l=(1.-Vfrac_rsv(i,j))/(1.-Afrac_rsv(i,j))
+            influx   =(River%inflow  (i,j)  +River%infloc  (i,j))  *DENS_H2O*River%dt_slow ! m3/s * kg/m3 * s =kg
+            influx_c =(River%inflow_c(i,j,:)+River%infloc_c(i,j,:))*DENS_H2O*River%dt_slow ! J m3/kg /s * kg/m3 * s = J
 
 !            ! ZMS Simple update for storage_c. Skip over lakes.
             if (River%num_c > 0) then
@@ -256,21 +269,17 @@ contains
             end if
 
             if (River%tocell(i,j).eq.0 .and. River%landfrac(i,j).ge.1.) then
+            
                 ! terminal, all-land cell (must have lake)
                 h = (clw*lake_wl(i,j,1)+csw*lake_ws(i,j,1))*(lake_T(i,j,1)-tfreeze)
-                lake_wl(i,j,1) = lake_wl(i,j,1) + (influx-influx_c(1))/lake_area
-                lake_ws(i,j,1) = lake_ws(i,j,1) +         influx_c(1) /lake_area
+                lake_wl(i,j,1) = lake_wl(i,j,1) + (influx-influx_c(1))/tot_area
+                lake_ws(i,j,1) = lake_ws(i,j,1) +         influx_c(1) /tot_area
                 lake_T (i,j,1) = tfreeze + &
-                   (h+influx_c(2)/lake_area)/(clw*lake_wl(i,j,1)+csw*lake_ws(i,j,1))
-
-                call lake_abstraction( irr_demand(i,j),lake_area, lake_depth_sill(i,j), &
-                                       lake_T(i,j,:), lake_wl(i,j,:), lake_ws(i,j,:),lake_dz(i,j,:), &
-                                       River%lake_abst(i,j), River%lake_habst(i,j))
-                ! LAKE_SFC_C(I,J,:) = LAKE_SFC_C(I,J,:) + INFLUX_C / LAKE_AREA
-              else
-                ! non-terminal all-land cell (possible lake), or terminal coastal cell (possible lake)
-                if (lake_area.gt.0.) then
-                     if (is_watch_cell()) then
+                   (h+influx_c(2)/tot_area)/(clw*lake_wl(i,j,1)+csw*lake_ws(i,j,1)) !(J/m2)/(J/(kgK)*(kg/m2))= (J/m2)/(J/(Km2)) = K
+                is_terminal = .True.
+                if (is_watch_cell()) then    
+                         write(*,*) 'before lake_abstraction'            
+                         write(*,*) 'tot_area:', tot_area
                          write(*,*) 'lake_area:', lake_area
                          write(*,*) 'lake_wl(1):', lake_wl(i,j,1)
                          write(*,*) 'lake_ws(1):', lake_ws(i,j,1)
@@ -281,29 +290,99 @@ contains
                          write(*,*) 'River%infloc  (i,j)', River%infloc  (i,j)
                          write(*,*) 'River%inflow_c(i,j,1)', River%inflow_c(i,j,1)
                          write(*,*) 'River%infloc_c(i,j,1)', River%infloc_c(i,j,1)
-                     endif
+                         write(*,*) 'sum(lake_dz(i,j,:)):', sum(lake_dz(i,j,:))
+                         write(*,*) 'irr_demand(i,j):', irr_demand(i,j)                         
+                         write(*,*) 'Afrac_rsv(i,j):', Afrac_rsv(i,j)
+                         write(*,*) 'Vfrac_rsv(i,j):', Vfrac_rsv(i,j)
+                         write(*,*) 'rsv_depth(i,j):', rsv_depth(i,j)
+                endif
+                call lake_abstraction( use_reservoir, is_terminal, &
+                                       irr_demand(i,j), Afrac_rsv(i,j), Vfrac_rsv(i,j), &
+                                       influx, influx_c(1:2), &
+                                       tot_area, lake_depth_sill(i,j), rsv_depth(i,j), &
+                                       lake_T(i,j,:), lake_wl(i,j,:), lake_ws(i,j,:),lake_dz(i,j,:), &
+                                       River%lake_abst(i,j), River%lake_habst(i,j), &
+                                       rsv_outflow, rsv_outflow_s, rsv_outflow_h, vr1)                                                 
+                v1 = sum(lake_wl(i,j,:)+lake_ws(i,j,:))*tot_area/DENS_H2O !m3
+                if(use_reservoir.and.Afrac_rsv(i,j)<1..and.v1 > 0.) Vfrac_rsv(i,j) = max(0., min(vr1/v1, 1.))
+                if (is_watch_cell()) then 
+                         write(*,*) 'after lake_abstraction'
+                         write(*,*) 'sum(lake_dz(i,j,:)):', sum(lake_dz(i,j,:))
+                         write(*,*) 'irr_demand(i,j):', irr_demand(i,j) 
+                         write(*,*) 'River%lake_abst(i,j):', River%lake_abst(i,j)
+                         write(*,*) 'River%lake_habst(i,j):', River%lake_habst(i,j)                        
+                         write(*,*) 'rsv_outflow:', rsv_outflow
+                         write(*,*) 'rsv_outflow_s:', rsv_outflow_s
+                         write(*,*) 'rsv_outflow_h:', rsv_outflow_h
+                         write(*,*) 'vr1:', vr1
+                         write(*,*) 'v1:', v1
+                         write(*,*) 'Vfrac_rsv(i,j):', Vfrac_rsv(i,j)                         
+                endif                  
+                ! LAKE_SFC_C(I,J,:) = LAKE_SFC_C(I,J,:) + INFLUX_C / LAKE_AREA
+              else
+                ! non-terminal all-land cell (possible lake), or terminal coastal cell (possible lake)
+                if (tot_area.gt.0.) then
+                     if (is_watch_cell()) then                      
+                         write(*,*) 'tot_area:', tot_area
+                         write(*,*) 'lake_area:', lake_area
+                         write(*,*) 'lake_wl(1):', lake_wl(i,j,1)
+                         write(*,*) 'lake_ws(1):', lake_ws(i,j,1)
+                         write(*,*) 'lake_T (1):', lake_T (i,j,1)
+                         write(*,*) 'influx    :', influx
+                         write(*,*) 'influx_c(1):', influx_c(1)
+                         write(*,*) 'River%inflow  (i,j)', River%inflow  (i,j)
+                         write(*,*) 'River%infloc  (i,j)', River%infloc  (i,j)
+                         write(*,*) 'River%inflow_c(i,j,1)', River%inflow_c(i,j,1)
+                         write(*,*) 'River%infloc_c(i,j,1)', River%infloc_c(i,j,1)                      
+                     endif                  
                      h = (clw*lake_wl(i,j,1)+csw*lake_ws(i,j,1))*(lake_T(i,j,1)-tfreeze)
-                     lake_wl(i,j,1) = lake_wl(i,j,1) + (influx-influx_c(1))/lake_area
-                     lake_ws(i,j,1) = lake_ws(i,j,1) +         influx_c(1) /lake_area
+                     lake_wl(i,j,1) = lake_wl(i,j,1) + (influx-influx_c(1))/tot_area
+                     lake_ws(i,j,1) = lake_ws(i,j,1) +         influx_c(1) /tot_area
                      lake_T (i,j,1) = tfreeze + &
-                        (h+influx_c(2)/lake_area)/(clw*lake_wl(i,j,1)+csw*lake_ws(i,j,1))
+                        (h+influx_c(2)/tot_area)/(clw*lake_wl(i,j,1)+csw*lake_ws(i,j,1))
                      if (is_watch_cell()) then
                           write(*,*) 'lake_wl(1):', lake_wl(i,j,1)
                           write(*,*) 'lake_ws(1):', lake_ws(i,j,1)
                           write(*,*) 'lake_T (1):', lake_T (i,j,1)
-                     endif
-                     call lake_abstraction( irr_demand(i,j),lake_area, lake_depth_sill(i,j), &
-                                            lake_T(i,j,:), lake_wl(i,j,:), lake_ws(i,j,:),lake_dz(i,j,:), &
-                                            River%lake_abst(i,j), River%lake_habst(i,j))    
+                     endif 
                       if (is_watch_cell()) then
                           write(*,*) 'lake_wl(1):', lake_wl(i,j,1)
                           write(*,*) 'lake_ws(1):', lake_ws(i,j,1)
                           write(*,*) 'lake_T (1):', lake_T (i,j,1)
-                     endif                                                            
+                     endif 
+                     if (is_watch_cell()) then    
+                         write(*,*) 'before lake_abstraction'            
+                         write(*,*) 'lake_wl(1):', lake_wl(i,j,1)
+                         write(*,*) 'lake_ws(1):', lake_ws(i,j,1)
+                         write(*,*) 'lake_T (1):', lake_T (i,j,1)
+                         write(*,*) 'sum(lake_dz(i,j,:)):', sum(lake_dz(i,j,:))
+                         write(*,*) 'irr_demand(i,j):', irr_demand(i,j)                         
+                         write(*,*) 'Afrac_rsv(i,j):', Afrac_rsv(i,j)
+                         write(*,*) 'Vfrac_rsv(i,j):', Vfrac_rsv(i,j)
+                         write(*,*) 'rsv_depth(i,j):', rsv_depth(i,j)
+                     endif                                      
+                     call lake_abstraction( use_reservoir, is_terminal, &
+                                            irr_demand(i,j), Afrac_rsv(i,j), Vfrac_rsv(i,j), &
+                                            influx, influx_c(1:2), &
+                                            tot_area, lake_depth_sill(i,j), rsv_depth(i,j), &
+                                            lake_T(i,j,:), lake_wl(i,j,:), lake_ws(i,j,:),lake_dz(i,j,:), &
+                                            River%lake_abst(i,j), River%lake_habst(i,j), &
+                                            rsv_outflow, rsv_outflow_s, rsv_outflow_h, vr1)  
+                     if (is_watch_cell()) then 
+                         write(*,*) 'after lake_abstraction'
+                         write(*,*) 'sum(lake_dz(i,j,:)):', sum(lake_dz(i,j,:))
+                         write(*,*) 'irr_demand(i,j):', irr_demand(i,j) 
+                         write(*,*) 'River%lake_abst(i,j):', River%lake_abst(i,j)
+                         write(*,*) 'River%lake_habst(i,j):', River%lake_habst(i,j)                        
+                         write(*,*) 'rsv_outflow:', rsv_outflow
+                         write(*,*) 'rsv_outflow_s:', rsv_outflow_s
+                         write(*,*) 'rsv_outflow_h:', rsv_outflow_h
+                         write(*,*) 'vr1:', vr1                         
+                     endif                                                                                                                       
                      ! LAKE_SFC_C(I,J,:) = LAKE_SFC_C(I,J,:) + INFLUX_C / LAKE_AREA
-                     h0 = lake_sfc_bot(i,j) + (lake_wl(i,j,1)+lake_ws(i,j,1))/DENS_H2O &
-                                           -lake_depth_sill(i,j) !kg/m2 / kg/m3 = m
-                     qt = lake_area * h0 * DENS_H2O ! m2 * m * kg/m3 = kg
+                      h0 = lake_sfc_bot(i,j) + (lake_wl(i,j,1)+lake_ws(i,j,1))/DENS_H2O*V2A_l & !if Afrac_rsv(i,j)==1., h0<=0 and qt<=0
+                                             -lake_depth_sill(i,j) !kg/m2 / kg/m3 = m
+                      qt = lake_area * h0 * DENS_H2O ! m2 * m * kg/m3 = kg
                      ! qt is mass of water stored transiently above sill
                      ! now reduce it to amount that discharges this time step
                      if (qt.gt.0.) then
@@ -311,22 +390,22 @@ contains
                              if (is_watch_cell()) write(*,*) 'qt[1]/A', qt/lake_area
                              if (lake_width_sill(i,j) .gt. 0.) then
                                  t_scale = lake_whole_area(i,j)/(0.9*lake_width_sill(i,j)*sqrt(h0))
-                                 qt = qt * (1. - (1.+River%dt_slow/t_scale)**(-2) )
+                                 qt = qt * (1. - (1.+River%dt_slow/t_scale)**(-2) ) !if t_scale == 0. ?
                                  if (.not.use_lake_area_bug) qt = qt * lake_whole_area(i,j)/lake_area
                                endif
                              if (is_watch_cell()) write(*,*) 'qt[2]/A', qt/lake_area
                              qt = min(qt, lake_outflow_frac_ceiling * lake_area &
-                                          * max(0.,(lake_wl(i,j,1)+lake_ws(i,j,1))))
+                                          * max(0.,V2A_l*(lake_wl(i,j,1)+lake_ws(i,j,1))))
                              if (is_watch_cell()) write(*,*) 'qt[3]/A', qt/lake_area
-                             qt = min(qt, (lake_wl(i,j,1)+lake_ws(i,j,1)-lake_sfc_w_min)*lake_area )
+                             qt = min(qt, (V2A_l*(lake_wl(i,j,1)+lake_ws(i,j,1))-lake_sfc_w_min)*lake_area )
                              if (is_watch_cell()) write(*,*) 'qt[4]/A', qt/lake_area
                            ELSE
                              t_scale = lake_whole_area(i,j)/(0.9*lake_width_sill(i,j)*sqrt(h0))
                              qt = qt * (1. - (1.+River%dt_slow/t_scale)**(-2) )
                              if (.not.use_lake_area_bug) qt = qt * lake_whole_area(i,j)/lake_area
                              qt = min(qt, lake_outflow_frac_ceiling * lake_area &
-                                          * max(0.,(lake_wl(i,j,1)+lake_ws(i,j,1))))
-                             qt = min(qt, (lake_wl(i,j,1)+lake_ws(i,j,1)-lake_sfc_w_min)*lake_area )
+                                          * max(0.,V2A_l*(lake_wl(i,j,1)+lake_ws(i,j,1))))
+                             qt = min(qt, (V2A_l*(lake_wl(i,j,1)+lake_ws(i,j,1))-lake_sfc_w_min)*lake_area )
                            ENDIF
                          if (ice_frac_from_sfc) then
                              out_frac = lake_wl(i,j,1)/(lake_wl(i,j,1)+lake_ws(i,j,1))
@@ -337,7 +416,7 @@ contains
                          out_frac = min(1., max(0., out_frac))
                          if (ice_frac_factor.lt.1.) then
                              ql = (1.-ice_frac_factor*(1.-out_frac)) * qt
-                             ql = min (ql, lake_area*sum(lake_wl(i,j,:)))
+                             ql = min (ql, lake_area*V2A_l*sum(lake_wl(i,j,:)))
                            else
                              ql = out_frac * qt
                            endif
@@ -352,10 +431,10 @@ contains
                                write(*,'(a,i3,99(x,a,g23.16))')'l=',lev,&
                                    'wl(1)=',lake_wl(i,j,1),'ws(1)=',lake_ws(i,j,1), &
                                    'wl(l)=',lake_wl(i,j,lev),'ws(l)=',lake_ws(i,j,lev)
-                           liq_this_lev = max(0.,min(liq_to_flow, lake_area*lake_wl(i,j,lev)))
-                           ice_this_lev = max(0.,min(ice_to_flow, lake_area*lake_ws(i,j,lev)))
-                           lake_wl(i,j,lev) = lake_wl(i,j,lev) - liq_this_lev/lake_area
-                           lake_ws(i,j,lev) = lake_ws(i,j,lev) - ice_this_lev/lake_area
+                           liq_this_lev = max(0.,min(liq_to_flow, tot_area*lake_wl(i,j,lev)))
+                           ice_this_lev = max(0.,min(ice_to_flow, tot_area*lake_ws(i,j,lev)))
+                           lake_wl(i,j,lev) = lake_wl(i,j,lev) - liq_this_lev/tot_area
+                           lake_ws(i,j,lev) = lake_ws(i,j,lev) - ice_this_lev/tot_area
                            liq_to_flow = liq_to_flow - liq_this_lev
                            ice_to_flow = ice_to_flow - ice_this_lev
                            qh = qh + (clw*liq_this_lev+csw*ice_this_lev)*(lake_T(i,j,lev)-tfreeze)
@@ -364,10 +443,10 @@ contains
                              ! so as to preserve thickness of deeper layer
                              h = (clw*lake_wl(i,j,lev)+csw*lake_ws(i,j,lev)) &
                                                             *(lake_T(i,j,lev)-tfreeze)
-                             lake_ws(i,j,lev) = lake_ws(i,j,lev) + liq_this_lev/lake_area
-                             lake_ws(i,j,1)   = lake_ws(i,j,1)   - liq_this_lev/lake_area
+                             lake_ws(i,j,lev) = lake_ws(i,j,lev) + liq_this_lev/tot_area
+                             lake_ws(i,j,1)   = lake_ws(i,j,1)   - liq_this_lev/tot_area
                              lake_T (i,j,lev) = tfreeze + &
-                                (h +(liq_this_lev/lake_area)*csw*(lake_T(i,j,1)-tfreeze))  &
+                                (h +(liq_this_lev/tot_area)*csw*(lake_T(i,j,1)-tfreeze))  &
                                             /(clw*lake_wl(i,j,lev)+csw*lake_ws(i,j,lev))
                            endif
                            if (is_watch_cell() .and. lev.le.10) &
@@ -377,20 +456,34 @@ contains
                            if (liq_to_flow.eq.0..and.ice_to_flow.eq.0.) exit
                            enddo
                          River%lake_outflow  (i,j)   = qt !kg
-                         River%lake_outflow_c(i,j,1) = qs
-                         River%lake_outflow_c(i,j,2) = qh
+                         River%lake_outflow_c(i,j,1) = qs !kg
+                         River%lake_outflow_c(i,j,2) = qh !J                    
+                       endif !qt.gt.0.
+                       v1 = sum(lake_wl(i,j,:)+lake_ws(i,j,:))*tot_area/DENS_H2O  !m3
+                       if(use_reservoir.and.Afrac_rsv(i,j)<1..and.v1 > 0.) Vfrac_rsv(i,j) = max(0., min(vr1/v1, 1.))
+                       if(Afrac_rsv(i,j)>=1.) then !special case: only reservoir, no lake
+                         River%lake_outflow  (i,j)   = rsv_outflow !kg
+                         River%lake_outflow_c(i,j,1) = rsv_outflow_s !kg
+                         River%lake_outflow_c(i,j,2) = rsv_outflow_h !J    
                        endif
+                     if (is_watch_cell()) then                        
+                         write(*,*) 'v1:', v1
+                         write(*,*) 'Vfrac_rsv(i,j):', Vfrac_rsv(i,j)      
+                     endif                    
                      if (is_watch_cell()) then
                           write(*,*) 'lake_wl(1):', lake_wl(i,j,1)
                           write(*,*) 'lake_ws(1):', lake_ws(i,j,1)
                           write(*,*) 'lake_T (1):', lake_T (i,j,1)
                      endif
-                   else
+                   else !tot_area.gt.0.
+                     if(is_watch_cell())then
+                       write(*,*) 'no lake in the gridcell'
+                     endif
                      River%lake_outflow  (i,j  ) = influx
                      River%lake_outflow_c(i,j,1) = influx_c(1)
                      River%lake_outflow_c(i,j,2) = influx_c(2)
-                   endif
-              endif
+                   endif !tot_area.gt.0.
+              endif !River%tocell(i,j).eq.0 .and. River%landfrac(i,j).ge.1.
 
             ! ZMS Bypass rivers for tracers.
             if (River%num_c > 0) then

@@ -565,7 +565,7 @@ subroutine lake_transitions_init()
 
   ! ---- local vars
   integer        :: unit, ierr, io, ncid1, ncid1_lake, used_id
-  integer        :: year,month,day,hour,min,sec
+  integer        :: year,month,day,hour,mi,sec
   integer        :: k1,k2,k3, id, n1,n2, id_lake, l
 
   real           :: frac(lnd%ls:lnd%le)
@@ -578,13 +578,14 @@ subroutine lake_transitions_init()
   type(nfu_validtype) :: v_lake ! valid values range  
   type(land_tile_enum_type)     :: ce    ! land tile enumerator
   type(land_tile_type), pointer :: tile  ! pointer to current tile  
+  real :: frac2land, whole_lake_area
 
   if (file_exist('INPUT/laketran.res')) then
      call error_mesg('land_transitions_init','reading restart "INPUT/laketran.res"',&
           NOTE)
      call mpp_open(unit,'INPUT/laketran.res', action=MPP_RDONLY, form=MPP_ASCII)
-     read(unit,*) year,month,day,hour,min,sec
-     timel0 = set_date(year,month,day,hour,min,sec)   
+     read(unit,*) year,month,day,hour,mi,sec
+     timel0 = set_date(year,month,day,hour,mi,sec)   
      call mpp_close(unit)
   else
      call error_mesg('land_transitions_init','cold-starting lake transitions',&
@@ -592,9 +593,9 @@ subroutine lake_transitions_init()
      timel0 = set_date(0001,01,01)
   endif
 
-  if((.not.file_exist(state_file_lake)).and.(.not.do_lake_change)) return
+  !if((.not.file_exist(state_file_lake)).and.(.not.do_lake_change)) return
 
-  if (file_exist(state_file_lake)) then
+  if (file_exist(state_file_lake).or.(timel0==set_date(0001,01,01).and.do_lake_change)) then
       ! open state file
       ierr=nf_open(state_file_lake,NF_NOWRITE,state_ncid_lake)
       if(ierr/=NF_NOERR) call error_mesg('land_transitions_init', 'lake state file "'// &
@@ -656,9 +657,9 @@ subroutine lake_transitions_init()
  endif
  
 
-  if (id_lake<=0) call error_mesg('land_transitions_init',&
-         'could not find any lake transition fields in the input file', FATAL)
-
+  !if (id_lake<=0) call error_mesg('land_transitions_init',&
+  !       'could not find any lake transition fields in the input file', FATAL)
+  if (id_lake > 0.) then
   ! we assume that all transition rate fields are specified on the same grid,
   ! in both horizontal and time "directions". Therefore there is a single grid
   ! for all fields, initialized only once.
@@ -721,7 +722,9 @@ subroutine lake_transitions_init()
   ! get rid of temporary allocated data
   deallocate(buffer_in_lake, mask_in_lake,lon_in_lake,lat_in_lake)
 
+  endif !if (id_lake > 0.)
 
+  !initialize Afrac_rsv (and possibly Vfrac_rsv if there is no restart) and modify rsv_depth and lake_whole_area
   if (file_exist(state_file_lake)) then
     frac(:) = 0.0
     n1 = size(state_time_in_lake)
@@ -730,9 +733,33 @@ subroutine lake_transitions_init()
       ce = first_elmt(land_tile_map(l))
       do while(loop_over_tiles(ce,tile))
         if (.not.associated(tile%lake)) cycle   
-        tile%lake%res_frac = frac(l)*(lnd%ug_area(l)/lnd%ug_cellarea(l))   
+        frac2land = frac(l)*(lnd%ug_area(l)/lnd%ug_cellarea(l))
+        frac2land = max(0.,min(frac2land, tile%frac))  
+        tile%lake%Afrac_rsv = frac2land/tile%frac
+        if(tile%lake%rsv_depth <= 0.) tile%lake%Afrac_rsv = 0.
+        if(tile%lake%rsv_depth > 0.) tile%lake%rsv_depth = max(2.,tile%lake%rsv_depth) !set rsv_depth at least to 2m to prevent temperature
+        !this is still an approximation, because we didn't consider reservoir area in other gridcells with the same lake  
+        whole_lake_area = max(0.,tile%lake%pars%whole_area - tile%lake%Afrac_rsv*tile%frac*lnd%ug_area(l)) ! if .not. use_reservoit?
+        if(tile%lake%Afrac_rsv>0. .and. whole_lake_area == 0.) tile%lake%Afrac_rsv = 1.
+        if(tile%lake%Afrac_rsv == 0. .and. whole_lake_area == 0.) then
+          tile%lake%rsv_depth = max(2.,tile%lake%rsv_depth)
+          tile%lake%Afrac_rsv = 1.
+        endif
+        !if no restart sets Vfrac_rsv, let Vfrac_rsv be Afrac_rsv at the begining.
+        if(tile%lake%Vfrac_rsv == -1.) tile%lake%Vfrac_rsv = tile%lake%Afrac_rsv 
+        if(tile%lake%Afrac_rsv <= 0.) tile%lake%Vfrac_rsv = 0.        
+        if(tile%lake%Afrac_rsv >= 1.) tile%lake%Vfrac_rsv = 1.
       enddo
     enddo
+  else !if there is no Afrac_rsv file, no reservoir is represented
+    do l=lnd%ls, lnd%le
+      ce = first_elmt(land_tile_map(l))
+      do while(loop_over_tiles(ce,tile))
+        if (.not.associated(tile%lake)) cycle 
+        tile%lake%Afrac_rsv = 0.  
+        tile%lake%Vfrac_rsv = 0.
+      enddo
+    enddo    
   endif
 
 

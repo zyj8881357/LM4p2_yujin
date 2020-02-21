@@ -4858,7 +4858,7 @@ subroutine irrigation_deficit(irr_area)
          irr_demand=0.
          irr_area_temp = 0.                           
        endif
-       soil%irr_demand_ac = soil%irr_demand_ac + irr_demand*delta_time ! kg/m2, maybe in restart
+       soil%irr_demand_ac = soil%irr_demand_ac + irr_demand*delta_time ! kg/m2, maybe in restart, wait, demand could not be accumulated, needs to find other way
        irr_area(l) = irr_area(l) + irr_area_temp !m2
        call send_tile_data(id_irr_demand, irr_demand, tile%diag) !kg/(m2 s)
      enddo

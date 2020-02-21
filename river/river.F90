@@ -121,6 +121,7 @@ character(len=*), parameter :: module_name = 'river_mod'
           ! rather than source concentration and flux files
   logical :: do_groundwater_abstraction = .false.
   logical :: do_deep_gw_abst = .false.  
+  logical :: use_reservoir = .false.
 
   namelist /river_nml/ dt_slow, diag_freq, debug_river,                      &
                        Somin, outflowmean_min, ave_DHG_exp, ave_AAS_exp,     &
@@ -128,7 +129,8 @@ character(len=*), parameter :: module_name = 'river_mod'
                        land_area_called_cellarea, all_big_outlet_ctn0,       &
                        lake_area_bug, stop_on_mask_mismatch,                 &
                        tracers_from_runoff, &
-                       do_groundwater_abstraction, do_deep_gw_abst
+                       do_groundwater_abstraction, do_deep_gw_abst, &
+                       use_reservoir
 
   character(len=128) :: river_src_file   = 'INPUT/river_data.nc'
   character(len=128) :: river_Omean_file = 'INPUT/river_Omean.nc'
@@ -745,7 +747,8 @@ end subroutine print_river_tracer_data
     real, dimension(:,:,:), intent(in)  :: runoff_c  
 
     real, dimension(isd:ied,jsd:jed) :: &
-                             lake_sfc_A, lake_sfc_bot, lake_conn
+                             lake_sfc_A, lake_sfc_bot, lake_conn, &
+                             Afrac_rsv, Vfrac_rsv
     real, dimension(isd:ied,jsd:jed,num_lake_lev) :: &
                              lake_wl, lake_ws, lake_dz
     real, dimension(isc:iec,jsc:jec) :: &
@@ -756,7 +759,8 @@ end subroutine print_river_tracer_data
                              rivr_FMASS,       & ! mass of ice in rivers in cell
                              rivr_MELT,        & ! net mass melt in rivers in cell
                              rivr_HEAT,        & ! sensible heat content of rivers in cell
-                             irr_demand          ! left irrigation demand
+                             irr_demand,       & ! left irrigation demand
+                             rsv_depth
     real, dimension(isc:iec,jsc:jec,num_lake_lev) :: &
                              lake_T
 
@@ -768,7 +772,8 @@ end subroutine print_river_tracer_data
                              lake_depth_sill_ug, lake_width_sill_ug, lake_backwater_ug, &
                              lake_backwater_1_ug, &
                              lake_whole_area_ug, &
-                             irr_demand_ug, lake_abst_ug, lake_habst_ug, river_abst_ug
+                             irr_demand_ug, lake_abst_ug, lake_habst_ug, river_abst_ug, &
+                             rsv_depth_ug, Afrac_rsv_ug, Vfrac_rsv_ug
     real, dimension(lnd%ls:lnd%le,num_lake_lev) :: &
                              lake_T_ug
     real, dimension(lnd%ls:lnd%le,num_species) :: river_abstflow_c_ug
@@ -798,7 +803,7 @@ end subroutine print_river_tracer_data
 
     slow_step = slow_step + 1
 
-    River%infloc   = River%land_area*runoff  /DENS_H2O
+    River%infloc   = River%land_area*runoff  /DENS_H2O !m2 * kg/(m2 s) / kg/m3 = m3/s
     River%infloc_c = 0
     do i_species = 1, num_species
        River%infloc_c(:,:,i_species) = River%land_area*runoff_c(:,:,i_species)/DENS_H2O
@@ -832,6 +837,9 @@ end subroutine print_river_tracer_data
     lake_backwater = 0
     lake_backwater_1 = 0
     irr_demand = 0
+    rsv_depth = 0
+    Afrac_rsv = 0
+    Vfrac_rsv = 0
     lake_sfc_A_ug  = 0
     lake_sfc_bot_ug= 0
     lake_T_ug  = 0
@@ -849,6 +857,9 @@ end subroutine print_river_tracer_data
     lake_habst_ug = 0
     river_abst_ug = 0
     river_abstflow_c_ug = 0
+    rsv_depth_ug = 0
+    Afrac_rsv_ug = 0
+    Vfrac_rsv_ug = 0
 
     ce = first_elmt(land_tile_map, ls=lnd%ls)
     do while(loop_over_tiles(ce, tile, l,k))
@@ -864,12 +875,29 @@ end subroutine print_river_tracer_data
          lake_ws_ug(l,lev)   = tile%lake%ws(lev)
          lake_dz_ug(l,lev)   = tile%lake%dz(lev)
        enddo
-       lake_sfc_bot_ug(l) = (sum(tile%lake%wl(:)+tile%lake%ws(:)) &
-                               -tile%lake%wl(1)-tile%lake%ws(1) ) &
-                                    / DENS_H2O
+       if(use_reservoir)then
+         rsv_depth_ug(l)       = tile%lake%rsv_depth           
+         Afrac_rsv_ug(l)       = tile%lake%Afrac_rsv
+         Vfrac_rsv_ug(l)       = tile%lake%Vfrac_rsv
+         !this is still an approximation, because we didn't consider reservoir area in other gridcells with the same lake 
+         lake_whole_area_ug(l) = max(0., tile%lake%pars%whole_area-Afrac_rsv_ug(l)*tile%frac*lnd%ug_area(l)) 
+         if(Afrac_rsv_ug(l)<1.)then
+           lake_sfc_bot_ug(l) = (1.-Vfrac_rsv_ug(l))*lake_sfc_A_ug(l)*(sum(tile%lake%wl(:)+tile%lake%ws(:))-tile%lake%wl(1)-tile%lake%ws(1))/DENS_H2O & !m2 * kg/m2 / (kg/m3) = m3
+                               /((1.-Afrac_rsv_ug(l))*lake_sfc_A_ug(l)) !m2 
+         else
+           lake_sfc_bot_ug(l) = 0. 
+         endif                  
+       else
+         rsv_depth_ug(l)       = 0.
+         Afrac_rsv_ug(l)       = 0.
+         Vfrac_rsv_ug(l)       = 0. 
+         lake_whole_area_ug(l) = tile%lake%pars%whole_area           
+         lake_sfc_bot_ug(l)    = (sum(tile%lake%wl(:)+tile%lake%ws(:)) &
+                                 -tile%lake%wl(1)-tile%lake%ws(1) ) &
+                                      / DENS_H2O      
+       endif
        lake_depth_sill_ug(l)  = tile%lake%pars%depth_sill
        lake_width_sill_ug(l)  = tile%lake%pars%width_sill
-       lake_whole_area_ug(l)  = tile%lake%pars%whole_area
        lake_conn_ug (l)       = tile%lake%pars%connected_to_next
        lake_backwater_ug(l)   = tile%lake%pars%backwater
        lake_backwater_1_ug(l) = tile%lake%pars%backwater_1
@@ -882,7 +910,7 @@ end subroutine print_river_tracer_data
         if (.not.associated(tile%soil)) cycle
         tot_demand_full(l) = tot_demand_full(l) + tile%frac*lnd%ug_area(l) * tile%soil%irr_demand_ac !m2 * kg/m2 = kg
       enddo
-    enddo 
+    enddo
 
 !z1l: The following might be changed for performance issue. This might be a temporary solution.
     call mpp_pass_UG_to_SG(lnd%ug_domain, lake_sfc_A_ug, lake_sfc_A)
@@ -899,12 +927,17 @@ end subroutine print_river_tracer_data
     call mpp_pass_UG_to_SG(lnd%ug_domain, lake_backwater_1_ug, lake_backwater_1)
     call mpp_pass_UG_to_SG(lnd%ug_domain, tot_demand_full, irr_demand) !kg
     irr_demand = irr_demand/DENS_H2O !kg / kg/m3 = m3
+    call mpp_pass_UG_to_SG(lnd%ug_domain, rsv_depth_ug, rsv_depth)    
+    call mpp_pass_UG_to_SG(lnd%ug_domain, Afrac_rsv_ug, Afrac_rsv)
+    call mpp_pass_UG_to_SG(lnd%ug_domain, Vfrac_rsv_ug, Vfrac_rsv)    
     call mpp_update_domains (lake_sfc_A,  domain)
     call mpp_update_domains (lake_sfc_bot,domain)
     call mpp_update_domains (lake_wl, domain)
     call mpp_update_domains (lake_ws, domain)
     call mpp_update_domains (lake_dz, domain)    
     call mpp_update_domains (lake_conn,   domain)
+    call mpp_update_domains (Afrac_rsv,   domain)    
+    call mpp_update_domains (Vfrac_rsv,   domain)     
     do i=isc,iec
        do j=jsc,jec
           if (River%i_tocell(i,j)/=NO_RIVER_FLAG) then
@@ -920,8 +953,13 @@ end subroutine print_river_tracer_data
              ! because of river backwater, lake in this cell relaxes toward level of
              ! lake in next cell downstream. (river depth is still simple function
              ! of discharge though.)
-             lake_depth_sill(i,j) = lake_sfc_bot(i_next,j_next) &
-              +(lake_wl(i_next,j_next,1)+lake_ws(i_next,j_next,1))/DENS_H2O
+             if(use_reservoir.and.Afrac_rsv(i_next,j_next)>0.)then
+               lake_depth_sill(i,j) = lake_sfc_bot(i_next,j_next) &
+                +(lake_wl(i_next,j_next,1)+lake_ws(i_next,j_next,1))/DENS_H2O*(Vfrac_rsv(i_next,j_next)/Afrac_rsv(i_next,j_next))
+             else
+               lake_depth_sill(i,j) = lake_sfc_bot(i_next,j_next) &
+                +(lake_wl(i_next,j_next,1)+lake_ws(i_next,j_next,1))/DENS_H2O              
+             endif
           elseif (lake_backwater_1(i,j).gt.0.5) then
              ! to determine depth of backwater, lake at coastal cell has base level
              ! set to river depth in same cell
@@ -954,7 +992,8 @@ end subroutine print_river_tracer_data
        call river_physics_step (River, travelnow, &
          lake_sfc_A, lake_sfc_bot, lake_depth_sill, &
          lake_width_sill, lake_whole_area,         &
-         lake_T, lake_wl, lake_ws, lake_dz, irr_demand )
+         lake_T, lake_wl, lake_ws, lake_dz, irr_demand, &
+         rsv_depth, Afrac_rsv, Vfrac_rsv, use_reservoir )
 !***************************************************************
        call mpp_clock_end(physicsclock)
     enddo
@@ -968,6 +1007,7 @@ end subroutine print_river_tracer_data
     call mpp_pass_SG_to_UG(lnd%ug_domain, River%lake_habst, lake_habst_ug) !J        
     call mpp_pass_SG_to_UG(lnd%ug_domain, River%abst, river_abst_ug) !m3
     call mpp_pass_SG_to_UG(lnd%ug_domain, River%abstflow_c, river_abstflow_c_ug)  ! m3/s, J m3/kg / s
+    call mpp_pass_SG_to_UG(lnd%ug_domain, Vfrac_rsv, Vfrac_rsv_ug)
 
     ce = first_elmt(land_tile_map, ls=lnd%ls)
     do while(loop_over_tiles(ce, tile, l,k))
@@ -978,6 +1018,7 @@ end subroutine print_river_tracer_data
          tile%lake%ws(lev) = lake_ws_ug(l,lev)
          tile%lake%dz(lev) = lake_dz_ug(l,lev)
        enddo
+       tile%lake%Vfrac_rsv = Vfrac_rsv_ug(l)
     enddo
 
     ! account for groundwater abstraction and calculate irrigaition rate for next dt_slow  

@@ -95,7 +95,7 @@ type :: lake_pars_type
   real connected_to_next
   real backwater
   real backwater_1
-  real rsa_exp         ! riparian source-area exponent
+  real rsa_exp         ! riparian source-area exponent 
 end type lake_pars_type
 
 type :: lake_tile_type
@@ -116,7 +116,9 @@ type :: lake_tile_type
    real :: geothermal_heat_flux
    real, allocatable :: e(:),f(:)
    real, allocatable :: heat_capacity_dry(:)
-   real :: res_frac = 0.
+   real :: Afrac_rsv = 0.    
+   real :: Vfrac_rsv = 0. !this must be added to restart file
+   real :: rsv_depth = 0.   
 end type lake_tile_type
 
 ! ==== module data ===========================================================
