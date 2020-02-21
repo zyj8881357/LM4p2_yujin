@@ -61,7 +61,7 @@ use vegn_disturbance_mod, only : vegn_nat_mortality_ppa
 use vegn_fire_mod, only : update_fire_fast, fire_transitions, save_fire_restart
 use cana_tile_mod, only : canopy_air_mass, canopy_air_mass_for_tracers, cana_tile_heat, cana_tile_carbon
 use canopy_air_mod, only : read_cana_namelist, cana_init, cana_end,&
-     cana_roughness, do_fog, fog_form_rate, fog_diss_time, &
+     cana_roughness, do_fog_glac, do_fog_lake, do_fog_vegn, fog_form_rate, fog_diss_time, &
      save_cana_restart
 use river_mod, only : river_init, river_end, update_river, river_stock_pe, &
      save_river_restart, river_tracers_init, num_river_tracers, river_tracer_index, &
@@ -1738,14 +1738,10 @@ subroutine update_land_model_fast_0d ( tile, l,itile, N, land2cplr, &
   endif
 
   call qscomp(cana_T,p_surf,cana_qsat,DqsatDTc)
-  if (do_fog.and.cana_q < cana_qsat) then
-      if (fog_diss_time > 0) then
-         fog_diss = tile%cana%fog*(1-exp(-delta_time/fog_diss_time))/delta_time
-      else
-         fog_diss = tile%cana%fog/delta_time
-      endif
+  if (fog_diss_time > 0) then
+     fog_diss = tile%cana%fog*(1-exp(-delta_time/fog_diss_time))/delta_time
   else
-      fog_diss = 0
+     fog_diss = tile%cana%fog/delta_time
   endif
   fc0 = -fog_diss ; DfcDqc = 0 ; DfcDTc = 0
 
@@ -2114,7 +2110,9 @@ subroutine update_land_model_fast_0d ( tile, l,itile, N, land2cplr, &
            endif
 
            fog_step = fog_step + 1
-           if (.not.do_fog)                                   exit ! from fog_step loop
+           if (associated(tile%lake).and..not.do_fog_lake)    exit ! from fog_step loop
+           if (associated(tile%glac).and..not.do_fog_glac)    exit ! from fog_step loop
+           if (associated(tile%vegn).and..not.do_fog_vegn)    exit ! from fog_step loop
            if (fog_step>max_fog_steps)                        exit ! from fog_step loop
            if (cana_q+delta_qc < cana_qsat+DqsatDTc*delta_Tc) exit ! from fog_step loop
            ! specific humidity at the end of the time step exceeds saturation

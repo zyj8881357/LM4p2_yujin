@@ -47,6 +47,8 @@ public :: save_cana_restart
 public :: cana_turbulence
 public :: cana_roughness
 public :: surface_resistances
+
+! there are other public data members, see/search below
 ! ==== end of public interfaces ==============================================
 
 ! ==== module constants ======================================================
@@ -86,7 +88,9 @@ real :: rav_lit_bwood     = 0.0 ! litter resistance to vapor per bwood
 real :: d_visc_max        =-1.0 ! when positive, max thickness of viscous sublayer (m);
                                 ! negative or zero turn off limitation
 ! fog-related namelist variables
-logical, protected, public :: do_fog        = .FALSE.  ! if true, water vapore in canopy air can form condensate
+logical, protected, public :: do_fog_vegn   = .FALSE.  ! if true, water vapore in canopy air can form condensate
+logical, protected, public :: do_fog_glac   = .FALSE.
+logical, protected, public :: do_fog_lake   = .FALSE.
 real,    protected, public :: fog_form_rate = 1.0
 real,    protected, public :: fog_diss_time = 0.0   ! e-folding time of fog evaporation in dry environment, s
                                                     ! 0 or below means instant dissipation
@@ -99,7 +103,7 @@ namelist /cana_nml/ &
   d_visc_max, &
   rav_lit_0, rav_lit_vi, rav_lit_fsc, rav_lit_ssc, rav_lit_deadmic, rav_lit_bwood, &
   ! fog-related namelists
-  do_fog, fog_form_rate, fog_diss_time
+  do_fog_vegn, do_fog_glac, do_fog_lake, fog_form_rate, fog_diss_time
 
 !---- end of namelist --------------------------------------------------------
 
