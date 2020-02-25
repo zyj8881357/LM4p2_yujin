@@ -8,7 +8,7 @@ module land_model_mod
 use hdf5, only: hid_t
 
 use time_manager_mod, only : time_type, get_time, increment_time, time_type_to_real, &
-     operator(+)
+     operator(+),get_date
 use mpp_domains_mod, only : domain2d, mpp_get_ntile_count, mpp_pass_SG_to_UG, mpp_pass_ug_to_sg, &
                             mpp_get_UG_domain_tile_pe_inf, mpp_get_UG_domain_ntiles
 
@@ -93,6 +93,7 @@ use land_tile_diag_mod, only : tile_diag_init, tile_diag_end, &
      register_tiled_diag_field, register_tiled_area_fields, &
      add_tiled_diag_field_alias, send_tile_data, dump_tile_diag_fields, &
      cmor_name, send_global_land_diag
+use land_tile_diag_mod, only : OP_AVERAGE, OP_SUM, OP_STD
 use land_debug_mod, only : land_debug_init, land_debug_end, set_current_point, &
      is_watch_point, get_watch_point, check_temp_range, current_face, &
      get_current_point, check_conservation, water_cons_tol, carbon_cons_tol, &
@@ -110,8 +111,9 @@ use vegn_data_mod, only : LU_CROP, LU_PAST, LU_NTRL, LU_SCND, LU_URBN, &
     SP_C4GRASS, SP_C3GRASS, SP_TEMPDEC, SP_TROPICAL, SP_EVERGR
 use predefined_tiles_mod, only: land_cover_cold_start_0d_predefined_tiles,&
                                 open_database_predefined_tiles,&
-                                close_database_predefined_tiles
-
+                                close_database_predefined_tiles,&
+                                land_cover_warm_start_0d_predefined_tiles,&
+                                downscale_atmos
 use fms_io_mod,      only: fms_io_unstructured_read
 use mpp_domains_mod, only: domainUG
 use mpp_domains_mod, only: mpp_get_UG_compute_domain
@@ -172,6 +174,9 @@ logical :: print_remapping = .FALSE. ! if true, full land cover remapping
               ! information is printed on the cold start
 logical :: predefined_tiles= .FALSE. ! If true, the tiles for each grid cell for
               ! each grid cell are read from an external file
+logical,public :: downscale_surface_meteorology = .FALSE. ! If true, the downscaling weights in 
+              ! the input database will be used to downscale prec and sw
+              ! (could be eventually be used for others as well...)
 integer :: layout(2) = (/0,0/)
 integer :: io_layout(2) = (/0,0/)
 integer :: npes_io_group = 0
@@ -220,7 +225,9 @@ namelist /land_model_nml/ use_old_conservation_equations, &
                           use_coast_rough, coast_rough_mom, coast_rough_heat, &
                           max_coast_frac, use_coast_topo_rough, &
                           layout, io_layout, mask_table, &
-                          precip_warning_tol, npes_io_group, predefined_tiles
+                          precip_warning_tol, npes_io_group, predefined_tiles, &
+                          downscale_surface_meteorology
+
 ! ---- end of namelist -------------------------------------------------------
 
 logical  :: module_is_initialized = .FALSE.
@@ -283,6 +290,7 @@ integer :: &
   id_vegn_sctr_dir,                                                        &
   id_subs_refl_dir, id_subs_refl_dif, id_subs_emis, id_grnd_T,             &
   id_water_cons,    id_carbon_cons, id_DOCrunf
+
 ! diagnostic ids for canopy air tracers (moist mass ratio)
 integer, allocatable :: id_cana_tr(:)
 ! diag IDs of CMOR variables
@@ -296,6 +304,14 @@ integer :: id_cropFrac, id_cropFracC3, id_cropFracC4, id_pastureFrac, id_residua
            id_treeFrac, id_treeFracBdlDcd, id_treeFracBdlEvg, id_treeFracNdlDcd, id_treeFracNdlEvg, &
            id_c3pftFrac, id_c4pftFrac, id_nwdFracLut, &
            id_fracLut_psl, id_fracLut_crp, id_fracLut_pst, id_fracLut_urb
+! diag IDs of tile output
+integer :: id_transp_tile,id_frac_tile,id_ttype_tile,id_precip_tile,id_runf_tile,&
+  id_evap_tile,id_snow_tile,id_hevap_tile,id_levap_tile,id_water_tile,&
+  id_sens_tile,id_grnd_T_tile,id_total_C_tile,&
+  id_transp_std,id_precip_std,id_runf_std,id_evap_std,id_snow_std,id_water_std,&
+  id_sens_std,id_grnd_T_std,id_total_C_std,id_lprec_std,id_fprec_std,&
+  id_swup_dif_1_tile,id_swup_dif_2_tile,id_swdn_dif_1_tile,id_swdn_dif_2_tile,&
+  id_precip_l_tile,id_precip_s_tile
 
 ! init_value is used to fill most of the allocated boundary condition arrays.
 ! It is supposed to be double-precision signaling NaN, to trigger a trap when
@@ -341,6 +357,7 @@ subroutine land_model_init &
   integer :: unit, ierr, io
   integer :: id_band, id_zfull ! IDs of land diagnostic axes
   integer :: id_ug !<Unstructured axis id.
+  integer :: id_ptid ! ID of parent tile axes
   logical :: used                        ! return value of send_data diagnostics routine
   integer :: i,j,k,l
   type(land_tile_type), pointer :: tile
@@ -427,7 +444,11 @@ subroutine land_model_init &
   call open_land_restart(restart,restart_file_name,restart_exists)
   if(restart_exists) then
      ! read map of tiles -- retrieve information from
-     call land_cover_warm_start(restart)
+     if (predefined_tiles .eq. .False.) then
+      call land_cover_warm_start(restart)
+     else if (predefined_tiles .eq. .True.) then
+      call land_cover_warm_start_predefined(restart)
+     endif
      ! initialize land model data
      if (field_exists(restart, 'lwup'   )) call get_tile_data(restart,'lwup',   land_lwup_ptr)
      if (field_exists(restart, 'e_res_1')) call get_tile_data(restart,'e_res_1',land_e_res_1_ptr)
@@ -448,7 +469,7 @@ subroutine land_model_init &
   ! *_data_init can write static fields if necessary
   call land_sg_diag_init(id_cellarea)
   call land_diag_init( lnd%coord_glonb, lnd%coord_glatb, lnd%coord_glon, lnd%coord_glat, &
-      time, lnd%ug_domain, id_band, id_ug )
+      time, lnd%ug_domain, id_band, id_ug, id_ptid)
 
   ! set the land diagnostic axes ids for the flux exchange
   land2cplr%axes = (/id_ug/)
@@ -467,10 +488,10 @@ subroutine land_model_init &
   else
      call hlsp_init(id_ug) ! Must be called before soil_init
   endif
-  call soil_init(predefined_tiles,id_ug,id_band,id_zfull)
+  call soil_init(predefined_tiles,id_ug,id_band,id_zfull,id_ptid)
 
-  call hlsp_hydro_init(id_ug,id_zfull) ! Must be called after soil_init
-  call vegn_init(id_ug,id_band)
+  call hlsp_hydro_init(id_ug,id_zfull,id_ptid) ! Must be called after soil_init
+  call vegn_init(id_ug,id_band,id_ptid,predefined_tiles)
   if (predefined_tiles) then
      call lake_init_predefined(id_ug)
   else
@@ -523,6 +544,8 @@ subroutine land_model_init &
   ! mask error checking
   do l=lnd%ls,lnd%le
      if(lnd%ug_landfrac(l)>0.neqv.ANY(land2cplr%mask(l,:))) then
+        print*,lnd%ug_landfrac(l),land2cplr%mask(l,:)
+        print*,lnd%ug_face,'i',lnd%i_index(l),'j',lnd%j_index(l)
         call error_mesg('land_model_init','land masks from grid spec and from land restart do not match',FATAL)
      endif
   enddo
@@ -637,6 +660,11 @@ subroutine land_model_restart(timestamp)
   call add_int_tile_data(restart,'lake',lake_tag_ptr,'tag of lake tiles')
   call add_int_tile_data(restart,'soil',soil_tag_ptr,'tag of soil tiles')
   call add_int_tile_data(restart,'vegn',vegn_tag_ptr,'tag of vegetation tiles')
+  call add_int_tile_data(restart,'pid',tile_pid_ptr,'parent id of the tiles')
+  call add_int_tile_data(restart,'i_index',tile_i_index_ptr,'i index of the cell')
+  call add_int_tile_data(restart,'j_index',tile_j_index_ptr,'j index of the cell')
+  call add_int_tile_data(restart,'l_index',tile_l_index_ptr,'l index of the cell')
+  call add_int_tile_data(restart,'face',tile_face_ptr,'face of the cell')
   ! write the upward long-wave flux
   call add_tile_data(restart,'lwup',land_lwup_ptr,'upward long-wave flux')
   ! write energy residuals
@@ -819,7 +847,7 @@ subroutine land_cover_cold_start_predefined()
   integer(hid_t) :: h5id
 
   ! Open access to model input database
-  call open_database_predefined_tiles(h5id)
+  call open_database_predefined_tiles(h5id,lnd)
 
   do l = lnd%ls, lnd%le
     if(.not.lnd%ug_area(l)>0) cycle ! skip ocean points
@@ -829,6 +857,7 @@ subroutine land_cover_cold_start_predefined()
 
   ! Close access to model input database
   call close_database_predefined_tiles(h5id)
+
 end subroutine land_cover_cold_start_predefined
 
 ! ============================================================================
@@ -952,6 +981,121 @@ subroutine land_cover_cold_start_0d (set,glac0,lake0,soil0,soiltags0,&
   end if
 
 end subroutine land_cover_cold_start_0d
+
+! ============================================================================
+subroutine land_cover_warm_start_predefined(restart)
+
+ type(land_restart_type), intent(in) :: restart
+ ! ---- local vars
+ integer, allocatable :: pid(:),i_index(:),j_index(:),l_index(:),faces(:),itiles(:),vegn(:)
+ integer, allocatable :: pid_sd(:),i_index_sd(:),j_index_sd(:),l_index_sd(:),faces_sd(:),vegn_sd(:)
+ real,    allocatable :: frac(:) ! fraction of land covered by tile
+ real,    allocatable :: frac_sd(:) ! fraction of land covered by tile
+ integer :: ntiles    ! total number of land tiles in the input file
+ integer :: ntiless
+ integer :: i,j,k,it,h5id,nt,face,first,last,g,l
+ integer :: itt
+ type(land_tile_type), pointer :: tile
+
+ ntiles = size(restart%tidx)
+ allocate(pid(ntiles),i_index(ntiles),j_index(ntiles),l_index(ntiles),&
+          faces(ntiles),vegn(ntiles),frac(ntiles))
+
+ !call read_compressed(restart%basename,'frac',frac,domain=lnd%domain, timelevel=1)
+ !call read_compressed(restart%basename,'vegn',vegn,domain=lnd%domain, timelevel=1)
+ !call read_compressed(restart%basename,'pid',pid,domain=lnd%domain, timelevel=1)
+ !call read_compressed(restart%basename,'is',is,domain=lnd%domain, timelevel=1)
+ !call read_compressed(restart%basename,'js',js,domain=lnd%domain, timelevel=1)
+ !call read_compressed(restart%basename,'face',faces,domain=lnd%domain, timelevel=1)
+ call fms_io_unstructured_read(restart%basename, "frac", frac, lnd%ug_domain, timelevel=1)
+ call fms_io_unstructured_read(restart%basename, "vegn", vegn, lnd%ug_domain, timelevel=1)
+ call fms_io_unstructured_read(restart%basename, "pid", pid, lnd%ug_domain, timelevel=1)
+ call fms_io_unstructured_read(restart%basename, "i_index", i_index, lnd%ug_domain, timelevel=1)
+ call fms_io_unstructured_read(restart%basename, "j_index", j_index, lnd%ug_domain, timelevel=1)
+ call fms_io_unstructured_read(restart%basename, "l_index", l_index, lnd%ug_domain, timelevel=1)
+ call fms_io_unstructured_read(restart%basename, "face", faces, lnd%ug_domain, timelevel=1)
+
+ ! Open access to model input database
+ call open_database_predefined_tiles(h5id,lnd)
+
+ !Calculate the number of tiles in the subdomain
+ ntiless = 0
+ do it = 1,ntiles
+  k = restart%tidx(it)
+  if (k<0) cycle ! skip negative indices
+  !i = modulo(k,lnd%nlon)+1; k = k/lnd%nlon
+  !j = modulo(k,lnd%nlat)+1; k = k/lnd%nlat
+  g = modulo(k,lnd%nlon*lnd%nlat)+1
+  !if (i<lnd%is.or.i>lnd%ie) cycle
+  !if (j<lnd%js.or.j>lnd%je) cycle
+  if (g<lnd%gs.or.g>lnd%ge) cycle
+  k = k + 1
+  ntiless = ntiless + 1
+ enddo
+
+ if (ntiless .gt. 0)then
+  !Extract the info for the subdomain
+  allocate(pid_sd(ntiless),i_index_sd(ntiless),j_index_sd(ntiless),faces_sd(ntiless),&
+           vegn_sd(ntiless),frac_sd(ntiless),l_index_sd(ntiless))
+  itt = 1
+  do it = 1,ntiles
+   k = restart%tidx(it)
+   if (k<0) cycle ! skip negative indices
+   !i = modulo(k,lnd%nlon)+1; k = k/lnd%nlon
+   !j = modulo(k,lnd%nlat)+1; k = k/lnd%nlat
+   g = modulo(k,lnd%nlon*lnd%nlat)+1
+   if (g<lnd%gs.or.g>lnd%ge) cycle
+   !if (i<lnd%is.or.i>lnd%ie) cycle
+   ! if (j<lnd%js.or.j>lnd%je) cycle
+   k = k + 1
+   pid_sd(itt) = pid(it)
+   i_index_sd(itt) = i_index(it)
+   j_index_sd(itt) = j_index(it)
+   l_index_sd(itt) = l_index(it)
+   faces_sd(itt) = faces(it)
+   vegn_sd(itt) = vegn(it)
+   frac_sd(itt) = frac(it)
+   itt = itt + 1
+  enddo
+ 
+  ! Create tiles
+  i = i_index_sd(1)
+  j = j_index_sd(1)
+  l = l_index_sd(1)
+  face = faces_sd(1)
+  first = 1
+  last = 0
+  do itt = 1,ntiless
+   if (itt+1 .gt. ntiless)then
+    !Create all the tiles for this cell
+    last = itt
+    call land_cover_warm_start_0d_predefined_tiles(land_tile_map(l),lnd,l,h5id,&
+         pid_sd(first:last),vegn_sd(first:last),i,j,face)
+   else if ((i_index_sd(itt+1) .ne. i) .or. (j_index_sd(itt+1) .ne. j) .or. (faces_sd(itt+1) .ne. face))then
+    last = itt
+    !Create all the tiles for this cell
+    call land_cover_warm_start_0d_predefined_tiles(land_tile_map(l),lnd,l,h5id,&
+         pid_sd(first:last),vegn_sd(first:last),i,j,face)
+    !Update the parameters
+    first = itt+1
+    i = i_index_sd(first) 
+    j = j_index_sd(first)
+    l = l_index_sd(first)
+    face = faces_sd(first)
+   else
+    last = last + 1
+   endif
+  enddo
+  !deallocate the subset
+  deallocate(pid_sd, i_index_sd, j_index_sd, faces_sd, vegn_sd, frac_sd, l_index_sd)
+ endif
+
+ ! Close access to model input database
+ call close_database_predefined_tiles(h5id)
+
+ deallocate(pid, i_index, j_index, faces, vegn, frac, l_index)
+
+end subroutine land_cover_warm_start_predefined
 
 ! ============================================================================
 subroutine land_cover_warm_start(restart)
@@ -1109,7 +1253,6 @@ subroutine update_land_model_fast ( cplr2land, land2cplr )
   real, allocatable :: phot_co2_data(:)    ! buffer for data
   logical           :: phot_co2_overridden ! flag indicating successful override
   integer           :: iwatch,jwatch,kwatch,face
-
   real :: twsr_sg(lnd%is:lnd%ie,lnd%js:lnd%je), tws(lnd%ls:lnd%le)
 
   ! start clocks
@@ -1147,6 +1290,9 @@ subroutine update_land_model_fast ( cplr2land, land2cplr )
      do while (loop_over_tiles(ce,tile,k=k))
         ! set this point coordinates as current for debug output
         call set_current_point(i,j,k,l)
+
+        ! nwc: downscale appropriate variables (sw,prec)
+        if (downscale_surface_meteorology)call downscale_atmos(tile,cplr2land,l,k,lnd)
 
         ISa_dn_dir(BAND_VIS) = cplr2land%sw_flux_down_vis_dir(l,k)
         ISa_dn_dir(BAND_NIR) = cplr2land%sw_flux_down_total_dir(l,k)&
@@ -1263,8 +1409,18 @@ subroutine update_land_model_fast ( cplr2land, land2cplr )
      ! CMOR variables
      call send_tile_data(id_snw, snow_FMASS, tile%diag)
      call send_tile_data(id_lwsnl, snow_LMASS, tile%diag)
+
+     ! Tile variables
+     call send_tile_data(id_snow_tile, snow_LMASS+snow_FMASS, tile%diag)
+     call send_tile_data(id_water_tile, subs_LMASS+subs_FMASS, tile%diag)
+
+     ! Standard deviation
+     call send_tile_data(id_snow_std, snow_LMASS+snow_FMASS, tile%diag)
+     call send_tile_data(id_water_std, subs_LMASS+subs_FMASS, tile%diag)
+
      ! factor 1000.0 kg/m3 is the liquid water density; it converts mass of water into depth
      call send_tile_data(id_sweLut, max(snow_FMASS+snow_LMASS,0.0)/1000.0, tile%diag)
+
      if (id_tws>0) then
          ! note that subs_LMASS and subs_FMASS are reused here to hold total water masses
          ! alos note that reported value does not include river storage
@@ -1760,9 +1916,16 @@ subroutine update_land_model_fast_0d(tile, l, k, land2cplr, &
 
 ! [X.2] solve the system for free terms and delta_Tg and delta_psig terms, getting
 !       linear equation for delta_Tg and delta_psig
+     where (isnan(A) .eq. .True.) !HACK
+      A = 0.0 !HACK
+     endwhere !HACK
      call ludcmp(A,indx, ierr)
-     if (ierr/=0)&
+     if (ierr/=0)then
           write(*,*) 'Matrix is singular',i,j,k
+     endif
+     where (isnan(A) .eq. .True.) !HACK
+      A = 0.0 !HACK
+     endwhere !HACK
      call lubksb(A,indx,B0)
      call lubksb(A,indx,B1)
      call lubksb(A,indx,B2)
@@ -1826,6 +1989,8 @@ subroutine update_land_model_fast_0d(tile, l, k, land2cplr, &
      tile%e_res_1 = canopy_air_mass*(cpw-cp_air)*delta_qc*delta_Tc/delta_time
 #endif
      tile%e_res_2 = delta_Tv*(clw*delta_Wl+csw*delta_Ws)/delta_time
+! add in the residual produced in the precipitation downscaling
+     tile%e_res_2 = tile%e_res_2 + tile%e_res_ds
 ! calculate the final value upward long-wave radiation flux from the land, to be
 ! returned to the flux exchange.
      tile%lwup = ILa_dn - vegn_flw - flwg
@@ -2233,6 +2398,32 @@ subroutine update_land_model_fast_0d(tile, l, k, land2cplr, &
   endif
   call send_tile_data(id_netAtmosLandCO2Flux,  -vegn_fco2*mol_C/mol_co2, tile%diag)
 
+  !Tile variables
+  call send_tile_data(id_transp_tile,vegn_uptk,tile%diag)
+  call send_tile_data(id_precip_tile,precip_l+precip_s,tile%diag)
+  call send_tile_data(id_precip_l_tile,precip_l,tile%diag)
+  call send_tile_data(id_precip_s_tile,precip_s,tile%diag)
+  call send_tile_data(id_runf_tile,snow_lrunf+snow_frunf+subs_lrunf,tile%diag)
+  call send_tile_data(id_evap_tile,land_evap,tile%diag)
+  call send_tile_data(id_sens_tile,land_sens,tile%diag)
+  call send_tile_data(id_frac_tile, tile%frac, tile%diag)
+  call send_tile_data(id_ttype_tile, tile%ttype, tile%diag)
+  call send_tile_data(id_total_C_tile, land_tile_carbon(tile),tile%diag)
+  call send_tile_data(id_swdn_dif_1_tile, ISa_dn_dif(1),                        tile%diag)
+  call send_tile_data(id_swdn_dif_2_tile, ISa_dn_dif(2),                        tile%diag)
+  call send_tile_data(id_swup_dif_1_tile, ISa_dn_dif(1)*tile%land_refl_dif(1),     tile%diag)
+  call send_tile_data(id_swup_dif_2_tile, ISa_dn_dif(2)*tile%land_refl_dif(2),     tile%diag)
+
+  !Std variables
+  call send_tile_data(id_transp_std,vegn_uptk,tile%diag)
+  call send_tile_data(id_precip_std,precip_l+precip_s,tile%diag)
+  call send_tile_data(id_runf_std,snow_lrunf+snow_frunf+subs_lrunf,tile%diag)
+  call send_tile_data(id_evap_std,land_evap,tile%diag)
+  call send_tile_data(id_sens_std,land_sens,tile%diag)
+  call send_tile_data(id_total_C_std, land_tile_carbon(tile),tile%diag)
+  call send_tile_data(id_fprec_std,precip_s,tile%diag)
+  call send_tile_data(id_lprec_std,precip_l,tile%diag)
+
 end subroutine update_land_model_fast_0d
 
 
@@ -2568,6 +2759,7 @@ subroutine update_land_bc_fast (tile, l ,k, land2cplr, is_init)
   integer :: face ! for debugging
   integer :: tr   ! tracer index
   integer :: i, j
+  integer :: year,month,day,hour,minute,second
   vegn_Tv = 0
 
   i = lnd%i_index(l)
@@ -2740,6 +2932,11 @@ subroutine update_land_bc_fast (tile, l ,k, land2cplr, is_init)
      land2cplr%rough_heat  (l,k) = coast_rough_heat
   endif
 
+  ! Assign the downscaling weights
+  call get_date(lnd%time,year,month,day,hour,minute,second)
+  land2cplr%dws_t_atm (l,k) = tile%dws_tavg(month)
+  land2cplr%dws_prec (l,k) = tile%dws_prec(month)
+
   if(is_watch_point()) then
      write(*,*)'#### update_land_bc_fast ### output ####'
      write(*,*)'land2cplr%mask',land2cplr%mask(l,k)
@@ -2773,6 +2970,12 @@ subroutine update_land_bc_fast (tile, l ,k, land2cplr, is_init)
   call send_tile_data(id_snc, snow_area*100,           tile%diag)
   ! --- debug section
   call check_temp_range(land2cplr%t_ca(l,k),'update_land_bc_fast','T_ca')
+
+  !Full tile data
+  call send_tile_data(id_grnd_T_tile, land_grnd_T(tile),     tile%diag)
+
+  !Std data
+  call send_tile_data(id_grnd_T_std, land_grnd_T(tile),     tile%diag)
 
 end subroutine update_land_bc_fast
 
@@ -3040,7 +3243,7 @@ end subroutine land_sg_diag_init
 ! ============================================================================
 ! initialize horizontal axes for land grid so that all sub-modules can use them,
 ! instead of creating their own
-subroutine land_diag_init(clonb, clatb, clon, clat, time, domain, id_band, id_ug)
+subroutine land_diag_init(clonb, clatb, clon, clat, time, domain, id_band, id_ug, id_ptid)
  !Inputs/outputs
   real,dimension(:),intent(in) :: clonb   !<longitudes of grid cells vertices
   real,dimension(:),intent(in) :: clatb   !<latitudes of grid cells vertices
@@ -3050,6 +3253,7 @@ subroutine land_diag_init(clonb, clatb, clon, clat, time, domain, id_band, id_ug
   type(domainUG), intent(in)   :: domain  !<
   integer,intent(out)          :: id_band !<"band" axis id.
   integer,intent(out)          :: id_ug   !<Unstructured axis id.
+  integer,intent(out)          :: id_ptid !<"tile" axis id.
 
   ! ---- local vars ----------------------------------------------------------
   integer :: nlon, nlat       ! sizes of respective axes
@@ -3058,7 +3262,7 @@ subroutine land_diag_init(clonb, clatb, clon, clat, time, domain, id_band, id_ug
   integer,allocatable :: ug_dim_data(:) ! Unstructured axis data.
   integer             :: id_lon, id_lonb
   integer             :: id_lat, id_latb
-  integer :: i
+  integer :: i,max_npt
   character(32) :: name       ! tracer name
 
   ! Register the unstructured axis for the unstructured domain.
@@ -3101,6 +3305,20 @@ subroutine land_diag_init(clonb, clatb, clon, clat, time, domain, id_band, id_ug
   endif
 
   id_band = diag_axis_init ('band',  (/1.0,2.0/), 'unitless', 'Z', 'spectral band', set_name='land' )
+
+  !Determine the maximum number of parent tiles over the global domain
+  max_npt = lnd%max_npt
+  call mpp_max(max_npt)
+  !Initialize the parent id array
+  if (allocated(lnd%pids) .eq. .False.)then
+   allocate(lnd%pids(max_npt))
+   do i = 1,max_npt
+    lnd%pids(i) = i
+   enddo
+  endif
+  !Initialize the parent id axis
+  id_ptid = diag_axis_init ('ptid',lnd%pids,'unitless','Z',&
+       'parent tile id', set_name='land')
 
   ! Set up an array of axes ids, for convenience.
   axes(1) = id_ug
@@ -3524,19 +3742,78 @@ subroutine land_diag_init(clonb, clatb, clon, clat, time, domain, id_band, id_ug
              area=id_cellarea)
   call diag_field_add_attribute(id_residualFrac,'cell_methods','area: mean')
   call diag_field_add_attribute(id_residualFrac,'ocean_fillvalue',0.0)
-
   id_vegFrac        = register_cmor_fraction_field ( 'vegFrac',        'Total vegetated fraction' )
   id_treeFrac       = register_cmor_fraction_field ( 'treeFrac',       'Tree Cover Fraction' )
   id_treeFracBdlDcd = register_cmor_fraction_field ( 'treeFracBdlDcd', 'Broadleaf deciduous tree fraction' )
   id_treeFracBdlEvg = register_cmor_fraction_field ( 'treeFracBdlEvg', 'Broadleaf evergreen tree fraction' )
   id_treeFracNdlDcd = register_cmor_fraction_field ( 'treeFracNdlDcd', 'Needleleaf deciduous tree fraction' )
   id_treeFracNdlEvg = register_cmor_fraction_field ( 'treeFracNdlEvg', 'Needleleaf evergreen tree fraction' )
-
   id_grassFrac   = register_cmor_fraction_field ( 'grassFrac', 'Natural Grass Fraction' )
   id_grassFracC3 = register_cmor_fraction_field ( 'grassFracC3', 'C3 Natural Grass Fraction' )
   id_grassFracC4 = register_cmor_fraction_field ( 'grassFracC4', 'C4 Natural Grass Fraction' )
   id_c3pftFrac   = register_cmor_fraction_field ( 'c3PftFrac', 'Total C3 PFT Cover Fraction' )
   id_c4pftFrac   = register_cmor_fraction_field ( 'c4PftFrac', 'Total C4 PFT Cover Fraction' )
+
+  !Standard deviation of the values
+  id_transp_std  = register_tiled_diag_field ( module_name, 'transp_std', axes, time, &
+             'Transpiration', 'kg/(m2 s)', missing_value=-1.0e+20,op='stdev')
+  id_precip_std = register_tiled_diag_field ( module_name, 'precip_std', axes, time, &
+             'precipitation rate', 'kg/(m2 s)', missing_value=-1.0e+20,op='stdev')
+  id_lprec_std = register_tiled_diag_field ( module_name, 'lprec_l_std', axes, time, &
+             'precipitation rate (liquid)', 'kg/(m2 s)', missing_value=-1.0e+20,op='stdev')
+  id_fprec_std = register_tiled_diag_field ( module_name, 'fprec_l_std', axes, time, &
+             'precipitation rate (frozen)', 'kg/(m2 s)', missing_value=-1.0e+20,op='stdev')
+  id_evap_std = register_tiled_diag_field ( module_name, 'evap_std', axes, time, &
+             'vapor flux up from land', 'kg/(m2 s)', missing_value=-1.0e+20,op='stdev')
+  id_runf_std   = register_tiled_diag_field ( module_name, 'runf_std', axes, time, &
+             'total runoff', 'kg/(m2 s)', missing_value=-1.0e+20,op='stdev')
+  id_snow_std = register_tiled_diag_field ( module_name, 'snow_std', axes, time, &
+             'column-integrated snow water', 'kg/m2', missing_value=-1.0e+20,op='stdev')
+  id_sens_std = register_tiled_diag_field ( module_name, 'sens_std', axes, time, &
+             'sens heat flux from land', 'W/m2', missing_value=-1.0e+20,op='stdev')
+  id_water_std = register_tiled_diag_field ( module_name, 'water_std', axes, time, &
+             'column-integrated soil water', 'kg/m2', missing_value=-1.0e+20,op='stdev')
+  id_grnd_T_std = register_tiled_diag_field ( module_name, 'Tgrnd_std', axes, time, &
+       'ground surface temperature', 'degK', missing_value=-1.0,op='stdev')
+  id_total_C_std = register_tiled_diag_field ( module_name, 'Ctot_std', axes, time, &
+       'total land carbon', 'kg C/m2', missing_value=-1.0,op='stdev')
+
+  !Tile output
+  id_transp_tile = register_tiled_diag_field(module_name, 'transp_tile', (/id_ug, id_ptid/),&
+             time, 'Transpiration', 'kg/(m2 s)',missing_value=-1.0e+20,sm=.False.)
+  id_frac_tile = register_tiled_diag_field(module_name, 'frac_tile', (/id_ug, id_ptid/),&
+             time, 'Fraction of land area', 'unitless',missing_value=-1.0e+20,sm=.False.,op='sum')
+  id_ttype_tile = register_tiled_diag_field(module_name, 'ttype_tile', (/id_ug, id_ptid/),&
+             time, 'Type of parent tile', 'unitless',missing_value=-1.0,sm=.False.,op='mean')
+  id_precip_tile = register_tiled_diag_field ( module_name, 'precip_tile', (/id_ug, id_ptid/),&
+             time, 'precipitation rate', 'kg/(m2 s)', missing_value=-1.0e+20,sm=.False.)
+  id_precip_l_tile = register_tiled_diag_field ( module_name, 'precip_l_tile', (/id_ug, id_ptid/),&
+             time, 'precipitation rate (liquid)', 'kg/(m2 s)', missing_value=-1.0e+20,sm=.False.)
+  id_precip_s_tile = register_tiled_diag_field ( module_name, 'precip_s_tile', (/id_ug, id_ptid/),&
+             time, 'precipitation rate (frozen)', 'kg/(m2 s)', missing_value=-1.0e+20,sm=.False.)
+  id_evap_tile = register_tiled_diag_field ( module_name, 'evap_tile', (/id_ug, id_ptid/),&
+             time, 'vapor flux up from land', 'kg/(m2 s)', missing_value=-1.0e+20,sm=.False. )
+  id_runf_tile = register_tiled_diag_field ( module_name, 'runf_tile', (/id_ug, id_ptid/),&
+             time, 'total runoff', 'kg/(m2 s)', missing_value=-1.0e+20,sm=.False.)
+  id_snow_tile = register_tiled_diag_field ( module_name, 'snow_tile', (/id_ug, id_ptid/), time, &
+             'column-integrated snow water', 'kg/m2', missing_value=-1.0e+20,sm=.False.)
+  id_sens_tile    = register_tiled_diag_field ( module_name, 'sens_tile', (/id_ug, id_ptid/), time, &
+             'sens heat flux from land', 'W/m2', missing_value=-1.0e+20,sm=.False.)
+  id_water_tile = register_tiled_diag_field(module_name, 'water_tile', (/id_ug, id_ptid/),&
+             time, 'column-integrated soil water', 'kg/m2',missing_value=-1.0e+20,sm=.False.)
+  id_grnd_T_tile = register_tiled_diag_field ( module_name, 'Tgrnd_tile', (/id_ug, id_ptid/), time, &
+       'ground surface temperature', 'degK', missing_value=-1.0,sm=.False.)
+  id_total_C_tile = register_tiled_diag_field ( module_name, 'Ctot_tile', (/id_ug, id_ptid/), time, &
+       'total land carbon', 'kg C/m2', missing_value=-1.0,sm=.False.)
+  id_swdn_dif_1_tile = register_tiled_diag_field ( module_name, 'swdn_dif_1_tile', (/id_ug,id_ptid/), &
+       time,'downward diffuse short-wave radiation flux to the land surface', 'W/m2', missing_value=-999.0,sm=.False.)
+  id_swdn_dif_2_tile = register_tiled_diag_field ( module_name, 'swdn_dif_2_tile', (/id_ug,id_ptid/), & 
+       time,'downward diffuse short-wave radiation flux to the land surface', 'W/m2', missing_value=-999.0,sm=.False.)
+  id_swup_dif_1_tile = register_tiled_diag_field ( module_name, 'swup_dif_1_tile', (/id_ug,id_ptid/), &
+       time, 'diffuse short-wave radiation flux reflected by the land surface', 'W/m2', missing_value=-999.0,sm=.False.)
+  id_swup_dif_2_tile = register_tiled_diag_field ( module_name, 'swup_dif_2_tile', (/id_ug,id_ptid/), &
+       time, 'diffuse short-wave radiation flux reflected by the land surface', 'W/m2', missing_value=-999.0,sm=.False.)
+
   ! LUMIP land fractions
   id_fracLut_psl = register_diag_field ( cmor_name, 'fracLut_psl', axes, time, &
              'Fraction of Grid Cell for Each Land Use Tile','fraction', &
@@ -3858,6 +4135,13 @@ subroutine realloc_land2cplr ( bnd )
      bnd%discharge_snow_heat = 0.0
   endif
 
+  !Allocate the weights
+  allocate( bnd%dws_t_atm(lnd%ls:lnd%le,n_tiles) )
+  allocate( bnd%dws_prec(lnd%ls:lnd%le,n_tiles) )
+  bnd%dws_t_atm = init_value
+  bnd%dws_prec = init_value
+
+
 end subroutine realloc_land2cplr
 
 ! ============================================================================
@@ -3872,7 +4156,6 @@ subroutine dealloc_land2cplr ( bnd, dealloc_discharges )
   logical, intent(in) :: dealloc_discharges
 
   __DEALLOC__( bnd%tile_size )
-  __DEALLOC__( bnd%tile_size )
   __DEALLOC__( bnd%t_surf )
   __DEALLOC__( bnd%t_ca )
   __DEALLOC__( bnd%tr )
@@ -3885,6 +4168,8 @@ subroutine dealloc_land2cplr ( bnd, dealloc_discharges )
   __DEALLOC__( bnd%rough_heat )
   __DEALLOC__( bnd%rough_scale )
   __DEALLOC__( bnd%mask )
+  __DEALLOC__( bnd%dws_t_atm )
+  __DEALLOC__( bnd%dws_prec )
 
   if (dealloc_discharges) then
      __DEALLOC__( bnd%discharge           )
@@ -4119,6 +4404,17 @@ DEFINE_TAG_ACCESSOR(glac)
 DEFINE_TAG_ACCESSOR(lake)
 DEFINE_TAG_ACCESSOR(soil)
 DEFINE_TAG_ACCESSOR(vegn)
+
+#define DEFINE_PID_ACCESSOR(x) subroutine tile_ ## x ## _ptr(t,p);\
+type(land_tile_type),pointer::t;integer,pointer::p;p=>NULL();if(associated(t))\
+then;if (associated(t)) p=>t%x;endif;\
+end subroutine
+
+DEFINE_PID_ACCESSOR(pid)
+DEFINE_PID_ACCESSOR(i_index)
+DEFINE_PID_ACCESSOR(j_index)
+DEFINE_PID_ACCESSOR(l_index)
+DEFINE_PID_ACCESSOR(face)
 
 end module land_model_mod
 

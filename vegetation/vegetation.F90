@@ -130,6 +130,8 @@ logical :: do_peat_redistribution = .FALSE.
 
 logical :: biodata_bug    = .FALSE. ! if true, initialization of t_ann, t_cold, p_ann,
                                     ! and p_cold from biodata is not done
+logical :: predefined_biomass = .FALSE. ! if true, initialize plant biomass from predefined database
+
 namelist /vegn_nml/ &
     lm2, init_Wl, init_Ws, init_Tv, cpw, clw, csw, &
     init_cohort_bl, init_cohort_blv, init_cohort_br, init_cohort_bsw, &
@@ -141,7 +143,7 @@ namelist /vegn_nml/ &
     min_Wl, min_Ws, tau_smooth_ncm, &
     rav_lit_0, rav_lit_vi, rav_lit_fsc, rav_lit_ssc, rav_lit_deadmic, rav_lit_bwood,&
     do_peat_redistribution, &
-    biodata_bug
+    biodata_bug, predefined_biomass
 
 !---- end of namelist --------------------------------------------------------
 
@@ -151,7 +153,7 @@ real            :: delta_time      ! fast time step
 real            :: dt_fast_yr      ! fast time step in years
 
 ! diagnostic field ids
-integer :: id_vegn_type, id_temp, id_wl, id_ws, id_height, &
+integer :: id_vegn_type, id_temp, id_wl, id_ws, id_height, id_height_std, &
    id_lai, id_sai, id_lai_var, id_lai_std, id_leaf_size, &
    id_root_density, id_root_zeta, id_rs_min, id_leaf_refl, id_leaf_tran,&
    id_leaf_emis, id_snow_crit, id_stomatal, id_an_op, id_an_cl, &
@@ -172,6 +174,11 @@ integer :: id_vegn_type, id_temp, id_wl, id_ws, id_height, &
 integer :: id_cProduct, id_cAnt, id_cLeaf, id_cWood, id_cRoot, id_cMisc, &
    id_fFire, id_fFireNat, id_fGrazing, id_fHarvest, id_fLuc, id_fAnthDisturb, &
    id_fProductDecomp
+! All tile variables
+integer :: id_lai_tile,id_btot_tile
+! Std of variables
+integer :: id_btot_std
+
 ! ==== end of module variables ===============================================
 
 contains
@@ -234,9 +241,11 @@ end subroutine read_vegn_namelist
 
 ! ============================================================================
 ! initialize vegetation
-subroutine vegn_init(id_ug,id_band)
+subroutine vegn_init(id_ug,id_band,id_ptid,predefined_tiles)
   integer,intent(in) :: id_ug   !<Unstructured axis id.
   integer,intent(in) :: id_band ! ID of spectral band axis
+  integer,intent(in) :: id_ptid ! ID of parent tile axis
+  logical,intent(in) :: predefined_tiles
 
   ! ---- local vars
   integer :: unit         ! unit for various i/o
@@ -306,6 +315,12 @@ subroutine vegn_init(id_ug,id_band)
      if(field_exists(restart2,'leaf_age')) &
           call get_cohort_data(restart2,'leaf_age',cohort_leaf_age_ptr)
      call get_cohort_data(restart2, 'npp_prev_day', cohort_npp_previous_day_ptr)
+     ! for reproducibility across mid-day restarts 
+     if (field_exists(restart2,'carbon_gain')) then
+        call get_cohort_data(restart2, 'carbon_gain', cohort_carbon_gain_ptr)
+        call get_cohort_data(restart2, 'bwood_gain', cohort_bwood_gain_ptr)
+        call get_cohort_data(restart2, 'npp_prev_day_acm', cohort_npp_previous_day_tmp_ptr)
+     endif
 
      if(field_exists(restart2,'landuse')) &
           call get_int_tile_data(restart2,'landuse',vegn_landuse_ptr)
@@ -412,11 +427,20 @@ subroutine vegn_init(id_ug,id_band)
      cohort%Ws      = init_Ws
      cohort%Tv      = init_Tv
 
-     cohort%bl      = init_cohort_bl
+     if (predefined_tiles .and. predefined_biomass)then
+      !Initialize biomass components from predefined data
+      cohort%bl = tile%vegn%bl
+      cohort%br = tile%vegn%br
+      cohort%bsw = tile%vegn%bsw
+      cohort%bwood = tile%vegn%bwood
+     else
+      cohort%bl      = init_cohort_bl
+      cohort%br      = init_cohort_br
+      cohort%bsw     = init_cohort_bsw
+      cohort%bwood   = init_cohort_bwood
+     endif
+
      cohort%blv     = init_cohort_blv
-     cohort%br      = init_cohort_br
-     cohort%bsw     = init_cohort_bsw
-     cohort%bwood   = init_cohort_bwood
      cohort%bliving = cohort%bl+cohort%br+cohort%blv+cohort%bsw
      cohort%npp_previous_day = 0.0
      cohort%status  = LEAF_ON
@@ -454,7 +478,11 @@ subroutine vegn_init(id_ug,id_band)
   call vegn_disturbance_init()
 
   ! initialize vegetation diagnostic fields
-  call vegn_diag_init(id_ug,id_band,lnd%time)
+  if (predefined_tiles) then
+   call vegn_diag_init (id_ug, id_band, lnd%time , id_ptid)
+  else
+   call vegn_diag_init (id_ug, id_band, lnd%time )
+  endif
 
   ! ---- diagnostic section
   ce = first_elmt(land_tile_map, ls=lnd%ls)
@@ -471,10 +499,11 @@ subroutine vegn_init(id_ug,id_band)
 end subroutine vegn_init
 
 ! ============================================================================
-subroutine vegn_diag_init(id_ug,id_band,time)
-  integer        ,intent(in) :: id_ug   !<Unstructured axis id.
-  integer        ,intent(in) :: id_band ! ID of spectral band axis
-  type(time_type),intent(in) :: time    ! initial time for diagnostic fields
+subroutine vegn_diag_init ( id_ug, id_band, time, id_ptid)
+  integer        , intent(in) :: id_ug   !<Unstructured axis id.
+  integer        , intent(in) :: id_band ! ID of spectral band axis
+  type(time_type), intent(in) :: time    ! initial time for diagnostic fields
+  integer,optional,intent(in) :: id_ptid !<ID of tile axis
 
   ! ---- local vars
   integer :: i
@@ -494,6 +523,9 @@ subroutine vegn_diag_init(id_ug,id_band,time)
 
   id_height = register_tiled_diag_field ( module_name, 'height',  &
        (/id_ug/), time, 'vegetation height', 'm', missing_value=-1.0 )
+  id_height_std = register_tiled_diag_field ( module_name, 'height_std',  &
+       (/id_ug/), time, 'standard deviation of vegetation height across tiles in grid cell', &
+       'm2/m2', missing_value=-1.0, op='stdev')
   id_lai    = register_tiled_diag_field ( module_name, 'lai',  &
        (/id_ug/), time, 'leaf area index', 'm2/m2', missing_value=-1.0 )
   id_lai_var = register_tiled_diag_field ( module_name, 'lai_var',  &
@@ -744,9 +776,24 @@ subroutine vegn_diag_init(id_ug,id_band,time)
   id_cMisc = register_tiled_diag_field ( cmor_name, 'cMisc',  (/id_ug/), &
        time, 'Carbon Mass in Other Living Compartments on Land', 'kg m-2', missing_value=-1.0, &
        standard_name='miscellaneous_living_matter_carbon_content', fill_missing=.TRUE.)
+
+  !Full tile output
+  if (present(id_ptid)) then
+   call set_default_diag_filter('soil')
+   id_lai_tile    = register_tiled_diag_field ( module_name, 'lai_tile',  &
+        (/id_ug,id_ptid/), time, 'leaf area index', 'm2/m2', missing_value=-1.0,sm=.False.)
+   id_btot_tile = register_tiled_diag_field ( module_name, 'btot_tile',  &
+        (/id_ug,id_ptid/), time, 'total biomass', 'kg C/m2', missing_value=-1.0,sm=.False.)
+  endif
+
+  !Standard deviation
+  id_btot_std = register_tiled_diag_field ( module_name, 'btot_std',  &
+       (/id_ug/), time, 'total biomass', 'kg C/m2', missing_value=-1.0,op='stdev')
+
   call add_tiled_diag_field_alias ( id_height, cmor_name, 'vegHeight', (/id_ug/), &
        time, 'Vegetation height averaged over all vegetation types and over the vegetated fraction of a grid cell.', &
        'm', missing_value=-1.0, standard_name='canopy_height', fill_missing=.TRUE.)
+
 end subroutine
 
 
@@ -827,6 +874,11 @@ subroutine save_vegn_restart(tile_dim_length,timestamp)
   call add_cohort_data(restart2,'bliving', cohort_bliving_ptr, 'total living biomass per individual','kg C/m2')
   call add_int_cohort_data(restart2,'status', cohort_status_ptr, 'leaf status')
   call add_cohort_data(restart2,'leaf_age',cohort_leaf_age_ptr, 'age of leaves since bud burst', 'days')
+
+  ! for reproducibility across mid-day restarts
+  call add_cohort_data(restart2,'carbon_gain',cohort_carbon_gain_ptr, 'carbon gain during a day', 'kgC/m2')
+  call add_cohort_data(restart2,'bwood_gain',cohort_bwood_gain_ptr, 'wood gain during a day', 'kgC/m2')
+  call add_cohort_data(restart2,'npp_prev_day_acm', cohort_npp_previous_day_tmp_ptr, 'cumulative sum of NPP for average values','kg C/(m2 year)')
 
   !#### MODIFIED BY PPG 2016-12-01
   call add_cohort_data(restart2, 'Anlayer_acm', cohort_Anlayer_acm_ptr,  ' Cumulative Net Photosynthesis for new Lai layer', 'kg C/(m2 year)')
@@ -1305,6 +1357,7 @@ subroutine vegn_step_2 ( vegn, diag, &
   call send_tile_data(id_ws,     cohort%Ws, diag)
 
   call send_tile_data(id_height, cohort%height, diag)
+  call send_tile_data(id_height_std, cohort%height, diag)
   call send_tile_data(id_lai, cohort%lai, diag)
   call send_tile_data(id_lai_var, cohort%lai, diag)
   call send_tile_data(id_lai_std, cohort%lai, diag)
@@ -1317,6 +1370,10 @@ subroutine vegn_step_2 ( vegn, diag, &
   call send_tile_data(id_leaf_tran, cohort%leaf_tran, diag)
   call send_tile_data(id_leaf_emis, cohort%leaf_emis, diag)
   call send_tile_data(id_snow_crit, cohort%snow_crit, diag)
+
+  ! tile variables
+  call send_tile_data(id_lai_tile, cohort%lai, diag)
+
 end subroutine vegn_step_2
 
 
@@ -1419,7 +1476,8 @@ subroutine update_vegn_slow( )
   call get_date(lnd%time,             year0,month0,day0,hour,minute,second)
   call get_date(lnd%time-lnd%dt_slow, year1,month1,day1,hour,minute,second)
 
-  if(month0 /= month1) then
+  !if(month0 /= month1) then
+  if(day0 /= day1) then
      ! heartbeat
      write(timestamp,'("Current date is ",i4.4,"-",i2.2,"-",i2.2)')year0,month0,day0
      call error_mesg('update_vegn_slow',trim(timestamp),NOTE)
@@ -1662,6 +1720,20 @@ subroutine update_vegn_slow( )
          tile%diag)
      if (id_cMisc>0) call send_tile_data(id_cMisc, sum(tile%vegn%cohorts(1:n)%blv), tile%diag)
 
+     ! tile output
+     call send_tile_data(id_btot_tile,    sum(tile%vegn%cohorts(1:n)%bl    &
+                                        +tile%vegn%cohorts(1:n)%blv   &
+                                        +tile%vegn%cohorts(1:n)%br    &
+                                        +tile%vegn%cohorts(1:n)%bsw   &
+                                        +tile%vegn%cohorts(1:n)%bwood ), tile%diag)
+
+     ! standard deviation output
+     call send_tile_data(id_btot_std,    sum(tile%vegn%cohorts(1:n)%bl    &
+                                        +tile%vegn%cohorts(1:n)%blv   &
+                                        +tile%vegn%cohorts(1:n)%br    &
+                                        +tile%vegn%cohorts(1:n)%bsw   &
+                                        +tile%vegn%cohorts(1:n)%bwood ), tile%diag)
+
      ! ---- end of diagnostic section
 
      ! reset averages and number of steps to 0 before the start of new month
@@ -1836,5 +1908,10 @@ DEFINE_COHORT_ACCESSOR(real,wl)
 DEFINE_COHORT_ACCESSOR(real,ws)
 
 DEFINE_COHORT_ACCESSOR(real,height)
+
+! for reproducibility across mid-day restarts
+DEFINE_COHORT_ACCESSOR(real,carbon_gain)
+DEFINE_COHORT_ACCESSOR(real,bwood_gain)
+DEFINE_COHORT_ACCESSOR(real,npp_previous_day_tmp)
 
 end module vegetation_mod

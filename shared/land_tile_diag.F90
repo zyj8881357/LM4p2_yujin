@@ -130,6 +130,7 @@ type :: tiled_diag_field_type
    integer :: n_sends! number of data points sent to the field since last dump
    integer :: alias = 0 ! ID of the first alias in the chain
    character(32) :: module,name ! for debugging purposes only
+   logical :: sm ! flag to determine if to output summary or all associated tiles
 end type tiled_diag_field_type
 
 type :: cohort_diag_field_type
@@ -362,8 +363,8 @@ end function string2opcode
 
 ! ============================================================================
 function register_tiled_diag_field(module_name, field_name, axes, init_time, &
-     long_name, units, missing_value, range, op, standard_name, fill_missing) &
-     result (id)
+     long_name, units, missing_value, range, op, standard_name, fill_missing, &
+     sm) result (id)
 
   integer :: id
 
@@ -378,10 +379,11 @@ function register_tiled_diag_field(module_name, field_name, axes, init_time, &
   character(len=*), intent(in), optional :: op ! aggregation operation
   character(len=*), intent(in), optional :: standard_name
   logical,          intent(in), optional :: fill_missing
+  logical,          intent(in), optional :: sm
 
   id = reg_field(FLD_DYNAMIC, module_name, field_name, init_time, axes, long_name, &
          units, missing_value, range, op=op, standard_name=standard_name, &
-         fill_missing=fill_missing)
+         sm=sm, fill_missing=fill_missing)
   call add_cell_measures(id)
   call add_cell_methods(id)
 end function register_tiled_diag_field
@@ -534,7 +536,7 @@ end subroutine reg_field_alias
 ! of selectors
 function reg_field(static, module_name, field_name, init_time, axes, &
      long_name, units, missing_value, range, require, op, offset, &
-     area, cell_methods, standard_name, fill_missing) result(id)
+     area, cell_methods, standard_name, fill_missing, sm) result(id)
 
   integer :: id
 
@@ -549,6 +551,7 @@ function reg_field(static, module_name, field_name, init_time, axes, &
   real,             intent(in), optional :: range(2)
   logical,          intent(in), optional :: require
   character(len=*), intent(in), optional :: op ! aggregation operation
+  logical,          intent(in), optional :: sm
   integer,          intent(in), optional :: offset
   character(len=*), intent(in), optional :: area ! name of the area associated with this field, if not default
   character(len=*), intent(in), optional :: cell_methods ! cell_methods associated with this field, if not default
@@ -611,7 +614,11 @@ function reg_field(static, module_name, field_name, init_time, axes, &
      ! are horizontal coordinates, so their size is not taken into account
      fields(id)%size = 1
      do i = 2, size(axes(:))
-        fields(id)%size = fields(id)%size * get_axis_length(axes(i))
+        if(present(sm) .and. (sm .eq. .False.))then
+         fields(id)%size = 1 !Temporary fix to allow for tile outptu
+        else
+         fields(id)%size = fields(id)%size * get_axis_length(axes(i))
+        endif
      enddo
      ! if offset is present in the list of the arguments, it means that we do not
      ! want to increase the current_offset -- this is an alias field
@@ -645,6 +652,12 @@ function reg_field(static, module_name, field_name, init_time, axes, &
            if (fields(id)%ids(i) <= 0) cycle
            call diag_field_add_attribute(fields(id)%ids(i),'ocean_fillvalue',0.0)
         enddo
+     endif
+     ! store the summary flag
+     if(present(sm)) then
+      fields(id)%sm=sm
+     else
+      fields(id)%sm=.TRUE.
      endif
      ! increment the field id by some (large) number to distinguish it from the
      ! IDs of regular FMS diagnostic fields
@@ -913,8 +926,13 @@ subroutine dump_tile_diag_fields(time)
      ! write(*,*)trim(fields(ifld)%module),'/',trim(fields(ifld)%name)
      do isel = 1, n_selectors
         if (fields(ifld)%ids(isel) <= 0) cycle
+        if ((fields(ifld)%sm .eq. .True.))then
         call dump_diag_field_with_sel (land_tile_map, fields(ifld)%ids(isel), &
              fields(ifld), selectors(isel), time )
+        else
+          call dump_diag_field_with_sel_full (land_tile_map, fields(ifld)%ids(isel), &
+             fields(ifld), selectors(isel), time )
+        endif
      enddo
   enddo
   ! zero out the number of data points sent to the field
@@ -929,6 +947,68 @@ subroutine dump_tile_diag_fields(time)
 end subroutine dump_tile_diag_fields
 
 ! ============================================================================
+subroutine dump_diag_field_with_sel_full(land_tile_map, id, field, sel, time)
+  type(land_tile_list_type)  , intent(in) :: land_tile_map(:)
+  integer                    , intent(in) :: id
+  type(tiled_diag_field_type), intent(in) :: field
+  type(tile_selector_type)   , intent(in) :: sel
+  type(time_type)            , intent(in) :: time ! current time
+
+  ! ---- local vars
+  integer :: l ! iterators
+  integer :: ks,ke ! array boundaries
+  integer :: ls, le
+  logical :: used ! value returned from send_data (ignored)
+  real, allocatable :: buffer(:,:), weight(:,:), var(:,:)
+  logical, allocatable :: mask(:,:)
+  type(land_tile_enum_type)     :: ce
+  type(land_tile_type), pointer :: tile
+  integer :: ntiles_max
+  real :: undef
+  ntiles_max = size(lnd%pids)
+
+  ! calculate array boundaries
+  ls = lbound(land_tile_map,1); le = ubound(land_tile_map,1)
+  ks = field%offset   ; ke = field%offset + field%size - 1
+
+  ! allocate and initialize temporary buffers
+  allocate(buffer(ls:le,ntiles_max), weight(ls:le,ntiles_max), mask(ls:le,ntiles_max))
+  weight(:,:) = 0.0
+  buffer(:,:) = 0.0
+
+  ! accumulate data
+  ce = first_elmt(land_tile_map, ls=ls)
+  do while(loop_over_tiles(ce, tile, l))
+    if ( size(tile%diag%data) < ke )       cycle ! do nothing if there is no data in the buffer
+    if ( .not.tile_is_selected(tile,sel) ) cycle ! do nothing if tile is not selected
+    select case (field%opcode)
+    case (OP_AVERAGE,OP_VAR,OP_STD)
+       buffer(l,tile%pid:tile%pid) = buffer(l,tile%pid:tile%pid) + tile%diag%data(ks:ke)*tile%frac
+       weight(l,tile%pid:tile%pid) = weight(l,tile%pid:tile%pid) + tile%frac
+    case (OP_SUM)
+       buffer(l,tile%pid:tile%pid) = buffer(l,tile%pid:tile%pid) + tile%diag%data(ks:ke)
+       weight(l,tile%pid:tile%pid) = 1
+    end select
+  enddo
+
+  ! normalize accumulated data
+  mask = (weight>0)
+  where (mask) buffer=buffer/weight
+
+  ! fill missing data, if necessary
+  if (field%fill_missing) then
+     where (.not.mask) buffer = 0.0
+     mask = .TRUE.
+  endif
+  ! send diag field
+  !if (size(buffer) .gt. 0)used = send_data ( id, buffer, time, mask=mask )
+  used = send_data ( id, buffer, time, mask=mask )
+
+  ! clean up temporary data
+  deallocate(buffer,weight,mask)
+
+end subroutine
+
 ! dumps a single field
 ! TODO: perhaps need dump aliases as well
 ! TODO: perhaps total_n_sends check can be removed to avoid communication

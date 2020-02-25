@@ -3,7 +3,7 @@ module predefined_tiles_mod
  use hdf5
  use,intrinsic :: iso_c_binding
  use constants_mod     , only : pi
- use land_data_mod, only: land_state_type
+ use land_data_mod, only: land_state_type,atmos_land_boundary_type
  use vegn_cohort_mod, only : vegn_cohort_type
  use land_tile_mod, only : first_elmt, insert, new_land_tile_predefined
  use land_tile_mod, only : land_tile_list_type,land_tile_type,&
@@ -11,7 +11,7 @@ module predefined_tiles_mod
  use tiling_input_types_mod, only : tile_parameters_type,lake_predefined_type
  use tiling_input_types_mod, only : glacier_predefined_type,soil_predefined_type
  use tiling_input_types_mod, only : metadata_predefined_type
- use time_manager_mod, only : time_type
+ use time_manager_mod, only : time_type,get_date
  use time_interp_mod, only : time_interp
 
  implicit none
@@ -25,22 +25,31 @@ module predefined_tiles_mod
 
 contains
 
-subroutine open_database_predefined_tiles(h5id)
-  integer(hid_t), intent(out) :: h5id
+subroutine open_database_predefined_tiles(h5id,lnd)
 
+  type(land_state_type),intent(in) :: lnd
+  integer(hid_t), intent(out) :: h5id
   integer :: status
+  character(100) :: filename,fid
+
   !Initialize the fortran library
   call h5open_f(status)
 
+  !Define the file
+  write(fid,'(I10)') lnd%ug_face
+  filename = trim(trim(adjustl('INPUT/ptiles.face')) // trim(adjustl(fid)) // trim(adjustl('.h5')))
+  !print*,filename
+
   !Open access to the model input database
-  CALL h5fopen_f('INPUT/land_model_input_database.h5',H5F_ACC_RDONLY_F,h5id, status)
+  CALL h5fopen_f(filename,H5F_ACC_RDONLY_F,h5id, status)
+  !CALL h5fopen_f('INPUT/land_model_input_database.h5',H5F_ACC_RDONLY_F,h5id, status)
   !CALL h5fopen_f('INPUT/land_model_input_database.nc',H5F_ACC_RDONLY_F,h5id, status)
 
 end subroutine open_database_predefined_tiles
 
 subroutine close_database_predefined_tiles(h5id)
-  integer(hid_t), intent(in) :: h5id
 
+  integer(hid_t), intent(in) :: h5id
   integer :: status
   !Close access to the model input database
   call h5fclose_f(h5id,status)
@@ -50,58 +59,15 @@ subroutine close_database_predefined_tiles(h5id)
 
 end subroutine close_database_predefined_tiles
 
-subroutine determine_cell_id(is,js,h5id,cellid)
-  integer,intent(in) :: is,js
-  integer(hid_t), intent(in)  :: h5id
-  integer(hid_t), intent(out) :: cellid
-
-  integer :: status
-  !integer :: dsid,cid
-  real*8 :: h5tmp(1,1)
-  integer(hsize_t) :: dims(2),maxdims(2)
-  integer :: memrank
-  integer(hsize_t) :: dimsm(2),count(2),offset(2)
-  integer(hid_t) :: memid,varid,dsid,grpid
- 
- !NOTE: SHOULD BE DONE BY I/O CORE
- !Determine the id that corresponds to the lat/lon
- call h5gopen_f(h5id,"metadata",grpid,status)
- call h5dopen_f(grpid,"mapping",varid,status)
- !Get dataset's dataspace identifier.
- call h5dget_space_f(varid,dsid,status)
- ! Select hyperslab in the dataset
- offset = (/js-1,is-1/)
- count = (/1,1/)
- call h5sselect_hyperslab_f(dsid,H5S_SELECT_SET_F,offset,count,status)
- ! Create memory dataspace.
- memrank = 0
- dimsm = (/1,1/)
- call h5screate_simple_f(memrank,dimsm,memid,status)
- ! Select hyperslab in memory
- call h5sselect_hyperslab_f(memid,H5S_SELECT_SET_F,offset,count,status)
- ! Read data from hyperslab to memory
- dims = (/1,1/)
- call h5dread_f(varid,H5T_IEEE_F64LE,h5tmp,dims,status,memid,dsid)
- cellid = int(h5tmp(1,1),kind=hid_t)
- !print*,cellid
-
- !Close the memory space, dataset, and group
- call h5sclose_f(memid,status)
- call h5dclose_f(varid,status)
- call h5gclose_f(grpid,status)
-
-end subroutine determine_cell_id
-
 subroutine load_group_into_memory(tile,is,js,h5id,buf_ptr,buf_len,image_ptr)
+
   integer,intent(in) :: tile,is,js
   integer(hid_t), intent(in) :: h5id
   type(c_ptr),intent(inout) :: buf_ptr
   integer(size_t),intent(inout) :: buf_len
   character(kind=c_char),intent(inout),allocatable,dimension(:),target :: image_ptr
-
   integer :: status
   integer(hid_t) :: grpid,cell_grpid,dstid
-  !character(100) :: cellid_string
   character(100) :: tile_string,is_string,js_string,cellid_string
   integer(hid_t) :: fapl
   integer(size_t), parameter :: memory_increment = 1000000
@@ -134,7 +100,7 @@ subroutine load_group_into_memory(tile,is,js,h5id,buf_ptr,buf_len,image_ptr)
  call h5ocopy_f(grpid,cellid_string,dstid,'data',status)
  !print*,status,cellid_string
  if (status .eq. -1)then
-  print*,'This group does not exist in the database'
+  print*,'This group does not exist in the database',cellid_string
   stop
  endif
  !Flush the file
@@ -155,6 +121,7 @@ subroutine load_group_into_memory(tile,is,js,h5id,buf_ptr,buf_len,image_ptr)
 end subroutine load_group_into_memory
 
 subroutine open_image_file(buf_ptr,buf_len,image_ptr,dstid)
+
  integer(hid_t),intent(out) :: dstid
  type(c_ptr),intent(inout) :: buf_ptr
  integer(size_t),intent(inout) :: buf_len
@@ -179,13 +146,13 @@ subroutine open_image_file(buf_ptr,buf_len,image_ptr,dstid)
 end subroutine open_image_file
 
 subroutine land_cover_cold_start_0d_predefined_tiles(tiles,lnd,l,h5id)
+
   type(land_tile_list_type),intent(inout) :: tiles
-  type(land_state_type),intent(in) :: lnd
   integer, intent(in) :: l
   integer(hid_t), intent(in) :: h5id
-
+  type(land_state_type),intent(inout) :: lnd
   type(land_tile_type), pointer :: tile
-  integer :: itile,tid,is,js,status
+  integer :: itile,tid,i_index,j_index,status
   !integer :: parent_id = 0
   integer(hid_t) :: varid,grpid,dimid,cell_grpid,cellid,dstid,cid,dsid
   !real*8 :: h5tmp(1,1)
@@ -201,18 +168,15 @@ subroutine land_cover_cold_start_0d_predefined_tiles(tiles,lnd,l,h5id)
   integer(size_t) :: buf_len
   character(kind=c_char),allocatable,dimension(:),target :: image_ptr
 
-  !Determine the lat/lon of the grid cell (degrees)
-  is = lnd%i_index(l)
-  js = lnd%j_index(l)
+  i_index = lnd%i_index(l)
+  j_index = lnd%j_index(l)
   lon = 180.0*lnd%ug_lon(l)/pi
   lat = 180.0*lnd%ug_lat(l)/pi
-
-  !Determine the cell id (I/O core)
-  !call determine_cell_id(is,js,h5id,cellid)
+  !Print out the current lat and lon
+  !print*,"Initializing: ",lat,lon
 
   !Retrieve buffer and buffer length of desired group (I/O core)
-  !call load_group_into_memory(cellid,h5id,buf_ptr,buf_len,image_ptr)
-  call load_group_into_memory(lnd%ug_face,is,js,h5id,buf_ptr,buf_len,image_ptr)
+  call load_group_into_memory(lnd%ug_face,i_index,j_index,h5id,buf_ptr,buf_len,image_ptr)
 
   !Use buffer and buffer length to open new image file (Land model core)
   call open_image_file(buf_ptr,buf_len,image_ptr,dstid)
@@ -232,27 +196,43 @@ subroutine land_cover_cold_start_0d_predefined_tiles(tiles,lnd,l,h5id)
   !Glacier parameters
   call retrieve_glacier_parameters(tile_parameters,cid)
 
-  !Vegetation parameters
-
   !Create the tiles
   do itile = 1,tile_parameters%metadata%ntile
-   !if (tile_parameters%metadata%frac(itile) .eq. 0.0)cycle
+   if (tile_parameters%metadata%frac(itile) .eq. 0.0)cycle
    tid = tile_parameters%metadata%tid(itile)
    select case (tile_parameters%metadata%ttype(itile))
     case(1)
      tile => new_land_tile_predefined(frac=tile_parameters%metadata%frac(itile),&
             glac=tid,glacier_predefined=tile_parameters%glacier,&
-            itile=tid)
+            itile=tid,pid=tile_parameters%metadata%tile(itile)+1,&
+            i_index=i_index,j_index=j_index,face=lnd%ug_face,ttype=1,&
+            l_index=l,&
+            dws_prec=tile_parameters%metadata%dws_prec(itile,:),&
+            dws_srad=tile_parameters%metadata%dws_srad(itile,:),&
+            dws_tavg=tile_parameters%metadata%dws_tavg(itile,:)&
+            )
     case(2)
      tile => new_land_tile_predefined(frac=tile_parameters%metadata%frac(itile),&
             lake=tid,lake_predefined=tile_parameters%lake,&
-            itile=tid)
+            itile=tid,pid=tile_parameters%metadata%tile(itile)+1,&
+            i_index=i_index,j_index=j_index,face=lnd%ug_face,ttype=2,&
+            l_index=l,&
+            dws_prec=tile_parameters%metadata%dws_prec(itile,:),&
+            dws_srad=tile_parameters%metadata%dws_srad(itile,:),&
+            dws_tavg=tile_parameters%metadata%dws_tavg(itile,:)&
+            )
     case(3)
-     tile => new_land_tile_predefined(frac=tile_parameters%metadata%frac(itile),&
+      tile => new_land_tile_predefined(frac=tile_parameters%metadata%frac(itile),&
            soil=1,vegn=tile_parameters%soil%vegn(tid),&
            htag_j=tile_parameters%soil%hidx_j(tid),&
            htag_k=tile_parameters%soil%hidx_k(tid),&
-           soil_predefined=tile_parameters%soil,itile=tid)
+           soil_predefined=tile_parameters%soil,itile=tid,pid=tile_parameters%metadata%tile(itile)+1,&
+           i_index=i_index,j_index=j_index,face=lnd%ug_face,ttype=3,&
+           l_index=l,&
+           dws_prec=tile_parameters%metadata%dws_prec(itile,:),&
+           dws_srad=tile_parameters%metadata%dws_srad(itile,:),&
+           dws_tavg=tile_parameters%metadata%dws_tavg(itile,:)&
+           )
    end select
    call insert(tile,tiles)
   enddo
@@ -260,18 +240,122 @@ subroutine land_cover_cold_start_0d_predefined_tiles(tiles,lnd,l,h5id)
   !Close access to the grid cell's group
   call h5gclose_f(cid,status)
   call h5fclose_f(dstid,status)
+
+  !Define the maximum number of parent tiles
+  lnd%max_npt = max(lnd%max_npt,tile_parameters%metadata%ntile)
+  !lnd%max_npt = tile_parameters%metadata%ntile!tile_parameters%metadata%max_npt(1)
+
+end subroutine
+
+subroutine land_cover_warm_start_0d_predefined_tiles(tiles,lnd,l,h5id,warm_tiles,warm_vegn,&
+           i_index,j_index,face)
+
+  type(land_tile_list_type),intent(inout) :: tiles
+  integer, intent(in) :: l,warm_tiles(:),warm_vegn(:)
+  integer(hid_t), intent(in) :: h5id
+  type(land_state_type),intent(inout) :: lnd
+  type(land_tile_type), pointer :: tile
+  integer :: itile,tid,i_index,j_index,face,status
+  integer(hid_t) :: varid,grpid,dimid,cell_grpid,cellid,dstid,cid,dsid
+  integer :: max_npt,k,warm_tile
+  real :: lat,lon,t0,t1
+  real,allocatable,dimension(:) :: tmp
+  type(tile_parameters_type) :: tile_parameters
+  type(c_ptr) :: buf_ptr
+  integer(size_t) :: buf_len
+  character(kind=c_char),allocatable,dimension(:),target :: image_ptr
+
+  i_index = lnd%i_index(l)
+  j_index = lnd%j_index(l)
+  lon = 180.0*lnd%ug_lon(l)/pi
+  lat = 180.0*lnd%ug_lat(l)/pi
+
+  !Print out the current lat and lon
+  !print*,"Initializing: ",lat,lon
+
+  !Retrieve buffer and buffer length of desired group (I/O core)
+  call load_group_into_memory(lnd%ug_face,i_index,j_index,h5id,buf_ptr,buf_len,image_ptr)
+
+  !Use buffer and buffer length to open new image file (Land model core)
+  call open_image_file(buf_ptr,buf_len,image_ptr,dstid)
+
+  !Retrieve the group
+  call h5gopen_f(dstid,'data',cid,status)
+
+  !Metadata
+  call retrieve_metadata(tile_parameters,cid)
+
+  !Soil parameters
+  call retrieve_soil_parameters(tile_parameters,cid)
+
+  !Lake parameters
+  call retrieve_lake_parameters(tile_parameters,cid)
+
+  !Glacier parameters
+  call retrieve_glacier_parameters(tile_parameters,cid)
+
+  !Create the tiles
+  do warm_tile = 1,size(warm_tiles)
+   itile = warm_tiles(warm_tile)
+   if (tile_parameters%metadata%frac(itile) .eq. 0.0)cycle
+   tid = tile_parameters%metadata%tid(itile)
+   select case (tile_parameters%metadata%ttype(itile))
+    case(1)
+     tile => new_land_tile_predefined(frac=tile_parameters%metadata%frac(itile),&
+            glac=tid,glacier_predefined=tile_parameters%glacier,&
+            itile=tid,pid=tile_parameters%metadata%tile(itile)+1,&
+            i_index=i_index,j_index=j_index,face=lnd%ug_face,ttype=1,&
+            l_index=l,&
+            dws_prec=tile_parameters%metadata%dws_prec(itile,:),&
+            dws_srad=tile_parameters%metadata%dws_srad(itile,:),&
+            dws_tavg=tile_parameters%metadata%dws_tavg(itile,:)&
+            )
+    case(2)
+     tile => new_land_tile_predefined(frac=tile_parameters%metadata%frac(itile),&
+            lake=tid,lake_predefined=tile_parameters%lake,&
+            itile=tid,pid=tile_parameters%metadata%tile(itile)+1,&
+            i_index=i_index,j_index=j_index,face=lnd%ug_face,ttype=2,&
+            l_index=l,&
+            dws_prec=tile_parameters%metadata%dws_prec(itile,:),&
+            dws_srad=tile_parameters%metadata%dws_srad(itile,:),&
+            dws_tavg=tile_parameters%metadata%dws_tavg(itile,:)&
+            )
+    case(3)
+      tile => new_land_tile_predefined(frac=tile_parameters%metadata%frac(itile),&
+           soil=1,vegn=warm_vegn(warm_tile),&
+           htag_j=tile_parameters%soil%hidx_j(tid),&
+           htag_k=tile_parameters%soil%hidx_k(tid),&
+           soil_predefined=tile_parameters%soil,itile=tid,pid=tile_parameters%metadata%tile(itile)+1,&
+           i_index=i_index,j_index=j_index,face=lnd%ug_face,ttype=3,&
+           l_index=l,&
+           dws_prec=tile_parameters%metadata%dws_prec(itile,:),&
+           dws_srad=tile_parameters%metadata%dws_srad(itile,:),&
+           dws_tavg=tile_parameters%metadata%dws_tavg(itile,:)&
+           )
+   end select
+   call insert(tile,tiles)
+  enddo
+
+  !Close access to the grid cell's group
+  call h5gclose_f(cid,status)
+  call h5fclose_f(dstid,status)
+
+  !Define the maximum number of parent tiles
+  lnd%max_npt = max(lnd%max_npt,tile_parameters%metadata%ntile)
+  !lnd%max_npt = tile_parameters%metadata%ntile!tile_parameters%metadata%max_npt(1)
+  !lnd%max_npt = tile_parameters%metadata%max_npt(1)
   
 end subroutine
 
 subroutine retrieve_metadata(tile_parameters,cid)
-  type(tile_parameters_type),intent(inout) :: tile_parameters
-  integer(hid_t),intent(inout) :: cid
 
+  type(tile_parameters_type),intent(inout),target :: tile_parameters
+  integer(hid_t),intent(inout) :: cid
   type(metadata_predefined_type),pointer :: metadata
   integer(hid_t) :: dimid,grpid,dsid,varid
-  integer :: ntile,nband,status
+  integer :: ntile,nband,status,im
   integer(hsize_t) :: dims(1),maxdims(1)
-  allocate(tile_parameters%metadata)
+  !allocate(tile_parameters%metadata)
   metadata => tile_parameters%metadata
 
   !Retrieve the group id
@@ -289,6 +373,20 @@ subroutine retrieve_metadata(tile_parameters,cid)
   call get_parameter_data(grpid,'tile',metadata%ntile,metadata%tile)
   call get_parameter_data(grpid,'type',metadata%ntile,metadata%ttype)
   call get_parameter_data(grpid,'tid',metadata%ntile,metadata%tid)
+  call get_parameter_data(grpid,'max_npt',1,metadata%max_npt)
+
+  !Retrieve meteorology info
+  call get_parameter_data(grpid,'prec',metadata%ntile,12,metadata%dws_prec)
+  call get_parameter_data(grpid,'srad',metadata%ntile,12,metadata%dws_srad)
+  call get_parameter_data(grpid,'tavg',metadata%ntile,12,metadata%dws_tavg)
+  
+  !Curate the weights
+  do im = 1,12
+   if (isnan(sum(metadata%frac*metadata%dws_prec(:,im))))metadata%dws_prec(:,im)=1
+   if (isnan(sum(metadata%frac*metadata%dws_tavg(:,im))))metadata%dws_tavg(:,im)=1
+  enddo
+  !print*,'prec',sum(metadata%frac*metadata%dws_prec(:,1))
+  !print*,'tavg',sum(metadata%frac*metadata%dws_tavg(:,1))
 
   !Clean up (This should go in the database creation)
   where ((metadata%frac .lt. 1.e-8) .and. (metadata%ttype .eq. 2))metadata%frac = 0.0
@@ -300,14 +398,14 @@ subroutine retrieve_metadata(tile_parameters,cid)
 end subroutine retrieve_metadata
 
 subroutine retrieve_glacier_parameters(tile_parameters,cid)
-  type(tile_parameters_type),intent(inout) :: tile_parameters
-  integer(hid_t),intent(inout) :: cid
 
+  type(tile_parameters_type),intent(inout),target :: tile_parameters
+  integer(hid_t),intent(inout) :: cid
   type(glacier_predefined_type),pointer :: glacier
   integer(hid_t) :: dimid,grpid,dsid,varid
   integer :: nglacier,nband,status
   integer(hsize_t) :: dims(2),maxdims(2)
-  allocate(tile_parameters%glacier)
+  !allocate(tile_parameters%glacier)
   glacier => tile_parameters%glacier
 
   !Retrieve the group id
@@ -350,14 +448,14 @@ subroutine retrieve_glacier_parameters(tile_parameters,cid)
 end subroutine retrieve_glacier_parameters
 
 subroutine retrieve_lake_parameters(tile_parameters,cid)
-  type(tile_parameters_type),intent(inout) :: tile_parameters
-  integer(hid_t), intent(inout) :: cid
 
+  type(tile_parameters_type),intent(inout),target :: tile_parameters
+  integer(hid_t), intent(inout) :: cid
   type(lake_predefined_type),pointer :: lake
   integer(hid_t) :: dimid,grpid,dsid,varid
   integer :: nlake,nband,status
   integer(hsize_t) :: dims(2),maxdims(2)
-  allocate(tile_parameters%lake)
+  !allocate(tile_parameters%lake)
   lake => tile_parameters%lake
 
   !Retrieve the group id
@@ -399,6 +497,10 @@ subroutine retrieve_lake_parameters(tile_parameters,cid)
   call get_parameter_data(grpid,"thermal_cond_ref",nlake,lake%thermal_cond_ref)
   call get_parameter_data(grpid,"emis_sat",nlake,lake%emis_sat)
   call get_parameter_data(grpid,"k_sat_ref",nlake,lake%k_sat_ref)
+  call get_parameter_data(grpid,"nrsv",nlake,lake%nrsv)
+  call get_parameter_data(grpid,"rsv_area",nlake,lake%rsv_area)
+  call get_parameter_data(grpid,"rsv_cap",nlake,lake%rsv_cap)
+  call get_parameter_data(grpid,"rsv_depth",nlake,lake%rsv_depth)
 
   !Close access to the group
   call h5gclose_f(grpid,status)
@@ -406,14 +508,14 @@ subroutine retrieve_lake_parameters(tile_parameters,cid)
 end subroutine retrieve_lake_parameters
 
 subroutine retrieve_soil_parameters(tile_parameters,cid)
-  type(tile_parameters_type), intent(inout) :: tile_parameters
-  integer(hid_t), intent(inout) :: cid
 
+  type(tile_parameters_type), intent(inout),target :: tile_parameters
+  integer(hid_t), intent(inout) :: cid
   type(soil_predefined_type),pointer :: soil
   integer(hid_t) :: varid,grpid,dsid
   integer :: nsoil,nband,status
   integer(hsize_t) :: dims(2),maxdims(2)
-  allocate(tile_parameters%soil)
+  !allocate(tile_parameters%soil)
   soil => tile_parameters%soil
 
   !Retrieve the group id
@@ -472,9 +574,54 @@ subroutine retrieve_soil_parameters(tile_parameters,cid)
   call get_parameter_data(grpid,"tile_hlsp_elev",nsoil,soil%tile_hlsp_elev)
   call get_parameter_data(grpid,"tile_hlsp_hpos",nsoil,soil%tile_hlsp_hpos)
   call get_parameter_data(grpid,"tile_hlsp_width",nsoil,soil%tile_hlsp_width)
+  call get_parameter_data(grpid,"tile_hlsp_frac",nsoil,soil%tile_hlsp_frac)
   call get_parameter_data(grpid,"hidx_k",nsoil,soil%hidx_k)
   call get_parameter_data(grpid,"hidx_j",nsoil,soil%hidx_j)
   call get_parameter_data(grpid,"vegn",nsoil,soil%vegn)
+  call get_parameter_data(grpid,"landuse",nsoil,soil%landuse)
+  call get_parameter_data(grpid,"irrigation",nsoil,soil%irrigation)
+  call get_parameter_data(grpid,"bl",nsoil,soil%bl)
+  call get_parameter_data(grpid,"bsw",nsoil,soil%bsw)
+  call get_parameter_data(grpid,"bwood",nsoil,soil%bwood)
+  call get_parameter_data(grpid,"br",nsoil,soil%br)
+  call get_parameter_data(grpid,"wtd",nsoil,soil%iwtd)
+  call get_parameter_data(grpid,"soil_depth",nsoil,soil%soil_depth)
+  call get_parameter_data(grpid,"depth_to_bedrock",nsoil,soil%depth_to_bedrock)
+  call get_parameter_data(grpid,"hand_ecdf",nsoil,11,soil%hand_ecdf)
+  call get_parameter_data(grpid,"hand_bedges",nsoil,11,soil%hand_bedges)
+  call get_parameter_data(grpid,"ksat_0cm",nsoil,soil%ksat0cm)
+  call get_parameter_data(grpid,"ksat_200cm",nsoil,soil%ksat200cm)
+
+  !Do some basic QC (should be done in the preprocessing...)
+  where(isnan(soil%gw_soil_e_depth) .eq. .True.)soil%gw_soil_e_depth = 3.0
+  !where(soil%gw_soil_e_depth .lt. 1.0)soil%gw_soil_e_depth = 1.0
+  where(isnan(soil%gw_perm) .eq. .True.)soil%gw_perm = 2e-13 !HACK
+  where(isnan(soil%soil_depth) .eq. .True.)soil%soil_depth = 2.0
+  where(isnan(soil%depth_to_bedrock) .eq. .True.)soil%depth_to_bedrock = 10.0
+  soil%gw_soil_e_depth = soil%soil_depth !Remove dependence on input soil_e_depth
+  !Turn everything below DTB to hard rock...
+  !soil%gw_perm = 10**(-15.2)!1e-20
+  !Divide soil_e_depth by 3
+  !soil%gw_soil_e_depth = soil%gw_soil_e_depth/100.0
+  where(soil%dat_k_sat_ref .gt. 0.035)soil%dat_k_sat_ref = 0.035 !HACK
+  where(soil%dat_psi_sat_ref .gt. -0.01)soil%dat_psi_sat_ref = -0.01 !HACK
+  where(soil%dat_chb .lt. 2.0)soil%dat_chb = 2.0 !HACK
+  !where(soil%dat_k_sat_ref .gt. 0.01)soil%dat_k_sat_ref = 0.01 !HACK
+  !where(soil%dat_k_sat_ref .gt. 0.025)soil%dat_k_sat_ref = 0.0 !HACK
+  !Correct psi_sat_ref
+  !soil%dat_psi_sat_ref = 10*soil%dat_psi_sat_ref !Need to move back to original
+  !where(soil%dat_psi_sat_ref .gt. -0.01)soil%dat_psi_sat_ref = -0.01 !HACK
+  where(isnan(soil%dat_k_sat_ref) .eq. .True.)soil%dat_k_sat_ref = 0.003 !HACK
+  where(isnan(soil%bl) .eq. .True.)soil%bl = 0.0
+  where(isnan(soil%br) .eq. .True.)soil%br = 0.0
+  where(isnan(soil%bsw) .eq. .True.)soil%bsw = 0.0
+  where(soil%bwood .gt. 10**10)soil%bwood = 0.0
+  where(soil%bl .gt. 10**10)soil%bl = 0.0
+  where(soil%br .gt. 10**10)soil%br = 0.0
+  where(soil%bsw .gt. 10**10)soil%bsw = 0.0
+  where(soil%bwood .gt. 10**10)soil%bwood = 0.0
+  !microtopography
+  soil%microtopo = 9e9 !meter (dh/2) !0.5 ! meter
 
   !Close access to the group
   call h5gclose_f(grpid,status)
@@ -482,88 +629,130 @@ subroutine retrieve_soil_parameters(tile_parameters,cid)
 end subroutine retrieve_soil_parameters
 
 subroutine get_parameter_data_1d_integer(grpid,var,nx,tmp)
+
  integer(hid_t), intent(in) :: grpid
  character(len=*),intent(in) :: var
  integer,intent(in) :: nx
- integer,dimension(:),pointer :: tmp
-
+ !integer,dimension(:),pointer :: tmp
+ integer,dimension(:),allocatable :: tmp
  integer(hid_t) :: varid
  integer :: status
  integer(hsize_t) :: dims(1)
+ if (allocated(tmp))deallocate(tmp)
  allocate(tmp(nx))
 
  dims(1) = nx
  call h5dopen_f(grpid,var,varid,status)
  call h5dread_f(varid,H5T_STD_I32LE,tmp,dims,status)
- !print*,status,var,tmp
  call h5dclose_f(varid,status)
 
 end subroutine
 
 subroutine get_parameter_data_1d_real(grpid,var,nx,tmp)
+
  integer(hid_t), intent(in) :: grpid
  character(len=*),intent(in) :: var
  integer,intent(in) :: nx
- real,dimension(:),pointer :: tmp
-
+ !real,dimension(:),pointer :: tmp
+ real,dimension(:),allocatable :: tmp
  integer(hid_t) :: varid
  integer :: status
  integer(hsize_t) :: dims(1)
- real*8 :: tmp2(nx)
+ !if (associated(tmp))deallocate(tmp)
+ if (allocated(tmp))deallocate(tmp)
  allocate(tmp(nx))
  
  dims(1) = nx
  call h5dopen_f(grpid,var,varid,status)
- !call h5dread_f(varid,H5T_IEEE_F64LE,tmp,dims,status)
- call h5dread_f(varid,H5T_IEEE_F64LE,tmp2,dims,status)
- !call h5dread_f(varid,H5T_IEEE_F64LE,tmp2,dims,status)
- tmp = real(tmp2)
- !print*,status,var,tmp
+ call h5dread_f(varid,H5T_IEEE_F64LE,tmp,dims,status)
  call h5dclose_f(varid,status) 
 
 end subroutine 
 
 subroutine get_parameter_data_2d_integer(grpid,var,nx,ny,tmp)
+
  integer(hid_t), intent(in) :: grpid
  character(len=*),intent(in) :: var
  integer,intent(in) :: nx,ny
- integer,dimension(:,:), pointer :: tmp
-
+ integer,dimension(:,:), allocatable :: tmp
  integer(hid_t) :: varid
  integer :: status
  integer(hsize_t) :: dims(2)
+ if (allocated(tmp))deallocate(tmp)
  allocate(tmp(nx,ny))
 
  dims(1) = nx
  dims(2) = ny
  call h5dopen_f(grpid,var,varid,status)
  call h5dread_f(varid,H5T_STD_I32LE,tmp,dims,status)
- !print*,status,var,tmp
  call h5dclose_f(varid,status)
 
 end subroutine
 
 subroutine get_parameter_data_2d_real(grpid,var,nx,ny,tmp)
+
  integer(hid_t),   intent(in) :: grpid
  character(len=*), intent(in) :: var
  integer,          intent(in) :: nx,ny
- real,dimension(:,:),pointer :: tmp
-
+ real,dimension(:,:),allocatable :: tmp
  integer(hid_t) :: varid
  integer :: itile,status
  integer(hsize_t) :: dims(2)
- real*8 :: tmp2(nx,ny)
+ if (allocated(tmp))deallocate(tmp)
  allocate(tmp(nx,ny))
 
  dims(1) = nx
  dims(2) = ny
  call h5dopen_f(grpid,var,varid,status)
- !call h5dread_f(varid,H5T_IEEE_F64LE,tmp,dims,status)
- call h5dread_f(varid,H5T_IEEE_F64LE,tmp2,dims,status)
- tmp = real(tmp2)
- !print*,status,var,tmp
+ call h5dread_f(varid,H5T_IEEE_F64LE,tmp,dims,status)
  call h5dclose_f(varid,status)
 
+end subroutine
+
+subroutine downscale_atmos(tile,cplr2land,l,k,lnd)
+
+  implicit none
+  type(land_state_type),intent(in) :: lnd
+  type(land_tile_type), intent(inout) :: tile ! pointer to current tile
+  type(atmos_land_boundary_type), intent(in)    :: cplr2land
+  integer, intent(in) :: l,k
+  integer :: year,month,day,hour,minute,second
+  real :: tas_ds,lprec_ds,fprec_ds,e_res_ds,hlf,tfreeze
+  e_res_ds = 0.0
+  hlf = 3.34e5 !< Latent heat of fusion [J/kg]
+  tfreeze = 273.16 !< Freezing temperature of fresh water [K]
+
+  call get_date(lnd%time,year,month,day,hour,minute,second)
+
+  !Downscale temperature (precipitation temperature)
+  tas_ds = tile%dws_tavg(month)*cplr2land%tprec(l,k)
+  !Get canopy temperature
+  !tas_ds = tile%cana%T
+
+  !Downscale precipitation
+  lprec_ds = tile%dws_prec(month)*cplr2land%lprec(l,k)
+  fprec_ds = tile%dws_prec(month)*cplr2land%fprec(l,k)
+
+  !Melt any frozen precipitation
+  !e_res_ds = e_res_ds - HLF*fprec_ds
+  lprec_ds = lprec_ds + fprec_ds
+  fprec_ds = 0.0
+
+  !Calculate the heat necessary to bring up the temperature to tfreeze
+  !Calculate the max mass of water that could be frozen before surpassing tfreeze
+  !When applicable convert liquid water to frozen
+  if (tas_ds .le. tfreeze)then
+  ! e_res_ds = e_res_ds + HLF*lprec_ds
+   fprec_ds = lprec_ds
+   lprec_ds = 0.0
+  endif
+
+  !Send values back to the land model
+  cplr2land%tprec(l,k) = tas_ds
+  cplr2land%lprec(l,k) = lprec_ds
+  cplr2land%fprec(l,k) = fprec_ds
+  tile%e_res_ds = 0.0!e_res_ds
+  
 end subroutine
 
 end module predefined_tiles_mod

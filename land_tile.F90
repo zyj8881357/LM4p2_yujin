@@ -26,7 +26,8 @@ use cana_tile_mod, only : &
 use vegn_tile_mod, only : &
      vegn_tile_type, new_vegn_tile, delete_vegn_tile, vegn_is_selected, &
      vegn_tiles_can_be_merged, merge_vegn_tiles, get_vegn_tile_tag, &
-     vegn_tile_stock_pe, vegn_tile_carbon, vegn_tile_heat
+     vegn_tile_stock_pe, vegn_tile_carbon, vegn_tile_heat, &
+     new_vegn_tile_predefined
 use snow_tile_mod, only : &
      snow_tile_type, new_snow_tile, delete_snow_tile, snow_is_selected, &
      snow_tiles_can_be_merged, merge_snow_tiles, get_snow_tile_tag, &
@@ -132,9 +133,18 @@ end interface
 ! it is a container for tile-specific data, plus some information common to
 ! all of them: fraction of tile area, etc.
 type :: land_tile_type
-   integer :: tag = 0   ! defines type of the tile
 
+   integer :: tag = 0   ! defines type of the tile
    real    :: frac      ! fractional tile area, dimensionless
+   integer :: pid       ! parent id of the tile
+   integer :: i_index
+   integer :: j_index
+   integer :: l_index
+   integer :: face
+   real :: ttype
+   real :: dws_prec(12)
+   real :: dws_srad(12)
+   real :: dws_tavg(12)
    type(glac_tile_type), pointer :: glac => NULL() ! glacier model data
    type(lake_tile_type), pointer :: lake => NULL() ! lake model data
    type(soil_tile_type), pointer :: soil => NULL() ! soil model data
@@ -160,6 +170,7 @@ type :: land_tile_type
            ! the implicit time step -- used in update_land_bc_fast to return to the flux exchange.
    real :: e_res_1  = 0.0 ! energy residual in canopy air EB equation
    real :: e_res_2  = 0.0 ! energy residual in canopy EB equation
+   real :: e_res_ds = 0.0 ! energy residual from downscaling precipitation (repartitioning liquid/frozen)
    real :: runon_l  = 0.0 ! water discharged by rivers into the tile, kg/(m2 s)
    real :: runon_s  = 0.0 ! snow discharged by rivers into the tile, kg/(m2 s)
    real :: runon_H  = 0.0 ! heat carried by water discharged by rivers into the tile, W/m2
@@ -357,7 +368,8 @@ end function land_tile_ctor
 ! case are defined externally
 function land_tile_ctor_predefined(frac,glac,lake,soil,vegn,tag,htag_j,htag_k,&
                         soil_predefined,lake_predefined,glacier_predefined,&
-                        itile) result(tile)
+                        itile,pid,i_index,j_index,l_index,face,ttype,&
+                        dws_prec,dws_srad,dws_tavg) result(tile)
   real   , optional, intent(in) :: frac ! fractional area of tile
   integer, optional, intent(in) :: &
                glac,lake,soil,vegn ! kinds of respective tiles
@@ -367,7 +379,8 @@ function land_tile_ctor_predefined(frac,glac,lake,soil,vegn,tag,htag_j,htag_k,&
   type(soil_predefined_type), optional, intent(in) :: soil_predefined
   type(lake_predefined_type), optional, intent(in) :: lake_predefined
   type(glacier_predefined_type), optional, intent(in) :: glacier_predefined
-  integer, optional, intent(in) :: itile
+  integer, optional, intent(in) :: itile,pid,i_index,j_index,face,ttype,l_index
+  real, optional, intent(in) :: dws_prec(12),dws_srad(12),dws_tavg(12)
   type(land_tile_type), pointer :: tile ! return value
 
   ! ---- local vars
@@ -383,6 +396,15 @@ function land_tile_ctor_predefined(frac,glac,lake,soil,vegn,tag,htag_j,htag_k,&
   ! fill common fields
   tile%frac = 0.0 ; if(present(frac)) tile%frac = frac
   tile%tag  = 0   ; if(present(tag))  tile%tag  = tag
+  tile%pid = 0; if(present(pid)) tile%pid = pid
+  tile%i_index = 0; if(present(i_index)) tile%i_index = i_index
+  tile%j_index = 0; if(present(j_index)) tile%j_index = j_index
+  tile%l_index = 0; if(present(l_index)) tile%l_index = l_index
+  tile%face = 0; if(present(face)) tile%face = face
+  tile%ttype = 0; if(present(ttype)) tile%ttype = ttype
+  tile%dws_srad = 1; if(present(dws_srad)) tile%dws_srad = dws_srad
+  tile%dws_prec = 1; if(present(dws_prec)) tile%dws_prec = dws_prec
+  tile%dws_tavg = 1; if(present(dws_tavg)) tile%dws_tavg = dws_tavg
 
   ! create sub-model tiles
   tile%cana => new_cana_tile()
@@ -398,7 +420,8 @@ function land_tile_ctor_predefined(frac,glac,lake,soil,vegn,tag,htag_j,htag_k,&
         ! these indices will be set in hlsp_init.
     end if
   end if
-  if(vegn_>=0) tile%vegn => new_vegn_tile(vegn_)
+
+  if(vegn_>=0) tile%vegn => new_vegn_tile_predefined(soil_predefined,itile)
 
   ! create a buffer for diagnostic output
   call init_diag_buff(tile%diag)

@@ -16,7 +16,7 @@ use land_debug_mod, only : is_watch_point, set_current_point, get_current_point,
 use hillslope_mod, only : do_hillslope_model, strm_depth_penetration, use_hlsp_aspect_in_gwflow, &
                           use_geohydrodata, stiff_do_explicit, dammed_strm_bc, simple_inundation, &
                           surf_flow_velocity, limit_intertile_flow, flow_ratio_limit, exp_inundation, &
-                          tiled_DOC_flux
+                          tiled_DOC_flux,sat_frac_from_hand,turn_gtos_off,sat_from_edecay,sat_from_edecay_parameter
 use constants_mod, only : tfreeze, dens_h2o, epsln
       ! Use global tfreeze in energy flux calculations, not local freezing-point-depression temperature.
 use fms_mod, only: error_mesg, FATAL
@@ -47,10 +47,11 @@ character(len=*), parameter :: module_name = 'hillslope_hydrology'
 !                           ! normalized to hillslope area (mm/s), (W/m^2), respectively
 integer :: id_gdiv, & !  groundwater divergence (excl. to stream) (mm/s)
            id_ghdiv   !  heat flux associated with groundwater divergence (excl. to stream) (W/m^2)
-integer :: id_gtos, & !  groundwater divergence from tile to stream (mm/s)
+integer :: id_gtos, id_gtos_std, & !  groundwater divergence from tile to stream (mm/s)
            id_gtosh   !  heat flux associated with groundwater divergence to stream (W/m^2)
 integer :: id_gtdiv, & ! tracer flux associated with groundwater divergence (excl. to stream) (kg C/m^2/s)
            id_gtost    ! tracer flux from tile to stream (kg C/m^2/s)
+integer :: id_gtos_tile, id_gtosh_tile,id_gdiv_tile,id_ghdiv_tile
 
 ! ==== module variables ======================================================
 logical :: module_is_initialized =.FALSE.
@@ -87,7 +88,8 @@ end subroutine hlsp_hydro_lev_init
 ! microtopography is implemented.
 ! ============================================================================
 subroutine hlsp_hydrology_2(soil, psi, vlc, vsc, div_it, hdiv_it, &
-              sat_frac, inun_frac, storage_frac, zwt, surface_water, runoff_frac)
+              sat_frac, inun_frac, storage_frac, zwt, surface_water, runoff_frac,&
+              div_gtos, hdiv_gtos, zwt2)
 
    type(soil_tile_type), intent(inout) :: soil ! soil tile pointer
    real, intent(in)    :: psi(num_l) ! soil moisture potential wrt local elevation [m]
@@ -97,15 +99,18 @@ subroutine hlsp_hydrology_2(soil, psi, vlc, vsc, div_it, hdiv_it, &
    real, intent(out)   :: inun_frac  ! diagnostic inundated area fraction [-]
    real, intent(inout) :: storage_frac ! diagnostic fraction of groundwater storage above stream elev [-]
    real, intent(in)    :: zwt ! depth to water table [m]; first saturated layer from top
+   real, intent(in)    :: zwt2 ! depth to water table [m]; first saturated (liquid+frozen) layer from top
    real, intent(out)   :: surface_water ! [m] surface water storage
    real, intent(out)   :: div_it(num_l) ! [mm/s] divergence of water due to inter-tile flow
                                         ! (incl. to stream)
    real, intent(out)   :: hdiv_it(num_l) ! divergence of heat due to inter-tile water flow [W/m^2]
+   real, intent(out)   :: div_gtos(num_l)
+   real, intent(out)   :: hdiv_gtos(num_l)
    real, intent(out)   :: runoff_frac ! [-] effective saturated fraction used for calculating surface runoff, used
                         ! when simple inundation scheme is applied
    real :: delta_time ! [s]
-   integer :: l
-
+   integer :: l,i
+   real :: nhand_bedges(11),y,y0,y1,x0,x1,hand_mean
 
    delta_time = time_type_to_real(lnd%dt_fast)
 
@@ -113,18 +118,68 @@ subroutine hlsp_hydrology_2(soil, psi, vlc, vsc, div_it, hdiv_it, &
    ! Retrieve water and energy divergences.
    div_it(1:num_l) = soil%div_hlsp(1:num_l)
    hdiv_it(1:num_l) = soil%div_hlsp_heat(1:num_l)
-
-
+   div_gtos(1:num_l) = soil%gtos(1:num_l)
+   hdiv_gtos(1:num_l) = soil%gtosh(1:num_l)
+!
    ! Diagnostics
    ! Trivial for now
    surface_water = max(0., (vlc(1) + vsc(1) - soil%pars%vwc_sat)*dz(1))
 
    ! Set saturated fraction
-   if (surface_water > 0.) then
-      sat_frac = 1.
-   else
-      sat_frac = 0.
-   end if
+   !if (surface_water > 0.) then
+   !   sat_frac = 1.
+   !else
+   !   sat_frac = 0.
+   !end if
+   if (vlc(1) + vsc(1) - soil%pars%vwc_sat .ge. 0.0)then
+    sat_frac = 1.0
+   else 
+    sat_frac = 0.0
+   endif
+   if (sat_from_edecay) then
+    sat_frac = exp(-zwt2/sat_from_edecay_parameter)!soil%pars%soil_e_depth)
+    !sat_frac = exp(-zwt/soil%pars%soil_e_depth)
+   endif
+
+   ! Get saturated fraction from hand data
+   if (sat_frac_from_hand) then
+    sat_frac = 0.0
+    ! Compute the percentage of saturation of tile from water table and distribution of hand
+    ! Subtract the mean from the edges
+    hand_mean = sum((soil%pars%hand_bedges(2:11)+soil%pars%hand_bedges(1:10))/2 &
+                      *(soil%pars%hand_ecdf(2:11)-(soil%pars%hand_ecdf(1:10))))
+    !nhand_bedges = soil%pars%tile_hlsp_elev*soil%pars%hand_bedges/hand_mean - soil%pars%tile_hlsp_elev
+    nhand_bedges = soil%pars%hand_bedges - soil%pars%tile_hlsp_elev
+    !nhand_bedges = soil%pars%hand_bedges - sum(soil%pars%hand_bedges)/size(soil%pars%hand_bedges)
+    if (zwt2 .gt. -nhand_bedges(1))then
+     sat_frac = 0.0
+    else if (zwt2 .lt. -nhand_bedges(11))then
+     sat_frac = 1.0
+    else
+     do i = 1,size(soil%pars%hand_bedges)-1
+      if ((zwt2 .lt. -nhand_bedges(i)) .and. (zwt2 .gt. -nhand_bedges(i+1)))then
+       y = zwt2
+       y0 = -nhand_bedges(i)
+       y1 = -nhand_bedges(i+1)
+       x0 = soil%pars%hand_ecdf(i)
+       x1 = soil%pars%hand_ecdf(i+1)
+       if (((y1-y0) .ne. 0.0) .and. ((x1 - x0) .ne. 0))then
+        sat_frac = (y - y0)/((y1 - y0)/(x1 - x0))
+       else
+        sat_frac = 0.0
+       endif
+       sat_frac = x0 + sat_frac
+       exit
+      endif
+     enddo
+    endif
+    if (sat_frac .gt. 1.0)sat_frac = 1.0
+    if (sat_frac .lt. 0.0)sat_frac = 0.0
+    if (isnan(sat_frac))sat_frac = 0.0
+    !sat_frac = 2.0*sat_frac
+    !sat_frac = sat_frac**sat_frac_exp !Parameter
+    !print*,sat_frac,zwt,zwt2,hand_mean,soil%pars%tile_hlsp_elev
+   endif
 
    ! Inundation and runoff_frac
    if (.not. simple_inundation .and. .not. exp_inundation) then
@@ -145,6 +200,8 @@ subroutine hlsp_hydrology_2(soil, psi, vlc, vsc, div_it, hdiv_it, &
       runoff_frac = 1. - exp(-runoff_frac) ! To smooth behavior approaching 1.
       ! ZMS Could set surface_water here to soil%pars%microtopo*inun_frac,
       ! the simple integral, unless the above diagnostic proves useful.
+      runoff_frac = runoff_frac + sat_frac
+      if (runoff_frac .gt. 1.0)runoff_frac = 1.0
    end if
 
    ! Storage above stream elevation
@@ -196,6 +253,7 @@ subroutine hlsp_hydrology_1(num_species)
    real    ::     div_above(1:num_l)   ! running sum of contributing tile water flux (mm/s)
    real    ::     div_level(1:num_l)   ! running sum of tile water flux from same hillslope level (mm/s)
    real    ::     div_below(1:num_l)   ! running sum of tile water flux downslope (mm/s)
+   real    ::     div_hlsp(1:num_l),div_hlsp_heat(1:num_l),div_hlsp_DOC(num_species,1:num_l)
    real    ::     hdiv_above(1:num_l)  ! running sum of contributing tile energy flux (W/m^2)
    real    ::     hdiv_level(1:num_l)  ! running sum of tile energy flux from same hillslope level (W/m^2)
    real    ::     hdiv_below(1:num_l)  ! running sum of tile energy flux downslope  (W/m^2) (+ out of tile)
@@ -219,7 +277,7 @@ subroutine hlsp_hydrology_1(num_species)
    real    ::     tflux         ! tracer flux, temporary (1/m^2/s)
    real    ::     delta_h     ! elevation difference between tile 1 and 2 (m)
    real    ::     y           ! disturbance lengthscale (m)
-   real, parameter :: wthresh = 1.e-14 ! water balance error threshold (mm/s)
+   real, parameter :: wthresh = 1.e-10 ! water balance error threshold (mm/s)
    real, parameter :: ethresh = 1.e-8  ! energy balance error threshold (W/m^2)
    real, parameter :: tthresh = 1.e-13 ! carbon balance error threshold (kg C/m^2/s)
    real    ::     frl         ! flow ratio limit: maximum ratio of head difference to length
@@ -247,6 +305,9 @@ subroutine hlsp_hydrology_1(num_species)
    real, parameter   :: minwl = 0.1 ! mm
    character(len=64) :: speciesname
    integer :: ll
+   real :: delta_time ! [s]
+
+   delta_time = time_type_to_real(lnd%dt_fast)
 
    if (.not. do_hillslope_model) return
 
@@ -319,14 +380,14 @@ subroutine hlsp_hydrology_1(num_species)
 
             ! Debug
             call set_current_point(i,j,k,ll)
-!            if (is_watch_cell()) then
-!               write(*,*)'In hlsp_hydrology_1. In watch cell. At hidx_k, hidx_j:', soil%hidx_k, soil%hidx_j
-!               write(*,*)'tile=',k
-!               do l = 1,num_l
-!                 write(*,'(i3.3)',advance='NO') l
-!                  __DEBUG2__(soil%psi(l),soil%hyd_cond_horz(l))
-!               enddo
-!            end if
+            if (is_watch_cell()) then
+               write(*,*)'In hlsp_hydrology_1. In watch cell. At hidx_k, hidx_j:', soil%hidx_k, soil%hidx_j
+               write(*,*)'tile=',k
+               do l = 1,num_l
+                 write(*,'(i3.3)',advance='NO') l
+                  __DEBUG2__(soil%psi(l),soil%hyd_cond_horz(l))
+               enddo
+            end if
 
             ! Initialize sums
             area_above = 0.
@@ -356,15 +417,18 @@ subroutine hlsp_hydrology_1(num_species)
                   if (abs(soil%hidx_j - soil2%hidx_j) == 1) then ! tile2 is a vertical neighbor
                                                                  ! of tile
 
-                     if (soil%hidx_j == soil2%hidx_j - 1) then ! tile2 above tile
-                        area_above = area_above + tile2%frac
-                     else ! tile2 below tile
-                        area_below = area_below + tile2%frac
-                     end if
                      L1 = soil%pars%tile_hlsp_length
                      L2 = soil2%pars%tile_hlsp_length
                      w1 = soil%pars%tile_hlsp_width
                      w2 = soil2%pars%tile_hlsp_width
+
+                     if (soil%hidx_j == soil2%hidx_j - 1) then ! tile2 above tile
+                        area_above = area_above + tile2%soil%pars%tile_hlsp_frac
+                        !area_above = area_above + L2*w2 HERE
+                     else ! tile2 below tile
+                        area_below = area_below + tile2%soil%pars%tile_hlsp_frac
+                        !area_below = area_below + L2*w2 HERE
+                     end if
                      L_hat = (L1 + L2)/2.
                      w_hat = (L2*w1 + L1*w2)/(L1 + L2)
                      delta_h = soil%pars%tile_hlsp_elev - soil2%pars%tile_hlsp_elev
@@ -375,7 +439,7 @@ subroutine hlsp_hydrology_1(num_species)
                      ! Debug
                      if (is_watch_cell()) then
                         write(*,*)'Water & energy fluxes to tile with area, hk, hj:', &
-                                  tile2%frac, soil2%hidx_k, soil2%hidx_j, '.'
+                                  tile2%soil%pars%tile_hlsp_frac, soil2%hidx_k, soil2%hidx_j, '.'
                      end if
 
                      if (tiled_DOC_flux) then
@@ -405,8 +469,15 @@ subroutine hlsp_hydrology_1(num_species)
 
                         ! Flux from tile --> tile2
                         ! Will later be normalized by total area of tiles above or below
-                        wflux(l) = k_hat * deltapsi/L_hat * dz(l) * tile2%frac / L1 * w_hat / w1
+                        wflux(l) = k_hat * deltapsi/L_hat * dz(l) * tile2%soil%pars%tile_hlsp_frac / L1 * w_hat / w1
+                        !wflux(l) = k_hat * deltapsi/L_hat * dz(l) * tile2%frac / L1 * w_hat / w1
                        ! mm/s =  mm/s *   m     / m    *  m          -      / m   * -    / -
+
+                        ! Constrain wflux to saturated layer value
+                        !if(abs(delta_time*wflux(l)) .gt. dz(l))then
+                        !  if(wflux(l) .gt. 0)wflux(l) = dz(l)/delta_time
+                        !  if(wflux(l) .lt. 0)wflux(l) = -dz(l)/delta_time
+                        !endif
 
                         ! Energy flux
                         if (wflux(l) < 0.) then ! water flowing into tile: heat advected in
@@ -416,6 +487,8 @@ subroutine hlsp_hydrology_1(num_species)
                         end if
 
                         ! Update fluxes
+                        !print*,soil%hidx_j,soil2%hidx_j,wflux0,wflux1
+                        !print*,soil%hidx_j,soil2%hidx_j,wflux,w2*L2,tile%frac
                         if (soil%hidx_j == soil2%hidx_j - 1) then ! tile2 above tile
                            div_above(l) = div_above(l) + wflux(l)
                            hdiv_above(l) = hdiv_above(l) + eflux(l)
@@ -454,9 +527,10 @@ subroutine hlsp_hydrology_1(num_species)
                      end if
 
                   else if (soil%hidx_j == soil2%hidx_j .and. ce /= ce2) then
+
                      ! tile2 is in same level
-                     A1 = tile%frac
-                     A2 = tile2%frac
+                     A1 = tile%soil%pars%tile_hlsp_frac
+                     A2 = tile2%soil%pars%tile_hlsp_frac
                      area_level = area_level + A2
                      ! A1 will be added to area_level at bottom.
                      y = soil%pars%disturb_scale
@@ -464,7 +538,7 @@ subroutine hlsp_hydrology_1(num_species)
                      ! Debug
                      if (is_watch_cell()) then
                         write(*,*)'Water & energy fluxes to tile with area, hk, hj:', &
-                                  tile2%frac, soil2%hidx_k, soil2%hidx_j, '.'
+                                  tile2%soil%pars%tile_hlsp_frac, soil2%hidx_k, soil2%hidx_j, '.'
                      end if
 
                      if (tiled_DOC_flux) then
@@ -535,36 +609,41 @@ subroutine hlsp_hydrology_1(num_species)
             end do ! loop over second tile list
 
             ! Initialize outputs
-            soil%div_hlsp(:) = 0.
-            soil%div_hlsp_heat(:) = 0.
-            soil%div_hlsp_DOC(:,:) = 0.
+            div_hlsp(:) = 0.
+            div_hlsp_heat(:) = 0.
+            div_hlsp_DOC(:,:) = 0.
+            soil%gtos(:) = 0.0
+            soil%gtosh(:) = 0.0
 
             ! Add to outputs
             if (area_above > 0.) then
-               soil%div_hlsp(:) = soil%div_hlsp(:) + div_above(:) / area_above
-               soil%div_hlsp_heat(:) = soil%div_hlsp_heat(:) + hdiv_above(:) / area_above
+               !print*,'above',div_above/area_above*tile%frac
+               div_hlsp(:) = div_hlsp(:) + div_above(:) / area_above
+               div_hlsp_heat(:) = div_hlsp_heat(:) + hdiv_above(:) / area_above
                do s=1,num_species
-                  soil%div_hlsp_DOC(s,:) = soil%div_hlsp_DOC(s,:) &
+                  div_hlsp_DOC(s,:) = div_hlsp_DOC(s,:) &
                         + tdiv_above(:,s) / area_above
                end do
             end if
-
+            
             if (area_level > 0.) then
                ! Add current tile to area_level
-               area_level = area_level + tile%frac
-               soil%div_hlsp(:) = soil%div_hlsp(:) + div_level(:) / area_level
-               soil%div_hlsp_heat(:) = soil%div_hlsp_heat(:) + hdiv_level(:) / area_level
+               area_level = area_level + tile%soil%pars%tile_hlsp_frac
+               !print*,'level',div_level/area_level
+               div_hlsp(:) = div_hlsp(:) + div_level(:) / area_level
+               div_hlsp_heat(:) = div_hlsp_heat(:) + hdiv_level(:) / area_level
                do s=1,num_species
-                  soil%div_hlsp_DOC(s,:) = soil%div_hlsp_DOC(s,:) &
+                  div_hlsp_DOC(s,:) = div_hlsp_DOC(s,:) &
                         + tdiv_level(:,s) / area_level
                end do
             end if
-
+            
             if (area_below > 0.) then
-               soil%div_hlsp(:) = soil%div_hlsp(:) + div_below(:) / area_below
-               soil%div_hlsp_heat(:) = soil%div_hlsp_heat(:) + hdiv_below(:) / area_below
+               !print*,'below',div_below/area_below*tile%frac
+               div_hlsp(:) = div_hlsp(:) + div_below(:) / area_below
+               div_hlsp_heat(:) = div_hlsp_heat(:) + hdiv_below(:) / area_below
                do s=1,num_species
-                  soil%div_hlsp_DOC(s,:) = soil%div_hlsp_DOC(s,:) &
+                  div_hlsp_DOC(s,:) = div_hlsp_DOC(s,:) &
                         + tdiv_below(:,s) / area_below
                end do
             end if
@@ -572,14 +651,14 @@ subroutine hlsp_hydrology_1(num_species)
 
             ! Debug
             if (is_watch_cell()) then
-               write(*,*)'Total divergence of water, heat (1:num_l) = ', soil%div_hlsp(1:num_l), &
-                           ', ', soil%div_hlsp_heat(1:num_l), '.'
+               write(*,*)'Total divergence of water, heat (1:num_l) = ', div_hlsp(1:num_l), &
+                           ', ', div_hlsp_heat(1:num_l), '.'
             end if
 
             ! Calculate flows directly to stream
             if (soil%hidx_j == 1) then
             ! ZMS for now assume psi(stream) == 0.
-               A1 = tile%frac
+               A1 = tile%soil%pars%tile_hlsp_frac
 !               area_stream = area_stream + A1
                L1 = soil%pars%tile_hlsp_length
                L_hat = L1/2.
@@ -622,19 +701,24 @@ subroutine hlsp_hydrology_1(num_species)
                   wflux(l) = k_hat*ks * deltapsi/L_hat * dz(l)/L1
                                                                         ! ZMS double-check this
                   ! mm/s =  mm/s *   m     / m    *  m  /m
+                  if (turn_gtos_off)wflux(l) = 0.0
 
                   ! Energy flux
                   if (wflux(l) < 0.) then ! water flowing into tile: heat advected in
                      ! Need to access stream state: eflux = wflux * __ * clw
                      ! ZMS For now don't allow this.
+                     soil%gtos(l) = 0.0
+                     soil%gtosh(l) = 0.0
                   else  ! water flowing into stream: heat advected out
                      eflux(l) = wflux(l) * (soil%T(l)- tfreeze)* clw
-                     soil%div_hlsp(l) = soil%div_hlsp(l) + wflux(l)
-                     soil%div_hlsp_heat(l) = soil%div_hlsp_heat(l) + eflux(l)
+                     div_hlsp(l) = div_hlsp(l) + wflux(l)
+                     div_hlsp_heat(l) = div_hlsp_heat(l) + eflux(l)
 
                      ! For diagnostics
                      gtos_bytile(k,l) = wflux(l)
                      gtosh_bytile(k,l) = eflux(l)
+                     soil%gtos(l) = wflux(l)
+                     soil%gtosh(l) = eflux(l)
 
                      ! In units flowing into stream
                      ground_to_stream(ll) = ground_to_stream(ll) + wflux(l) * A1
@@ -647,7 +731,7 @@ subroutine hlsp_hydrology_1(num_species)
                      do l=1,num_l                     
                         if (wflux(l) .GE. 0) then
                            tflux = wflux(l) * DOC(s,l) / max(soil%wl(l), minwl)
-                           soil%div_hlsp_DOC(s,l) = soil%div_hlsp_DOC(s,l) + tflux
+                           div_hlsp_DOC(s,l) = div_hlsp_DOC(s,l) + tflux
                            gtost_bytile(k,l,s) = tflux
                            ground_to_stream_tracers(ll,s) = ground_to_stream_tracers(ll,s) &
                                   + tflux * A1
@@ -664,6 +748,14 @@ subroutine hlsp_hydrology_1(num_species)
                end if
 
             end if ! Stream
+
+            !Prepare output
+            soil%div_hlsp = div_hlsp
+            soil%div_hlsp_heat = div_hlsp_heat
+            soil%div_hlsp_DOC = div_hlsp_DOC
+
+            k=k+1
+
          end do  ! loop over first tile list
 
          ! Normalize flows to stream
@@ -687,10 +779,11 @@ subroutine hlsp_hydrology_1(num_species)
             if (.not.associated(tile%soil)) cycle
 
             do l=1,num_l
-               wbal = wbal + tile%soil%div_hlsp(l) * tile%frac
-               ebal = ebal + tile%soil%div_hlsp_heat(l) * tile%frac
+               !print*,l,tile%soil%div_hlsp(l) * tile%frac
+               wbal = wbal + tile%soil%div_hlsp(l) * tile%soil%pars%tile_hlsp_frac
+               ebal = ebal + tile%soil%div_hlsp_heat(l) * tile%soil%pars%tile_hlsp_frac
                do s=1,num_species
-                     tbal(s) = tbal(s) + tile%soil%div_hlsp_DOC(s,l) * tile%frac
+                     tbal(s) = tbal(s) + tile%soil%div_hlsp_DOC(s,l) * tile%soil%pars%tile_hlsp_frac
                end do
             end do
 
@@ -700,6 +793,7 @@ subroutine hlsp_hydrology_1(num_species)
             call send_tile_data(id_ghdiv, tile%soil%div_hlsp_heat - gtosh_bytile(k,:), &
                                          tile%diag)
             call send_tile_data(id_gtos, gtos_bytile(k,:), tile%diag)
+            call send_tile_data(id_gtos_std, gtos_bytile(k,:), tile%diag)
             call send_tile_data(id_gtosh, gtosh_bytile(k,:), tile%diag)
 
             do l=1,num_l
@@ -708,9 +802,13 @@ subroutine hlsp_hydrology_1(num_species)
             end do
             call send_tile_data(id_gtost, gtost, tile%diag)
             call send_tile_data(id_gtdiv, gtdiv, tile%diag)
+            call send_tile_data(id_gtos_tile,sum(tile%soil%gtos(:)),tile%diag)
+            call send_tile_data(id_gtosh_tile,sum(tile%soil%gtosh(:)),tile%diag)
+            call send_tile_data(id_gdiv_tile,sum(tile%soil%div_hlsp-tile%soil%gtos),tile%diag)
+            call send_tile_data(id_ghdiv_tile,sum(tile%soil%div_hlsp_heat-tile%soil%gtosh(:)),tile%diag)
 
          end do
-
+ 
          wbal = wbal - ground_to_stream(ll)       ! + is into stream
          ebal = ebal - ground_to_stream_heat(ll)  ! + is into stream
          tbal(:) = tbal(:) - ground_to_stream_tracers(ll,:)
@@ -728,7 +826,6 @@ subroutine hlsp_hydrology_1(num_species)
             call check_conservation('hlsp_hydrology_1, between-tile tracer fluxes (k value following is not valid)', &
                                     trim(speciesname), tbal(s), 0., tthresh, FATAL)
          end do
-
    end do ! ll
    deallocate(gtos_bytile, gtosh_bytile, gtost_bytile)
 
@@ -736,9 +833,10 @@ end subroutine hlsp_hydrology_1
 
 ! Initialize diagnostic fields.
 ! ============================================================================
-subroutine hlsp_hydro_init(id_ug,id_zfull)
+subroutine hlsp_hydro_init(id_ug,id_zfull,id_ptid)
    integer,intent(in) :: id_ug    !<Unstructured axis id.
    integer,intent(in) :: id_zfull ! ID of vertical soil axis
+   integer,intent(in) :: id_ptid  ! ID of tile axis
 
    ! ---- local vars
    integer :: axes(2)
@@ -765,12 +863,28 @@ subroutine hlsp_hydro_init(id_ug,id_zfull)
    id_gtos = register_tiled_diag_field ( module_name, 'grounddiv_to_stream', axes, &
        lnd%time, 'groundwater divergence out of tiles directly to stream', 'mm/s', &
        missing_value=initval )
+   id_gtos_std = register_tiled_diag_field ( module_name, 'grounddiv_to_stream_std', axes, &
+       lnd%time, 'groundwater divergence out of tiles directly to stream across tiles in grid cell', &
+       'mm/ss', missing_value=initval, op='stdev')
    id_gtosh = register_tiled_diag_field ( module_name, 'groundheatdiv_to_stream', axes, &
        lnd%time, 'heat flux associated with groundwater divergence to stream', 'W/m^2', missing_value=initval )
    id_gtdiv = register_tiled_diag_field ( module_name, 'groundwater_tracer_div', axes, &
        lnd%time, 'DOC groundwater divergence out of tiles, excluding to stream', 'kg C/m^2/s', missing_value=initval )
    id_gtost = register_tiled_diag_field ( module_name, 'groundtracer_to_stream', axes, &
        lnd%time, 'DOC flux to stream via groundwater', 'kg C/m^2/s', missing_value=initval )
+   !tile output
+   id_gtos_tile = register_tiled_diag_field ( module_name, 'gtos_tile', (/id_ug,&
+       id_ptid/),lnd%time, 'groundwater divergence to stream', 'mm/s', &
+       missing_value=-1.0e+20, sm=.False. )
+   id_gtosh_tile = register_tiled_diag_field ( module_name, 'gtosh_tile', (/id_ug,&
+       id_ptid/),lnd%time, 'heat flux associated with groundwater divergence to stream',&
+       'W/m^2)', missing_value=-1.0e+20,sm=.False. )
+   id_gdiv_tile = register_tiled_diag_field ( module_name, 'gdiv_tile', (/id_ug,&
+       id_ptid/),lnd%time, 'groundwater divergence out of tiles, excluding flow to stream (i.e., baseflow)',&
+        'mm/s', missing_value=-1.0e+20, sm=.False. )
+   id_ghdiv_tile = register_tiled_diag_field ( module_name, 'ghdiv_tile', (/id_ug,&
+       id_ptid/),lnd%time, 'heat flux associated with groundwater divergence (excl. to stream)',&
+       'W/m^2)', missing_value=-1.0e+20,sm=.False. )
 
 end subroutine hlsp_hydro_init
 

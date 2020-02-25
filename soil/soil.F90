@@ -48,7 +48,7 @@ use land_tile_diag_mod, only : diag_buff_type, &
      send_tile_data_i0d_fptr, &
      add_tiled_diag_field_alias, add_tiled_static_field_alias, &
      set_default_diag_filter, cmor_name, cmor_mrsos_depth
-use land_data_mod, only : lnd, log_version
+use land_data_mod, only : land_state_type, lnd, log_version
 use land_io_mod, only : read_field
 use land_tile_io_mod, only: land_restart_type, &
      init_land_restart, open_land_restart, save_land_restart, free_land_restart, &
@@ -125,6 +125,9 @@ logical :: write_when_flagged   = .false.
 logical :: corrected_lm2_gw     = .true.
 logical :: use_fringe           = .false.
 logical :: push_down_sfc_excess = .true.
+logical :: push_up_sfc_excess = .false.
+logical :: predefined_wtd = .false.
+logical :: excess_soil_water_to_numerical_runoff = .false.
 logical :: lrunf_from_div       = .true.
 logical :: use_tall_plants      = .false.
 logical :: cold_infilt          = .false.
@@ -151,6 +154,7 @@ character(len=256)  :: coldstart_datafile = 'INPUT/soil_wtt.nc'
 logical :: allow_neg_rnu        = .false.   ! Refill from stream if wl < 0 with warning, i.e. during spinup.
 logical :: allow_neg_wl         = .false.   ! Warn rather than abort if wl < 0, even if .not. allow_neg_rnu
 logical :: fix_neg_subsurface_wl       = .false.
+logical :: fix_neg_subsurface_wl_revisited       = .false.
 logical :: prohibit_negative_water_div = .false. ! if TRUE, div_bf abd dif_if are
   ! set to zero in case water content of *any* layer is negative
 real    :: zeta_bar_override    = -1.
@@ -197,7 +201,9 @@ namelist /soil_nml/ lm2, use_E_min, use_E_max,           &
                     max_iter_trans, layer_for_gw_switch, eps_trans, &
                     supercooled_rnu, wet_depth, thetathresh, negrnuthresh, &
                     write_soil_carbon_restart, &
-                    max_soil_C_density, max_litter_thickness
+                    max_soil_C_density, max_litter_thickness, &
+                    fix_neg_subsurface_wl_revisited, excess_soil_water_to_numerical_runoff, &
+                    push_up_sfc_excess, predefined_wtd
 !---- end of namelist --------------------------------------------------------
 
 logical         :: module_is_initialized =.FALSE.
@@ -269,6 +275,14 @@ integer :: id_fast_soil_C, id_slow_soil_C, id_protected_C, id_fsc, id_ssc,&
 integer :: id_mrlsl, id_mrsfl, id_mrsll, id_mrsol, id_mrso, id_mrsos, id_mrlso, id_mrfso, &
     id_mrsofc, id_mrs1mLut, id_mrro, id_mrros, id_csoil, id_rh, &
     id_csoilfast, id_csoilmedium, id_csoilslow
+
+! diag IDs of full tile variables
+integer :: id_lwc1_tile,id_lwc2_tile,id_lwc3_tile,id_lwcrz_tile
+integer :: id_swc1_tile,id_swc2_tile,id_swc3_tile
+integer :: id_wt_2b_tile
+
+! diag IDs of std of variables
+integer :: id_lwc_std,id_swc_std
 
 ! test tridiagonal solver for advection
 integer :: id_st_diff
@@ -353,12 +367,13 @@ end subroutine read_soil_namelist
 
 ! ============================================================================
 ! initialize soil model
-subroutine soil_init (predefined_tiles, id_ug,id_band,id_zfull)
+subroutine soil_init (predefined_tiles, id_ug,id_band,id_zfull,id_ptid)
   logical,intent(in)  :: predefined_tiles !<If true, this subroutine assumes that 
         ! the distribution of basic soil parameters is set from external data set, 
         ! and only initializes derived soil properties
   integer,intent(in)  :: id_ug    !<Unstructured axis id.
   integer,intent(in)  :: id_band  !<ID of spectral band axis
+  integer,intent(in)  :: id_ptid  !<ID of tile axis
   integer,intent(out) :: id_zfull !<ID of vertical soil axis
 
   ! ---- local vars
@@ -377,6 +392,7 @@ subroutine soil_init (predefined_tiles, id_ug,id_band,id_zfull)
 
   integer :: i, k, ll ! indices
   real :: psi(num_l), mwc(num_l)
+  real :: sum_frac
 
   type(land_restart_type) :: restart, restart1
   logical :: restart_exists
@@ -393,7 +409,11 @@ subroutine soil_init (predefined_tiles, id_ug,id_band,id_zfull)
   i_river_DOC  = river_tracer_index('doc')
 
   ! -------- initialize soil model diagnostic fields
-  call soil_diag_init(id_ug,id_band,id_zfull)
+  if (predefined_tiles) then
+   call soil_diag_init(id_ug,id_band,id_zfull,id_ptid)
+  else
+   call soil_diag_init(id_ug,id_band,id_zfull)
+  endif
 
   if (predefined_tiles) then
      ! Initialize the soil derived parameters
@@ -554,6 +574,15 @@ subroutine soil_init (predefined_tiles, id_ug,id_band,id_zfull)
           FATAL)
   endif
 
+  ! Assemble initial water table depth for grid cell
+  !if (predefined_tiles) then
+  ! init_wtdep = 0.0
+  ! do while(loop_over_tiles(ce,tile,k=k,l=ll))
+  !   if (.not.associated(tile%soil)) cycle
+  !   call set_current_point(ll,k)
+  ! end do
+  !endif
+
   ! Call calculate_wt_init outside tile loop so that it is done once per hillslope
   if (init_wtdep .gt. 0. .and. gw_option == GW_TILED) then
      call calculate_wt_init(init_wtdep)
@@ -571,13 +600,17 @@ subroutine soil_init (predefined_tiles, id_ug,id_band,id_zfull)
   do while(loop_over_tiles(ce,tile,k=k,l=ll))
      if (.not.associated(tile%soil)) cycle
      call set_current_point(ll,k)
-     if (init_wtdep .gt. 0.) then
+     if (init_wtdep .gt. 0. .or. predefined_tiles)then
         if (.not. use_coldstart_wtt_data) then
-           if (horiz_init_wt .and. gw_option == GW_TILED) then
+           if (horiz_init_wt .and. gw_option == GW_TILED .and. predefined_tiles .eq. .False.) then
               call horiz_wt_depth_to_init(tile%soil, prev_elmt(ce), local_wt_depth)
               ! Note: if restart_exists, then this function returns dummy local_wt_depth == 0.
               ! prev_elmt(ce) passed because indices will be needed.
               psi = zfull(1:num_l) - local_wt_depth
+           else if (gw_option == GW_TILED .and. predefined_tiles .eq. .True. .and. predefined_wtd) then
+              if (isnan(tile%soil%pars%iwtd)) tile%soil%pars%iwtd = 0.1
+              !print*,tile%soil%pars%iwtd
+              psi = zfull(1:num_l) - tile%soil%pars%iwtd
            else
               psi = zfull(1:num_l) - init_wtdep
            end if
@@ -587,7 +620,7 @@ subroutine soil_init (predefined_tiles, id_ug,id_band,id_zfull)
            else
               drypoint = .true.
            end if
-           if (gw_option == GW_TILED) then
+           if (gw_option == GW_TILED .and. predefined_tiles .eq. .False.) then
               call horiz_wt_depth_to_init(tile%soil, prev_elmt(ce), local_wt_depth, dry=drypoint)
               psi = zfull(1:num_l) - local_wt_depth
            else if (drypoint) then
@@ -817,13 +850,12 @@ subroutine soil_init (predefined_tiles, id_ug,id_band,id_zfull)
   endif
 end subroutine soil_init
 
-
 ! ============================================================================
-subroutine soil_diag_init(id_ug,id_band,id_zfull)
+subroutine soil_diag_init(id_ug,id_band,id_zfull,id_ptid)
   integer,intent(in)  :: id_ug    !<Unstructured axis id.
   integer,intent(in)  :: id_band  !<ID of spectral band axis
   integer,intent(out) :: id_zfull !<ID of vertical soil axis
-
+  integer,optional,intent(in) :: id_ptid !<ID of tile axis
   ! ---- local vars
   integer :: axes(2)
   integer :: id_zhalf
@@ -1391,6 +1423,42 @@ subroutine soil_diag_init(id_ug,id_band,id_zfull)
        missing_value=-100.0, standard_name='moisture_content_of_soil_layer', &
        fill_missing=.FALSE.)
 
+  !Full tile output
+  if (present(id_ptid)) then
+   call set_default_diag_filter('soil')
+   id_lwcrz_tile    = register_tiled_diag_field ( module_name, 'lwcrz_tile',  &
+       (/id_ug,id_ptid/), lnd%time, 'volumetric water content of liquid water (2 meters)', &
+       'm3/m3', missing_value=-100.0,sm=.False.)
+   id_lwc1_tile    = register_tiled_diag_field ( module_name, 'lwc1_tile',  &
+       (/id_ug,id_ptid/), lnd%time, 'volumetric water content of liquid water (layer 1)', &
+       'm3/m3', missing_value=-100.0,sm=.False.)
+   id_lwc2_tile    = register_tiled_diag_field ( module_name, 'lwc2_tile',  &
+       (/id_ug,id_ptid/), lnd%time, 'volumetric water content of liquid water (layer 2)', &
+       'm3/m3', missing_value=-100.0,sm=.False.)
+   id_lwc3_tile    = register_tiled_diag_field ( module_name, 'lwc3_tile',  &
+       (/id_ug,id_ptid/), lnd%time, 'volumetric water content of liquid water (layer 3)', &
+       'm3/m3', missing_value=-100.0,sm=.False.)
+   id_swc1_tile    = register_tiled_diag_field ( module_name, 'swc1_tile',  &
+       (/id_ug,id_ptid/), lnd%time, 'volumetric water content of frozen water (layer 1)', &
+       'm3/m3', missing_value=-100.0,sm=.False.)
+   id_swc2_tile    = register_tiled_diag_field ( module_name, 'swc2_tile',  &
+       (/id_ug,id_ptid/), lnd%time, 'volumetric water content of frozen water (layer 2)', &
+       'm3/m3', missing_value=-100.0,sm=.False.)
+   id_swc3_tile    = register_tiled_diag_field ( module_name, 'swc3_tile',  &
+       (/id_ug,id_ptid/), lnd%time, 'volumetric water content of frozen water (layer 3)', &
+       'm3/m3', missing_value=-100.0,sm=.False.)
+   id_wt_2b_tile = register_tiled_diag_field ( module_name, 'wt_2b_tile',  &
+       (/id_ug,id_ptid/), lnd%time, 'Water Table Depth from Surface to Liquid Saturation', 'm', &
+       missing_value=-100.0 ,sm=.False.)
+  endif
+
+  !Std output
+  call set_default_diag_filter('soil')
+  id_lwc_std = register_tiled_diag_field ( module_name, 'soil_liq_std', axes,  &
+       lnd%time, 'bulk density of liquid water', 'kg/m3', missing_value=-100.0,op='stdev')
+  id_swc_std  = register_tiled_diag_field ( module_name, 'soil_ice_std',  axes,  &
+       lnd%time, 'bulk density of solid water', 'kg/m3',  missing_value=-100.0,op='stdev')
+
 end subroutine soil_diag_init
 
 
@@ -1955,6 +2023,7 @@ end subroutine soil_step_1
   real, dimension(num_l  ) :: div, & ! total divergence of soil water [mm/s]
        div_it    ! divergence of water due to inter-tile flow (incl. to stream)
   ! set in hlsp_hydrology_1 [mm/s]
+  real, dimension(num_l  ) :: div_gtos,hdiv_gtos
   real, dimension(num_l  ) :: hdiv_it, &! divergence of heat due to inter-tile water flow [W/m^2]
        div_bf, & ! baseflow [mm/s]
        div_if, & ! interlow [mm/s]
@@ -2206,11 +2275,13 @@ end subroutine soil_step_1
   !.........................................................................
 
   ! ---- push down any excess surface water, with heat ---------------------
+  lrunf_nu=0; hlrunf_nu=0; frunf=0; hfrunf = 0
   IF (PUSH_DOWN_SFC_EXCESS) THEN
      CALL SOIL_PUSH_DOWN_EXCESS ( soil, diag, lrunf_nu, hlrunf_nu, frunf, hfrunf)
-  ELSE
-     lrunf_nu=0; hlrunf_nu=0; frunf=0; hfrunf = 0
-  ENDIF
+  endif
+  if (push_up_sfc_excess) then
+     call soil_push_up_excess ( soil, diag, lrunf_nu, hlrunf_nu, frunf, hfrunf)
+  endif
 
   ! ---- fetch soil hydraulic properties -----------------------------------
   do l = 1, num_l
@@ -2468,10 +2539,18 @@ end subroutine soil_step_1
                  / (soil%pars%hillslope_length*soil%pars%hillslope_length)
         enddo
      endif
+     print*,'length',soil%pars%hillslope_length
+     print*,'relief',soil%pars%hillslope_relief
+     !print*,'slope',soil%pars%hillslope_slope
+     print*,'soil_e_depth',soil%pars%soil_e_depth
+     print*,'zeta_bar',soil%pars%hillslope_zeta_bar
+     print*,'hillslope_a',soil%pars%hillslope_a
+     print*,'hillslope_n',soil%pars%hillslope_n
 
   CASE (GW_TILED)
      call hlsp_hydrology_2(soil, psi, vlc, vsc, div_it, hdiv_it, &
-        sat_area_frac, inundated_frac, storage_2, depth_to_wt_2b, surface_water, sat_runf_frac)
+        sat_area_frac, inundated_frac, storage_2, depth_to_wt_2b, surface_water, sat_runf_frac, &
+        div_gtos, hdiv_gtos, depth_to_wt_2a)
      if (depth_to_wt_2b >= 0. .and. depth_to_wt_2b <= wet_depth) then
         wet_frac = 1.
      else
@@ -2484,7 +2563,11 @@ end subroutine soil_step_1
   END SELECT
 
   div = div_bf + div_if + div_al + div_it ! div includes inter-tile flow
+  !if (gw_option .eq. GW_TILED)then
+  ! lrunf_bf = sum(div_gtos)
+  !else
   lrunf_bf = sum(div_bf + div_it) ! baseflow runoff includes inter-tile flow
+  !endif
   lrunf_if = sum(div_if)
   lrunf_al = sum(div_al)
 
@@ -2785,19 +2868,27 @@ end subroutine soil_step_1
 
   flow_macro = (macro_inf-extra_cum)/delta_time
 
+  !if (gw_option .eq. GW_TILED)then
+  ! hlrunf_bf = sum(hdiv_gtos)
+  !else
+  ! hlrunf_bf = clw*sum(div_bf*(soil%T-tfreeze))
+  !endif
   hlrunf_bf = clw*sum(div_bf*(soil%T-tfreeze)) + sum(hdiv_it)
   ! div_bf is 0. for GW_TILED, else hdiv_it == zero
   hlrunf_if = clw*sum(div_if*(soil%T-tfreeze))
   hlrunf_al = clw*sum(div_al*(soil%T-tfreeze))
   hlrunf_sc = clw*lrunf_sc  *(soil%groundwater_T(1)-tfreeze)
-  if (lrunf_from_div) then
-     soil_lrunf  =  lrunf_sn +  lrunf_ie +  sum(div) +  lrunf_nu +  lrunf_sc
+  if (lrunf_from_div .or. GW_TILED .eq. .True.) then !MUST BE TRUE WITH TILED HILLSLOPES???
      if (gw_option /= GW_TILED) then
         soil_hlrunf = hlrunf_sn + hlrunf_ie +  clw*sum(div*(soil%T-tfreeze)) &
                                                       + hlrunf_nu + hlrunf_sc
+        soil_lrunf  =  lrunf_sn +  lrunf_ie +  sum(div) +  lrunf_nu +  lrunf_sc
      else
+        !soil_hlrunf = hlrunf_sn + hlrunf_ie +  sum(hdiv_gtos) &
         soil_hlrunf = hlrunf_sn + hlrunf_ie +  sum(hdiv_it) &
              + hlrunf_nu + hlrunf_sc
+        !soil_lrunf  =  lrunf_sn +  lrunf_ie +  sum(div_gtos) +  lrunf_nu +  lrunf_sc
+        soil_lrunf  =  lrunf_sn +  lrunf_ie +  sum(div_it) +  lrunf_nu +  lrunf_sc
      end if
   else
      soil_lrunf  =  lrunf_sn +  lrunf_ie +  lrunf_bf +  lrunf_if &
@@ -3044,6 +3135,21 @@ end subroutine soil_step_1
   call send_tile_data(id_total_DOC_div_loss, total_DOC_div, diag)
 
   if (.not. LM2) call send_tile_data(id_psi_bot, soil%psi(num_l), diag)
+
+  ! tile variables
+  call send_tile_data(id_lwc1_tile,soil%wl(1)/(1000.0*dz(1)), diag)
+  call send_tile_data(id_lwc2_tile,soil%wl(2)/(1000.0*dz(2)), diag)
+  call send_tile_data(id_lwc3_tile,soil%wl(3)/(1000.0*dz(3)), diag)
+  call send_tile_data(id_swc1_tile,soil%ws(1)/(1000.0*dz(1)), diag)
+  call send_tile_data(id_swc2_tile,soil%ws(2)/(1000.0*dz(2)), diag)
+  call send_tile_data(id_swc3_tile,soil%ws(3)/(1000.0*dz(3)), diag)
+  call send_tile_data(id_wt_2b_tile, depth_to_wt_2b, diag)
+  !root zone soil moisture (2 meters)
+  call send_tile_data(id_lwcrz_tile,sum(soil%wl(1:13))/(1000.0*sum(dz(1:13))),diag)
+
+  ! std variables
+  if (id_lwc_std > 0) call send_tile_data(id_lwc_std,  soil%wl/dz(1:num_l), diag)
+  if (id_swc_std > 0) call send_tile_data(id_swc_std,  soil%ws/dz(1:num_l), diag)
 
 end subroutine soil_step_2
 
@@ -3492,6 +3598,207 @@ subroutine Dsdt_CENTURY(vegn, soil, diag, soilt, theta)
 
 end subroutine Dsdt_CENTURY
 
+! ============================================================================
+subroutine soil_excess_to_numerical_runoff ( soil, diag, lrunf_nu, hlrunf_nu, frunf, hfrunf)
+  type(soil_tile_type), intent(inout) :: soil
+  type(diag_buff_type), intent(inout) :: diag
+  real, intent(out) :: lrunf_nu, hlrunf_nu
+  real, intent(out) :: frunf, hfrunf ! frozen runoff (mm/s); frozen runoff heat (W/m^2)
+
+  ! ---- local vars ----------------------------------------------------------
+  real      :: &
+     liq_frac, excess_wat, excess_liq, excess_ice, excess_t, &
+     h1, h2, summax, space_avail, liq_placed, ice_placed
+  integer :: k,l
+
+  lrunf_nu = 0.0
+  hlrunf_nu = 0.0
+  frunf = 0.0
+  hfrunf = 0.0
+  do l = 1,num_l
+   !if (zhalf(l) .gt. soil%pars%soil_e_depth)exit
+   liq_frac=0;excess_wat=0;excess_liq=0;excess_ice=0;h1=0;h2=0
+   summax = max(0.,soil%wl(l))+max(0.,soil%ws(l))
+   if (summax > 0) then
+      liq_frac = max(0.,soil%wl(l)) / summax
+   else
+      liq_frac = 1
+   endif
+   excess_wat = max(0., soil%wl(l) + soil%ws(l) &
+        - dens_h2o*dz(l)*soil%vwc_max(l) )
+   excess_liq = exp(-zhalf(l)/soil%pars%soil_e_depth)*excess_wat*liq_frac
+   excess_ice = exp(-zhalf(l)/soil%pars%soil_e_depth)*(excess_wat-excess_liq)
+   excess_t   = soil%T(l)
+   soil%wl(l) = soil%wl(l) - excess_liq
+   soil%ws(l) = soil%ws(l) - excess_ice
+
+   ! to avoid adding frozen runoff to soil interface, melt all remaining
+   ! excess ice, even if it results in supercooled liquid runoff
+   if (supercooled_rnu) then
+     lrunf_nu  = lrunf_nu + (excess_liq+excess_ice) / delta_time
+     hlrunf_nu = hlrunf_nu + (  excess_liq*clw*(excess_T-tfreeze)  &
+                  + excess_ice*csw*(excess_T-tfreeze)  &
+                  - hlf_factor*hlf*excess_ice                   ) / delta_time
+     frunf = 0.
+     hfrunf = 0.
+   else
+ !! ZMS: Change this to propagate frozen runoff to avoid lake crashes from supercooled water.
+     lrunf_nu = lrunf_nu + excess_liq / delta_time
+     hlrunf_nu = hlrunf_nu + excess_liq*clw*(excess_T-tfreeze) / delta_time
+     frunf = frunf + excess_ice / delta_time
+     hfrunf = hfrunf + excess_ice*csw*(excess_T-tfreeze) / delta_time
+  end if
+ enddo
+
+end subroutine soil_excess_to_numerical_runoff
+
+! ============================================================================
+subroutine soil_push_up_excess ( soil, diag, lrunf_nu, hlrunf_nu, frunf, hfrunf)
+  type(soil_tile_type), intent(inout) :: soil
+  type(diag_buff_type), intent(inout) :: diag
+  real, intent(inout) :: lrunf_nu, hlrunf_nu
+  real, intent(inout) :: frunf, hfrunf ! frozen runoff (mm/s); frozen runoff heat (W/m^2)
+
+  ! ---- local vars ----------------------------------------------------------
+  real      :: &
+     liq_frac, excess_wat, excess_liq, excess_ice, excess_t, excess_heat, &
+     h1, h2, summax, space_avail, liq_placed, ice_placed
+  integer :: k,l
+
+  !Collect excesses
+  excess_liq = 0.0
+  excess_ice = 0.0
+  excess_heat = 0.0
+  do l = num_l,1,-1
+   excess_wat=0;h1=0;h2=0
+   excess_wat = max(0., max(soil%wl(l),0.0) - dens_h2o*dz(l)*soil%vwc_max(l) - max(soil%ws(l),0.0))
+   excess_liq = excess_liq + excess_wat
+   soil%wl(l) = soil%wl(l) - excess_wat
+   excess_heat = excess_heat + soil%T(l)*(clw*excess_wat)
+   if (excess_liq > 0) then
+     excess_T = excess_heat/(excess_liq*clw)
+     space_avail = dens_h2o*dz(l)*soil%vwc_max(l) - (max(soil%wl(l),0.0) + max(soil%ws(l),0.0))
+     liq_placed = max(min(space_avail, excess_liq), 0.)
+     h1 = (soil%heat_capacity_dry(l)*dz(l) + clw*soil%wl(l) + csw*soil%ws(l))
+     h2 = liq_placed*clw
+     soil%T(l) = (h1 * soil%T(l) &
+           + h2 * excess_T )  / (h1+h2)
+     soil%wl(l) = soil%wl(l) + liq_placed
+     excess_liq = excess_liq - liq_placed
+     excess_heat = excess_heat - h2 * excess_T
+   endif
+  enddo
+
+! to avoid adding frozen runoff to soil interface, melt all remaining
+! excess ice, even if it results in supercooled liquid runoff
+  if (excess_liq > 0.0)then
+   excess_t = excess_heat/(excess_liq*clw)
+   if (supercooled_rnu) then
+      lrunf_nu  = lrunf_nu + excess_liq / delta_time !(excess_liq+excess_ice) / delta_time
+      hlrunf_nu = hlrunf_nu + excess_liq*clw*(excess_T-tfreeze) / delta_time
+      !frunf = 0.
+      !hfrunf = 0.
+   else
+ !! ZMS: Change this to propagate frozen runoff to avoid lake crashes from supercooled water.
+      lrunf_nu = lrunf_nu + excess_liq / delta_time
+      hlrunf_nu = hlrunf_nu + excess_liq*clw*(excess_T-tfreeze) / delta_time
+      !frunf = 0.0!excess_ice / delta_time
+      !hfrunf = 0.0!excess_ice*csw*(excess_T-tfreeze) / delta_time
+   end if
+  endif
+
+end subroutine soil_push_up_excess
+
+! ============================================================================
+subroutine soil_push_up_excess_old ( soil, diag, lrunf_nu, hlrunf_nu, frunf, hfrunf)
+  type(soil_tile_type), intent(inout) :: soil
+  type(diag_buff_type), intent(inout) :: diag
+  real, intent(out) :: lrunf_nu, hlrunf_nu
+  real, intent(out) :: frunf, hfrunf ! frozen runoff (mm/s); frozen runoff heat (W/m^2)
+
+  ! ---- local vars ----------------------------------------------------------
+  real      :: &
+     liq_frac, excess_wat, excess_liq, excess_ice, excess_t, excess_heat, &
+     h1, h2, summax, space_avail, liq_placed, ice_placed
+  integer :: k,l
+
+  !Collect excesses
+  excess_liq = 0.0
+  excess_ice = 0.0
+  excess_heat = 0.0
+  do l = num_l,1,-1
+   liq_frac=0;excess_wat=0;h1=0;h2=0
+   !summax = max(0.,soil%wl(l))+max(0.,soil%ws(l))
+   !if (summax > 0) then
+   !   liq_frac = max(0.,soil%wl(l)) / summax
+   !else
+   !   liq_frac = 1
+   !endif
+   !excess_wat = max(0., soil%wl(l) + soil%ws(l) &
+   !     - dens_h2o*dz(l)*soil%vwc_max(l) )
+   excess_wat = max(0., max(soil%wl(l),0.0) - dens_h2o*dz(l)*soil%vwc_max(l) - max(soil%ws(l),0.0))
+   !print*,l,excess_liq,excess_ice,excess_wat*liq_frac,excess_wat-excess_liq
+   excess_liq = excess_liq + excess_wat
+   !excess_liq = excess_liq + excess_wat*liq_frac
+   !excess_ice = excess_ice + excess_wat - excess_wat*liq_frac
+   !excess_heat = excess_heat + soil%T(l)*(clw*excess_wat*liq_frac + csw*(excess_wat - excess_wat*liq_frac))
+   soil%wl(l) = soil%wl(l) - excess_wat!excess_wat*liq_frac
+   !soil%ws(l) = soil%ws(l) - excess_wat + excess_wat*liq_frac
+  enddo
+
+  !Fill in
+  do l = num_l,1,-1
+   !if (excess_liq+excess_ice>0) then
+   if (excess_liq > 0) then
+     !excess_T = excess_heat/(excess_liq*clw + excess_ice*csw)
+     excess_T = excess_heat/(excess_liq*clw)
+     !space_avail = dens_h2o*dz(l)*soil%vwc_max(l) &
+     !      - (soil%wl(l) + soil%ws(l))
+     space_avail = dens_h2o*dz(l)*soil%vwc_max(l) - (max(soil%wl(l),0.0) + max(soil%ws(l),0.0))
+     !print*,l,dens_h2o*dz(l)*soil%vwc_max(l),(soil%wl(l) + soil%ws(l))
+     liq_placed = max(min(space_avail, excess_liq), 0.)
+     !ice_placed = max(min(space_avail-liq_placed, excess_ice), 0.)
+     !h1 = (soil%heat_capacity_dry(l)*dz(l) &
+     !      + csw*soil%ws(l) + clw*soil%wl(l))
+     h1 = (soil%heat_capacity_dry(l)*dz(l) + clw*soil%wl(l))
+     !h2 = liq_placed*clw+ice_placed*csw
+     h2 = liq_placed*clw
+     soil%T(l) = (h1 * soil%T(l) &
+           + h2 * excess_T )  / (h1+h2)
+     soil%wl(l) = soil%wl(l) + liq_placed
+     !soil%ws(l) = soil%ws(l) + ice_placed
+     excess_liq = excess_liq - liq_placed
+     !print*,soil%wl(l),excess_liq,liq_placed
+     !excess_ice = excess_ice - ice_placed
+     excess_heat = excess_heat - h2 * excess_T
+   endif
+  enddo
+  !print*,excess_liq,excess_ice,excess_heat
+
+! to avoid adding frozen runoff to soil interface, melt all remaining
+! excess ice, even if it results in supercooled liquid runoff
+  !if (excess_liq + excess_ice > 0.0)then
+  if (excess_liq > 0.0)then
+   !excess_t = excess_heat/(excess_liq*clw + excess_ice*csw)
+   excess_t = excess_heat/(excess_liq*clw)
+   if (supercooled_rnu) then
+      lrunf_nu  = excess_liq / delta_time !(excess_liq+excess_ice) / delta_time
+      hlrunf_nu = excess_liq*clw*(excess_T-tfreeze) / delta_time
+                  !(  excess_liq*clw*(excess_T-tfreeze)  &
+                  ! + excess_ice*csw*(excess_T-tfreeze)  &
+                  ! - hlf_factor*hlf*excess_ice                   ) / delta_time
+      frunf = 0.
+      hfrunf = 0.
+   else
+ !! ZMS: Change this to propagate frozen runoff to avoid lake crashes from supercooled water.
+      lrunf_nu = excess_liq / delta_time
+      hlrunf_nu = excess_liq*clw*(excess_T-tfreeze) / delta_time
+      frunf = 0.0!excess_ice / delta_time
+      hfrunf = 0.0!excess_ice*csw*(excess_T-tfreeze) / delta_time
+   end if
+  endif
+
+end subroutine soil_push_up_excess_old
 
 ! ============================================================================
 subroutine soil_push_down_excess ( soil, diag, lrunf_nu, hlrunf_nu, frunf, hfrunf)
@@ -3768,7 +4075,7 @@ end subroutine soil_push_down_excess
        endif
      w_shortage = -(soil%wl(1)+dW_l(1))
      l_dest = 1
-     call move_up(dW_l, flow, w_shortage, num_l, l_dest)
+     call move_up_revisited(soil%wl, dW_l, flow, w_shortage, num_l, l_dest,dz)
   endif
 
 ! Adjust for negative water content in subsurface.
@@ -3780,6 +4087,18 @@ end subroutine soil_push_down_excess
         l_dest = l
         w_shortage = -(soil%wl(l_dest)+dW_l(l_dest))
         call move_up(dW_l, flow, w_shortage, num_l, l_dest)
+      endif
+    enddo
+  endif
+
+  if (fix_neg_subsurface_wl_revisited) then
+    do l=2, num_l
+      if ((soil%wl(l)+dW_l(l))/(dens_h2o*dz(l)*soil%pars%vwc_sat) < thetathresh) then
+        call get_current_point(ipt,jpt,kpt,fpt)
+        !write(*,*) '=== warning: fixing neg wl=',soil%wl(l)+dW_l(l),'at',l,ipt,jpt,kpt,fpt
+        l_dest = l
+        w_shortage = -(soil%wl(l_dest)+dW_l(l_dest))
+        call move_up_revisited(soil%wl, dW_l, flow, w_shortage, num_l, l_dest,dz)
       endif
     enddo
   endif
@@ -3817,6 +4136,44 @@ end subroutine soil_push_down_excess
   endif
 
 end subroutine richards_clean
+
+! ============================================================================
+  subroutine move_up_revisited(w_l, dW_l, flow, w_shortage, num_l, l_dest, dz)
+  real, intent(in), dimension(num_l) :: w_l,dz
+  real, intent(inout), dimension(num_l)   :: dW_l
+  real, intent(inout), dimension(num_l+1) :: flow
+  real, intent(in)                        ::  w_shortage
+  integer, intent(in)                     ::  num_l, l_dest
+  ! ---- local vars ----------------------------------------------------------
+  integer l, l_source
+  real dW_l_source, w_to_move_up
+
+  !If a layer doesn't have enough water move the remaining extraction to lower layers
+     l_source = l_dest
+     dW_l_source = -1.e20
+     do l = l_dest+1, num_l
+        !if (dW_l(l).gt.dW_l_source) then
+        if ((w_l(l)+dW_l(l)-w_shortage) .gt. 0.01*dz(l)) then
+           l_source = l
+           dW_l_source = dW_l(l)
+           exit
+        endif
+     enddo
+     !w_to_move_up = min(dW_l_source, w_shortage)
+     !w_to_move_up = max(w_to_move_up, 0.)
+     w_to_move_up = w_shortage
+     !write(*,*) 'l_dest,l_source=',l_dest,l_source
+     !write(*,*) 'dW_l_source=',dW_l_source
+     !write(*,*) 'w_shortage',w_shortage
+     !write(*,*) 'w_to_move_up=',w_to_move_up
+     if (l_source.gt.l_dest) then
+        dW_l(l_dest)   = dW_l(l_dest)   + w_to_move_up
+        dW_l(l_source) = dW_l(l_source) - w_to_move_up
+        do l = l_dest+1, l_source
+           flow(l) = flow(l) - w_to_move_up
+        enddo
+     endif
+  end subroutine move_up_revisited
 
 ! ============================================================================
   subroutine move_up(dW_l, flow, w_shortage, num_l, l_dest)
@@ -4105,6 +4462,7 @@ end subroutine richards_clean
 
 ! In rare situations where lrunf_ie is large and negative, clip any liquid supersaturation
 ! layer by layer and recompute lrunf_ie (this is not good, since it ignores 'comp'):
+
   IF (lrunf_ie < lrunf_ie_min) THEN
      call get_current_point(ipt,jpt,kpt,fpt)
      write(*,*) 'note: at point ',ipt,jpt,kpt,fpt,' clip triggered by lrunf_ie=',lrunf_ie
@@ -4290,6 +4648,9 @@ subroutine advection_tri(soil, flow, dW_l, tflow, d_GW, div, delta_time, t_soil_
    real :: esum1, esum2 ! [W/m^2] heat content of soil before and after solution
    real, parameter :: ethresh = 1.e-4 ! [W/m^2] Allowable error in energy solution for roundoff
 
+  ! Initialize local variables
+  del_t(:) = 0.0
+
 !   if (do_component_balchecks) then
       esum1 = clw*max(flow(1), 0.)*(tflow-tfreeze) ! initialize to incoming surface energy tendency
       do l = 1, num_l
@@ -4358,6 +4719,11 @@ subroutine advection_tri(soil, flow, dW_l, tflow, d_GW, div, delta_time, t_soil_
 
    ! Update temperature
    call tridiag(aaa, bbb, ccc, ddd, del_t)
+   ! NWC If there are NaNs then sen del_t to 0. If not this will crash. Probably
+   ! want to revisit this at some point.
+   do l =1,num_l
+    if (isnan(del_t(l)) .eq. .true.)del_t(l) = 0.0
+   enddo
    t_soil_tridiag(1:num_l) = soil%T(1:num_l) + del_t(1:num_l)
 
    if (use_tridiag_foradvec) then

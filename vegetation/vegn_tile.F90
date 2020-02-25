@@ -24,6 +24,8 @@ use vegn_cohort_mod, only : vegn_cohort_type, &
      height_from_biomass, lai_from_biomass, update_bio_living_fraction, &
      cohort_uptake_profile, cohort_hydraulic_properties, update_biomass_pools
 
+use tiling_input_types_mod, only : soil_predefined_type
+
 implicit none
 private
 
@@ -52,16 +54,29 @@ public :: vegn_seed_demand
 
 public :: vegn_add_bliving
 public :: update_derived_vegn_data  ! given state variables, calculate derived values
+public :: new_vegn_tile_predefined
 ! =====end of public interfaces ==============================================
 interface new_vegn_tile
    module procedure vegn_tile_ctor
    module procedure vegn_tile_copy_ctor
 end interface
 
+interface new_vegn_tile_predefined
+   module procedure vegn_tile_ctor_predefined
+   module procedure vegn_tile_copy_ctor
+end interface
+
+! ==== module constants ======================================================
+character(len=*), parameter :: module_name = 'vegn_tile_mod'
+#include "../shared/version_variable.inc"
+character(len=*), parameter :: tagname     = '$Name$'
+
 ! ==== types =================================================================
 type :: vegn_tile_type
    integer :: tag ! kind of the tile
    integer :: landuse = LU_NTRL
+   integer :: irrigation = 0 ! 0=no irrigation/1=irrigation
+   real :: br,bsw,bwood,bl !for predefined values for the tile
 
    integer :: n_cohorts = 0
    type(vegn_cohort_type), pointer :: cohorts(:)=>NULL()
@@ -147,6 +162,23 @@ function vegn_tile_ctor(tag) result(ptr)
   allocate(ptr)
   ptr%tag = tag
 end function vegn_tile_ctor
+
+! ============================================================================
+function vegn_tile_ctor_predefined(tile_parameters,itile) result(ptr)
+  type(soil_predefined_type), intent(in) :: tile_parameters
+  integer, intent(in) :: itile
+  type(vegn_tile_type), pointer :: ptr ! return value
+
+  allocate(ptr)
+  ptr%tag = tile_parameters%vegn(itile)
+  ptr%landuse = tile_parameters%landuse(itile)
+  ptr%irrigation = tile_parameters%irrigation(itile)
+  ptr%bwood = tile_parameters%bwood(itile)
+  ptr%br = tile_parameters%br(itile)
+  ptr%bsw = tile_parameters%bsw(itile)
+  ptr%bl = tile_parameters%bl(itile)
+
+end function vegn_tile_ctor_predefined
 
 ! ============================================================================
 function vegn_tile_copy_ctor(vegn) result(ptr)

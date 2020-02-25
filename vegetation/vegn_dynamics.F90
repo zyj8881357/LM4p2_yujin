@@ -11,7 +11,7 @@ use time_manager_mod, only: time_type
 use land_constants_mod, only : seconds_per_year, mol_C
 use land_tile_diag_mod, only : register_tiled_diag_field, add_tiled_diag_field_alias, &
      send_tile_data, set_default_diag_filter, diag_buff_type, cmor_name
-
+use land_tile_diag_mod, only : OP_STD
 use vegn_data_mod, only : spdata, &
      CMPT_VLEAF, CMPT_SAPWOOD, CMPT_ROOT, CMPT_WOOD, CMPT_LEAF, LEAF_ON, LEAF_OFF, &
      fsc_liv, fsc_wood, fsc_froot, soil_carbon_depth_scale, C2B, agf_bs, &
@@ -52,7 +52,8 @@ real    :: dt_fast_yr ! fast (physical) time step, yr (year is defined as 365 da
 
 ! diagnostic field IDs
 integer :: id_npp, id_nep, id_gpp, id_resp, id_resl, id_resr, id_resg, &
-    id_soilt, id_theta, id_litter
+    id_soilt, id_theta, id_litter, &
+    id_npp_std
 ! CMOR diagnostic field IDs
 integer :: id_gpp_cmor, id_npp_cmor, id_nep_cmor, id_ra, id_rgrowth
 
@@ -80,6 +81,9 @@ subroutine vegn_dynamics_init(id_ug,time,delta_time)
   id_npp = register_tiled_diag_field ( module_name, 'npp',  &
        (/id_ug/), time, 'net primary productivity', 'kg C/(m2 year)', &
        missing_value=-100.0 )
+  id_npp_std = register_tiled_diag_field ( module_name, 'npp_std',  &
+       (/id_ug/), time, 'standard deviation of net primary productivity of tiles in grid cell', &
+       'kg C/(m2 year)', missing_value=-100.0, op='stdev')
   id_nep = register_tiled_diag_field ( module_name, 'nep',  &
        (/id_ug/), time, 'net ecosystem productivity', 'kg C/(m2 year)', &
        missing_value=-100.0 )
@@ -193,7 +197,7 @@ subroutine vegn_carbon_int(vegn, soil, soilt, theta, diag)
      else
         md_alive = 0
         md_leaf  = 0
-	md_froot = 0
+        md_froot = 0
      endif
 
      ! compute branch and coarse wood losses for tree types
@@ -240,10 +244,10 @@ subroutine vegn_carbon_int(vegn, soil, soilt, theta, diag)
         soil%leaflitter_ssc_in=soil%leaflitter_ssc_in+(1-fsc_liv)*md_leaf
         soil%coarsewoodlitter_fsc_in=soil%coarsewoodlitter_fsc_in +    fsc_wood *md_wood*agf_bs
         soil%coarsewoodlitter_ssc_in=soil%coarsewoodlitter_ssc_in + (1-fsc_wood)*md_wood*agf_bs
-	!ssc_in and fsc_in updated in add_root_litter
+        !ssc_in and fsc_in updated in add_root_litter
         call add_root_litter(soil,vegn,(/fsc_froot*md_froot + fsc_wood*md_wood*(1-agf_bs),&
-					(1-fsc_froot)*md_froot + (1-fsc_wood)*md_wood*(1-agf_bs),0.0/))
-	if (is_watch_point()) then
+                                        (1-fsc_froot)*md_froot + (1-fsc_wood)*md_wood*(1-agf_bs),0.0/))
+        if (is_watch_point()) then
            call debug_pool(soil%leafLitter,      'leafLitter (after)'      )
            call debug_pool(soil%coarseWoodLitter,'coarseWoodLitter (after)')
         endif
@@ -294,6 +298,7 @@ subroutine vegn_carbon_int(vegn, soil, soilt, theta, diag)
   ! ---- diagnostic section
   call send_tile_data(id_gpp,gpp,diag)
   call send_tile_data(id_npp,vegn%npp,diag)
+  call send_tile_data(id_npp_std,vegn%npp,diag)
   call send_tile_data(id_nep,vegn%nep,diag)
   call send_tile_data(id_litter,vegn%litter,diag)
   call send_tile_data(id_resp, resp, diag)
@@ -458,7 +463,7 @@ subroutine vegn_phenology(vegn, soil)
      if(is_watch_point())then
         write(*,*)'####### vegn_phenology #######'
         __DEBUG4__(vegn%theta_av_phen, wilt, spdata(cc%species)%cnst_crit_phen, spdata(cc%species)%fact_crit_phen)
-	__DEBUG2__(vegn%psist_av, spdata(cc%species)%psi_stress_crit_phen)
+        __DEBUG2__(vegn%psist_av, spdata(cc%species)%psi_stress_crit_phen)
         __DEBUG1__(cc%species)
         __DEBUG2__(vegn%tc_av,spdata(cc%species)%tc_crit)
      endif
@@ -474,9 +479,9 @@ subroutine vegn_phenology(vegn, soil)
         theta_crit = spdata(cc%species)%cnst_crit_phen &
               + wilt*spdata(cc%species)%fact_crit_phen
         theta_crit = max(0.0,min(1.0, theta_crit))
-	psi_stress_crit = spdata(cc%species)%psi_stress_crit_phen
+        psi_stress_crit = spdata(cc%species)%psi_stress_crit_phen
         if (      (psi_stress_crit <= 0. .and. vegn%theta_av_phen < theta_crit) &
-	     .or. (psi_stress_crit  > 0. .and. vegn%psist_av > psi_stress_crit) &
+             .or. (psi_stress_crit  > 0. .and. vegn%psist_av > psi_stress_crit) &
              .or. (vegn%tc_av < spdata(cc%species)%tc_crit) ) then
            cc%status = LEAF_OFF; ! set status to indicate leaf drop
            cc%leaf_age = 0;

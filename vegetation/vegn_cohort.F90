@@ -493,6 +493,12 @@ function lai_from_biomass(bl,species) result (lai)
   integer, intent(in) :: species ! species
 
   lai = bl*(spdata(species)%specific_leaf_area);
+  if ((lai .gt. 0.0) .and. (lai .lt. 10.0**-10.0))then
+   !print*,'b',lai
+   lai = 10.0**-10.0
+   !print*,'b',lai
+  endif
+
 end function
 
 

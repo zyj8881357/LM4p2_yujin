@@ -86,6 +86,7 @@ module river_type_mod
      integer                            :: nlon, nlat, num_species, num_c
      integer                            :: num_phys
      integer                            :: i_age ! index of the age tracer (or NO_TRACER)
+     integer                            :: nstep = 0
   end type river_type
 
   type Leo_Mad_trios
