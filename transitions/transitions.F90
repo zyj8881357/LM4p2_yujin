@@ -10,13 +10,7 @@ use mpp_mod, only: input_nml_file
 #else
 use fms_mod, only: open_namelist_file
 #endif
-use mpp_domains_mod, only : mpp_pass_ug_to_sg
-use mpp_io_mod, only : fieldtype, mpp_get_info, mpp_get_fields
-use mpp_io_mod, only : mpp_get_axes, mpp_get_axis_data, mpp_read, validtype, mpp_is_valid
-use mpp_io_mod, only : mpp_get_atts, MPP_RDONLY, MPP_NETCDF, MPP_MULTI, MPP_SINGLE, axistype
-use mpp_io_mod, only : mpp_get_times, mpp_open, mpp_close, MPP_ASCII, mpp_get_field_index
-
-use axis_utils_mod, only : get_axis_bounds
+use mpp_io_mod, only : mpp_open, mpp_close, MPP_ASCII, MPP_RDONLY
 
 use fms_mod, only : string, error_mesg, FATAL, WARNING, NOTE, &
      mpp_pe, lowercase, file_exist, close_file, &
@@ -36,7 +30,8 @@ use nfu_mod, only : nfu_validtype, nfu_inq_var, nfu_get_dim_bounds, nfu_get_rec,
      nfu_get_dim, nfu_get_var, nfu_get_valid_range, nfu_is_valid
 
 use vegn_data_mod, only : &
-     N_LU_TYPES, LU_PAST, LU_CROP, LU_NTRL, LU_SCND, landuse_name, landuse_longname
+     N_LU_TYPES, LU_PAST, LU_CROP, LU_NTRL, LU_SCND, LU_RANGE, LU_URBN, &
+     landuse_name, landuse_longname
 
 use cana_tile_mod, only : cana_tile_heat
 use snow_tile_mod, only : snow_tile_heat
@@ -47,10 +42,10 @@ use land_tile_mod, only : land_tile_map, &
      land_tile_type, land_tile_list_type, land_tile_enum_type, new_land_tile, delete_land_tile, &
      first_elmt, tail_elmt, loop_over_tiles, operator(==), current_tile, &
      land_tile_list_init, land_tile_list_end, nitems, elmt_at_index, &
-     empty, erase, remove, insert, land_tiles_can_be_merged, merge_land_tiles, &
+     erase, remove, insert, merge_land_tile_into_list, &
      get_tile_water, land_tile_carbon, land_tile_heat
-use land_tile_diag_mod, only : cmor_name 
 use land_tile_io_mod, only : print_netcdf_error
+use land_tile_diag_mod, only : cmor_name
 
 use land_data_mod, only : lnd, log_version, horiz_interp_ug
 use vegn_harvesting_mod, only : vegn_cut_forest
@@ -84,9 +79,10 @@ integer, parameter :: &
      DISTR_LM3 = 0, &
      DISTR_MIN = 1
 ! order of transitions (resulting land use types, hight to low priority) for the
-! min-n-tiles transition distribution option
-! integer, parameter :: tran_order(4) = (/LU_URBAN, LU_CROP, LU_PAST, LU_SCND/)
-integer, parameter :: tran_order(3) = (/LU_CROP, LU_PAST, LU_SCND/)
+! min-n-tiles transition distribution option. ALL land use types MUST be present in this
+! array, otherwise some transitions may be missed -- except perhaps LU_NTRL, since we
+! assume there are no transitions to LU_NTRL
+integer, parameter :: tran_order(N_LU_TYPES) = (/LU_URBN, LU_CROP, LU_PAST, LU_RANGE, LU_SCND, LU_NTRL/)
 
 ! TODO: describe differences between data sets
 
@@ -147,18 +143,18 @@ data (luh2name(idata), luh2type(idata), idata = 1, 12) / &
    'c4per', LU_CROP, &
    'c3nfx', LU_CROP, &
    'pastr', LU_PAST, &
-   'range', LU_PAST  /
+   'range', LU_RANGE /
 
 ! variables for LUMIP diagnostics
 integer, parameter :: N_LUMIP_TYPES = 4, &
    LUMIP_PSL = 1, LUMIP_PST = 2, LUMIP_CRP = 3, LUMIP_URB = 4
-character(4), parameter :: lumip_name(N_LUMIP_TYPES) = ['psl ','past','crop','urbn']
+character(4), parameter :: lumip_name(N_LUMIP_TYPES) = ['psl ','pst ','crop','urbn']
 integer :: &
    id_frac_in (N_LUMIP_TYPES) = -1, &
    id_frac_out(N_LUMIP_TYPES) = -1
 ! translation table: model land use types -> LUMIP types: for each of the model
 ! LU types it lists the corresponding LUMIP type.
-integer, parameter :: lu2lumip(N_LU_TYPES) = [LUMIP_PST, LUMIP_CRP, LUMIP_PSL, LUMIP_PSL, LUMIP_URB] 
+integer, parameter :: lu2lumip(N_LU_TYPES) = [LUMIP_PST, LUMIP_CRP, LUMIP_PSL, LUMIP_PSL, LUMIP_URB, LUMIP_PST]
 
 ! ---- namelist variables ---------------------------------------------------
 logical, protected, public :: do_landuse_change = .FALSE. ! if true, then the landuse changes with time
@@ -171,6 +167,8 @@ character(len=16)  :: data_type  = 'luh1' ! or 'luh2'
 ! tile in equal measure, except secondary-to-secondary); 'min-tiles' applies
 ! transitions to tiles in the order of priority, thereby minimizing the number
 ! of resulting tiles
+logical :: rangeland_is_pasture = .FALSE. ! if true, rangeland is combined with pastures.
+! This only applies to luh2 transitions, since there is no rangeland in luh1 anyway.
 character(len=16)  :: distribute_transitions  = 'lm3' ! or 'min-n-tiles'
 ! sets how to handle transition overshoot: that is, the situation when transition
 ! is larger than available area of the given land use type.
@@ -181,8 +179,10 @@ character(len=16) :: conservation_handling = 'stop' ! or 'report', or 'ignore'
 logical :: luh2_missing_transitions_bug = .FALSE.
 
 namelist/landuse_nml/do_landuse_change, input_file, state_file, static_file, data_type, &
-     distribute_transitions, overshoot_handling, overshoot_tolerance, &
-     conservation_handling, luh2_missing_transitions_bug
+     rangeland_is_pasture, distribute_transitions, &
+     overshoot_handling, overshoot_tolerance, &
+     conservation_handling
+
 
 contains ! ###################################################################
 
@@ -304,17 +304,31 @@ subroutine land_transitions_init(id_ug, id_cellarea)
   enddo
   ! register CMIP/LUMIP transition fields
   do k1 = 1,N_LUMIP_TYPES
-     id_frac_in(k1) = register_diag_field (cmor_name, &
+     id_frac_in(k1) = register_diag_field(cmor_name, &
          'fracInLut_'//trim(lumip_name(k1)), (/id_ug/), lnd%time, &
          'Gross Fraction That Was Transferred into This Tile From Other Land Use Tiles', &
-         units='fraction', area = id_cellarea)
+         units='%', standard_name='area_fraction', area = id_cellarea)
      call diag_field_add_attribute(id_frac_in(k1),'ocean_fillvalue',0.0)
      id_frac_out(k1) = register_diag_field(cmor_name, &
          'fracOutLut_'//trim(lumip_name(k1)), (/id_ug/), lnd%time, &
          'Gross Fraction of Land Use Tile That Was Transferred into Other Land Use Tiles', &
-         units='fraction', area = id_cellarea)
+         units='%', standard_name='area_fraction', area = id_cellarea)
      call diag_field_add_attribute(id_frac_out(k1),'ocean_fillvalue',0.0)
   enddo
+
+  ! change rangeland to pasture.
+  if (rangeland_is_pasture) then
+     ! change the type of transitions
+     do k1 = 1,size(luh2type)
+        if (luh2type(k1)==LU_RANGE) luh2type(k1)=LU_PAST
+     enddo
+     ! change land use type in existing tiles
+     ce = first_elmt(land_tile_map, ls=lnd%ls )
+     do while(loop_over_tiles(ce,tile))
+        if (.not.associated(tile%vegn)) cycle
+        if (tile%vegn%landuse == LU_RANGE) tile%vegn%landuse = LU_PAST
+     enddo
+  endif
 
   if (.not.do_landuse_change) return ! do nothing more if no land use requested
 
@@ -374,14 +388,12 @@ subroutine land_transitions_init(id_ug, id_cellarea)
         call add_var_to_varset(input_tran(k1,k2),tran_ncid,input_file,trim(luh2name(n1))//'_to_'//trim(luh2name(n2)))
      enddo
      enddo
-     if (.not.luh2_missing_transitions_bug) then
-        ! add transitions that are not part "state1_to_state2" variable set
-        call add_var_to_varset(input_tran(LU_NTRL,LU_SCND),tran_ncid,input_file,'primf_harv')
-        call add_var_to_varset(input_tran(LU_NTRL,LU_SCND),tran_ncid,input_file,'primn_harv')
-        call add_var_to_varset(input_tran(LU_SCND,LU_SCND),tran_ncid,input_file,'secmf_harv')
-        call add_var_to_varset(input_tran(LU_SCND,LU_SCND),tran_ncid,input_file,'secyf_harv')
-        call add_var_to_varset(input_tran(LU_SCND,LU_SCND),tran_ncid,input_file,'secnf_harv')
-     endif
+     ! add transitions that are not part "state1_to_state2" variable set
+     call add_var_to_varset(input_tran(LU_NTRL,LU_SCND),tran_ncid,input_file,'primf_harv')
+     call add_var_to_varset(input_tran(LU_NTRL,LU_SCND),tran_ncid,input_file,'primn_harv')
+     call add_var_to_varset(input_tran(LU_SCND,LU_SCND),tran_ncid,input_file,'secmf_harv')
+     call add_var_to_varset(input_tran(LU_SCND,LU_SCND),tran_ncid,input_file,'secyf_harv')
+     call add_var_to_varset(input_tran(LU_SCND,LU_SCND),tran_ncid,input_file,'secnf_harv')
 
      if (time0==set_date(0001,01,01)) then
         call error_mesg('land_transitions_init','setting up initial land use transitions', NOTE)
@@ -592,7 +604,6 @@ subroutine add_var_to_varset(varset,ncid,filename,varname)
    end select
 end subroutine add_var_to_varset
 
-
 ! ============================================================================
 ! read, aggregate, and interpolate set of transitions
 subroutine get_varset_data(ncid,varset,rec,frac)
@@ -600,7 +611,7 @@ subroutine get_varset_data(ncid,varset,rec,frac)
    type(var_set_type), intent(in) :: varset
    integer, intent(in) :: rec
    real, intent(out) :: frac(:)
-   
+
    real :: buff0(nlon_in,nlat_in)
    real :: buff1(nlon_in,nlat_in)
    integer :: i
@@ -663,7 +674,7 @@ subroutine land_transitions (time)
   type(time_type), intent(in) :: time
 
   ! ---- local vars.
-  integer :: i,j,k1,k2,i1,i2,l
+  integer :: i,k1,k2,i1,i2,l
   real    :: frac(lnd%ls:lnd%le)
   type(tran_type), pointer :: transitions(:,:)
   integer :: second, minute, hour, day0, day1, month0, month1, year0, year1
@@ -719,7 +730,7 @@ subroutine land_transitions (time)
            endif
         enddo
         enddo
-        used=send_data(id_frac_out(k1), diag*lnd%ug_landfrac, time)
+        used=send_data(id_frac_out(k1), diag*lnd%ug_landfrac*100.0, time)
      endif
   enddo
   do k1 = 1, N_LUMIP_TYPES
@@ -733,7 +744,7 @@ subroutine land_transitions (time)
            endif
         enddo
         enddo
-        used=send_data(id_frac_in(k1), diag*lnd%ug_landfrac, time)
+        used=send_data(id_frac_in(k1), diag*lnd%ug_landfrac*100.0, time)
      endif
   enddo
 
@@ -771,6 +782,7 @@ subroutine land_transitions_0d(d_list,d_kinds,a_kinds,area)
   type(land_tile_list_type) :: a_list
   type(land_tile_enum_type) :: ts, te
   real :: atot ! total fraction of tiles that can be involved in transitions
+  real :: htot ! total fraction heat, for debugging only
   ! variable used for conservation check:
   real :: lmass0, fmass0, cmass0, heat0, &
        soil_heat0, vegn_heat0, cana_heat0, snow_heat0 ! pre-transition values
@@ -809,12 +821,21 @@ subroutine land_transitions_0d(d_list,d_kinds,a_kinds,area)
      enddo
 
      write(*,*)'### land_transitions_0d: land fractions before transitions (initial state) ###'
-     ts = first_elmt(d_list)
+     ts = first_elmt(d_list); htot = 0.0; k = 1
      do while (loop_over_tiles(ts,ptr))
-        if (associated(ptr%vegn)) &
-                write(*,*)'landuse=',ptr%vegn%landuse,' area=',ptr%frac
+        if (associated(ptr%vegn)) then
+            write(*,'(i2.2,2x)', advance='no') k; k = k+1
+            call dpri('landuse',ptr%vegn%landuse)
+            call dpri('area',ptr%frac)
+            call dpri('heat',vegn_tile_heat(ptr%vegn))
+            call dpri('heat*frac',vegn_tile_heat(ptr%vegn)*ptr%frac)
+            write(*,*)
+            htot = htot+vegn_tile_heat(ptr%vegn)*ptr%frac
+        endif
      enddo
-     write(*,'(a,g23.16)')'total area=',atot
+     call dpri('total area=',atot)
+     call dpri('total heat=',htot)
+     write(*,*)
   endif
 
   ! split each donor tile and gather the parts that undergo a
@@ -836,7 +857,7 @@ subroutine land_transitions_0d(d_list,d_kinds,a_kinds,area)
      ! the transitions. The arrays are of equal size. For each initial and final
      ! LU types src and dst, there is only one element src->dst in these arrays.
      !
-     ! We go in order (U,C,P,S) through the final LU types, and apply all transitions
+     ! We go in order (U,C,P,R,S) through the final LU types, and apply all transitions
      ! that convert land to this type. Since initial type for each of these transitions
      ! are different, there should not be dependence on the order of operations.
      !
@@ -893,20 +914,28 @@ subroutine land_transitions_0d(d_list,d_kinds,a_kinds,area)
      if(ts==te) exit ! break out of loop
      ptr=>current_tile(ts)
      call remove(ts)
-     call land_tile_merge(ptr,d_list)
+     call merge_land_tile_into_list(ptr,d_list)
   enddo
   ! a_list is empty at this point
   call land_tile_list_end(a_list)
 
   if (is_watch_cell()) then
      write(*,*)'### land_transitions_0d: land fractions final state ###'
-     atot = 0 ; ts = first_elmt(d_list)
-     do while (loop_over_tiles(ts, ptr))
-        if (.not.associated(ptr%vegn)) cycle
-        write(*,'(2(a,g23.16,2x))')'landuse=',ptr%vegn%landuse,' area=',ptr%frac
-        atot = atot + ptr%frac
+     ts = first_elmt(d_list); htot = 0.0; k=0
+     do while (loop_over_tiles(ts,ptr))
+        if (associated(ptr%vegn)) then
+            write(*,'(i2.2,2x)', advance='no') k; k = k+1
+            call dpri('landuse',ptr%vegn%landuse)
+            call dpri('area',ptr%frac)
+            call dpri('heat',vegn_tile_heat(ptr%vegn))
+            call dpri('heat*frac',vegn_tile_heat(ptr%vegn)*ptr%frac)
+            write(*,*)
+            htot = htot+vegn_tile_heat(ptr%vegn)*ptr%frac
+        endif
      enddo
-     write(*,'(a,g23.16)')'total area=',atot
+     call dpri('total area=',atot)
+     call dpri('total heat=',htot)
+     write(*,*)
   endif
 
   ! conservation check part 2: calculate grid cell totals in final state, and
@@ -930,39 +959,13 @@ subroutine land_transitions_0d(d_list,d_kinds,a_kinds,area)
   call check_conservation ('frozen water', fmass0, fmass1, 1e-6)
   call check_conservation ('carbon'      , cmass0, cmass1, 1e-6)
   call check_conservation ('canopy air heat content', cana_heat0 , cana_heat1 , 1e-6)
-  call check_conservation ('vegetation heat content', vegn_heat0 , vegn_heat1 , 1e-6)
+! heat content of vegetation may not conserve because of the cohort merging issues
+!  call check_conservation ('vegetation heat content', vegn_heat0 , vegn_heat1 , 1e-6)
   call check_conservation ('snow heat content',       snow_heat0 , snow_heat1 , 1e-6)
   call check_conservation ('soil heat content',       soil_heat0 , soil_heat1 , 1e-4)
   call check_conservation ('heat content', heat0 , heat1 , 1e-4)
 
 end subroutine land_transitions_0d
-
-
-! ==============================================================================
-! given a pointer to a tile and a tile list, insert the tile into the list so that
-! if tile can be merged with any one already present, it is merged; otherwise
-! the tile is inserted into the list
-subroutine land_tile_merge(tile, list)
-  type(land_tile_type), pointer :: tile
-  type(land_tile_list_type), intent(inout) :: list
-
-  ! ---- local vars
-  type(land_tile_type), pointer :: ptr
-  type(land_tile_enum_type) :: ct
-
-  ! try to find a tile that we can merge to
-  ct = first_elmt(list)
-  do while(loop_over_tiles(ct,ptr))
-     if (land_tiles_can_be_merged(tile,ptr)) then
-        call merge_land_tiles(tile,ptr)
-        call delete_land_tile(tile)
-        return ! break out of the subroutine
-     endif
-  enddo
-  ! we reach here only if no suitable files was found in the list
-  ! if no suitable tile was found, just insert given tile into the list
-  call insert(tile,list)
-end subroutine land_tile_merge
 
 ! =============================================================================
 ! check that the requested area of transitions is not larger than available area
@@ -1050,10 +1053,14 @@ subroutine split_changing_tile_parts_by_priority(d_list,d_kind,a_kind,dfrac,a_li
         temp%frac = darea
         tile%frac = tile%frac-darea
         ! convert land use type of the tile: cut the forest, if necessary
-        if(temp%vegn%landuse==LU_NTRL.or.temp%vegn%landuse==LU_SCND) &
-                call vegn_cut_forest(temp%vegn, a_kind)
+        if(temp%vegn%landuse==LU_NTRL.or.temp%vegn%landuse==LU_SCND.or.temp%vegn%landuse==LU_RANGE) &
+                call vegn_cut_forest(temp, a_kind)
         ! change landuse type of the tile
         temp%vegn%landuse = a_kind
+        ! reset time elapsed since last disturbance and time elapsed since last land use
+        ! event in the new tile
+        temp%vegn%age_since_disturbance = 0.0
+        temp%vegn%age_since_landuse     = 0.0
         ! add the new tile to the resulting list
         call insert(temp, a_list) ! insert tile into output list
         ! calculate remaining area of transition
@@ -1170,17 +1177,21 @@ subroutine split_changing_tile_parts(d_list,d_kind,a_kind,dfrac,a_list)
      if(.not.associated(tile%vegn))  cycle ! skip all non-vegetation tiles
      if(tile%vegn%landuse /= d_kind) cycle ! skip all tiles that doe not match "donor" LU kind
      darea = vegn_tran_priority(tile%vegn, a_kind, x2)
-     if(darea > 0) then
+     if(tile%frac*darea > 0) then
         ! make a copy of current tile
         temp => new_land_tile(tile)
         temp%frac = tile%frac*darea
         tile%frac = tile%frac*(1.0-darea)
         ! convert land use type of the tile:
         ! cut the forest, if necessary
-        if(temp%vegn%landuse==LU_NTRL.or.temp%vegn%landuse==LU_SCND) &
-             call vegn_cut_forest(temp%vegn, a_kind)
+        if(temp%vegn%landuse==LU_NTRL.or.temp%vegn%landuse==LU_SCND.or.temp%vegn%landuse==LU_RANGE) &
+             call vegn_cut_forest(temp, a_kind)
         ! change landuse type of the tile
         temp%vegn%landuse = a_kind
+        ! reset time elapsed since last disturbance and time elapsed since last land use
+        ! event in the new tile
+        temp%vegn%age_since_disturbance = 0.0
+        temp%vegn%age_since_landuse     = 0.0
         ! add the new tile to the resulting list
         call insert(temp, a_list) ! insert tile into output list
      endif
@@ -1259,7 +1270,7 @@ subroutine add_to_transitions(frac, time0,time1,k1,k2,tran)
   type(tran_type), pointer :: tran(:,:)    ! transition info
 
   ! ---- local vars
-  integer :: i,j,k,sec,days, l
+  integer :: k,sec,days,l
   type(tran_type), pointer :: ptr(:,:) => NULL()
   real    :: part_of_year
   logical :: used
@@ -1293,9 +1304,7 @@ subroutine add_to_transitions(frac, time0,time1,k1,k2,tran)
   if(diag_ids(k1,k2)>0) then
      call get_time(time1-time0, sec,days)
      part_of_year = (days+sec/86400.0)/days_in_year(time0)
-     used = send_data(diag_ids(k1,k2), &
-                      frac/part_of_year, &
-                      time1)
+     used = send_data(diag_ids(k1,k2), frac/part_of_year, time1)
   endif
 
 end subroutine add_to_transitions
@@ -1317,7 +1326,7 @@ subroutine integral_transition(t1, t2, tran, frac, err_msg)
   real :: w  ! time interpolation weight
   real :: dt ! current time interval, in years
   real :: sum(size(frac(:)))
-  integer :: i,j,l
+  integer :: l
   character(len=256) :: msg
 
   msg = ''
@@ -1380,10 +1389,10 @@ subroutine check_conservation(name, d1, d2, tolerance)
 
   if (abs(d1-d2)>tolerance) then
      call get_current_point(i=curr_i,j=curr_j,face=face)
-     write(message,'(a,3(x,a,i4), 2(x,a,g23.16))')&
+     write(message,'(a,3(x,a,i4), 3(x,a,g23.16))')&
           'conservation of '//trim(name)//' is violated', &
           'at i=',curr_i,'j=',curr_j,'face=',face, &
-          'value before=', d1, 'after=', d2
+          'value before=', d1, 'after=', d2, 'diff=',d2-d1
      call error_mesg('land_transitions',message,severity)
   endif
 end subroutine check_conservation

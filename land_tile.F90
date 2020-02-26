@@ -6,18 +6,15 @@ use land_constants_mod, only : NBANDS
 use glac_tile_mod, only : &
      glac_tile_type, new_glac_tile, delete_glac_tile, glac_is_selected, &
      glac_tiles_can_be_merged, merge_glac_tiles, get_glac_tile_tag, &
-     glac_tile_stock_pe, glac_tile_heat, &
-     new_glac_tile_predefined
+     glac_tile_stock_pe, glac_tile_heat
 use lake_tile_mod, only : &
      lake_tile_type, new_lake_tile, delete_lake_tile, lake_is_selected, &
      lake_tiles_can_be_merged, merge_lake_tiles, get_lake_tile_tag, &
-     lake_tile_stock_pe, lake_tile_heat, &
-     new_lake_tile_predefined
+     lake_tile_stock_pe, lake_tile_heat
 use soil_tile_mod, only : &
      soil_tile_type, new_soil_tile, delete_soil_tile, soil_is_selected, &
      soil_tiles_can_be_merged, merge_soil_tiles, get_soil_tile_tag, &
-     soil_tile_stock_pe, soil_tile_carbon, soil_tile_heat, &
-     new_soil_tile_predefined
+     soil_tile_stock_pe, soil_tile_carbon, soil_tile_nitrogen, soil_tile_heat
 use hillslope_tile_mod, only : hlsp_is_selected
 use cana_tile_mod, only : &
      cana_tile_type, new_cana_tile, delete_cana_tile, cana_is_selected, &
@@ -25,19 +22,19 @@ use cana_tile_mod, only : &
      cana_tile_stock_pe, cana_tile_carbon, cana_tile_heat
 use vegn_tile_mod, only : &
      vegn_tile_type, new_vegn_tile, delete_vegn_tile, vegn_is_selected, &
-     vegn_tiles_can_be_merged, merge_vegn_tiles, get_vegn_tile_tag, &
-     vegn_tile_stock_pe, vegn_tile_carbon, vegn_tile_heat, &
+     vegn_tiles_can_be_merged, merge_vegn_tiles, vegn_tile_tag, &
+     vegn_tile_stock_pe, vegn_tile_carbon, vegn_tile_heat, vegn_tile_nitrogen, &
      new_vegn_tile_predefined
+use vegn_util_mod, only : kill_small_cohorts_ppa
 use snow_tile_mod, only : &
      snow_tile_type, new_snow_tile, delete_snow_tile, snow_is_selected, &
      snow_tiles_can_be_merged, merge_snow_tiles, get_snow_tile_tag, &
      snow_tile_stock_pe, snow_tile_heat, snow_active
 use land_tile_selectors_mod, only : tile_selector_type, &
      SEL_SOIL, SEL_VEGN, SEL_LAKE, SEL_GLAC, SEL_SNOW, SEL_CANA, SEL_HLSP
-use tile_diag_buff_mod, only : diag_buff_type, init_diag_buff
+use tile_diag_buff_mod, only : &
+     diag_buff_type, init_diag_buff
 use land_data_mod, only : lnd
-use tiling_input_types_mod, only : soil_predefined_type, lake_predefined_type, &
-     glacier_predefined_type
 
 implicit none
 private
@@ -53,12 +50,11 @@ public :: max_n_tiles
 
 ! operations with tile
 public :: new_land_tile, delete_land_tile
-public :: new_land_tile_predefined
-public :: land_tiles_can_be_merged, merge_land_tiles
+public :: land_tiles_can_be_merged, merge_land_tiles, merge_land_tile_into_list
 
-public :: get_tile_tags ! returns the tags of the sub-model tiles
 public :: get_tile_water ! returns liquid and frozen water masses
 public :: land_tile_carbon ! returns total carbon in the tile
+public :: land_tile_nitrogen ! returns total nitrogen in the tile
 public :: land_tile_heat ! returns tile heat content
 public :: land_tile_grnd_T ! returns temperature of the ground surface
 
@@ -84,18 +80,13 @@ public :: print_land_tile_info
 public :: print_land_tile_statistics
 
 ! abstract interfaces for accessor functions
-public :: tile_exists_func, fptr_i0, fptr_i0i, fptr_r0, fptr_r0i, fptr_r0ij, fptr_r0ijk
+public :: tile_test_func, fptr_i0, fptr_i0i, fptr_r0, fptr_r0i, fptr_r0ij, fptr_r0ijk
 
 public :: land_tile_map ! array of tile lists
 ! ==== end of public interfaces ==============================================
 
 interface new_land_tile
    module procedure land_tile_ctor
-   module procedure land_tile_copy_ctor
-end interface
-
-interface new_land_tile_predefined
-   module procedure land_tile_ctor_predefined
    module procedure land_tile_copy_ctor
 end interface
 
@@ -157,14 +148,19 @@ type :: land_tile_type
    ! data that are carried from update_land_bc_fast to update_land_fast:
    real :: Sg_dir(NBANDS), Sg_dif(NBANDS) ! fractions of downward direct and
        ! diffuse short-wave radiation absorbed by ground and snow
-   real :: Sv_dir(NBANDS), Sv_dif(NBANDS) ! fractions of downward direct and
-       ! diffuse radiation absorbed by the vegetation.
+   ! fractions of downward direct and diffuse radiation absorbed by the
+   ! vegetation; dimensions are (NCOHORTS,NBANDS).
+   real, allocatable :: Sv_dir(:,:), Sv_dif(:,:)
+   ! fractions of downward direct and diffuse radiation on top of each cohort
+   ! dimensions are (NCOHORTS,NBANDS).
+   real, allocatable :: Sdn_dir(:,:), Sdn_dif(:,:)
    real :: land_refl_dir(NBANDS), land_refl_dif(NBANDS)
 
    real :: land_d, land_z0m, land_z0s
    real :: surf_refl_lw ! long-wave reflectivity of the ground surface (possibly snow-covered)
-   real :: vegn_refl_lw ! black background long-wave reflectivity of the vegetation canopy
-   real :: vegn_tran_lw ! black background long-wave transmissivity of the vegetation canopy
+   ! black-background long-wave radiative properties of the vegetation cohorts
+   real, allocatable :: vegn_refl_lw(:)  ! reflectance
+   real, allocatable :: vegn_tran_lw(:)  ! transmittance
 
    real :: lwup     = 200.0  ! upward long-wave flux from the entire land (W/m2), the result of
            ! the implicit time step -- used in update_land_bc_fast to return to the flux exchange.
@@ -210,10 +206,10 @@ abstract interface
   ! the following interface describes the "detector function", which is passed
   ! through the argument list and must return true for any tile to be written
   ! to the specific restart, false otherwise
-  logical function tile_exists_func(tile)
+  logical function tile_test_func(tile)
      import land_tile_type
      type(land_tile_type), pointer :: tile
-  end function tile_exists_func
+  end function tile_test_func
   ! the following interfaces describe various accessor subroutines, used to access
   ! data im massive operations on tiles, such as i/o or (sometimes) diagnostics
 
@@ -283,7 +279,7 @@ contains
 ! initialize land tile map
 subroutine init_tile_map()
   integer :: l
- 
+
   allocate(land_tile_map(lnd%ls:lnd%le))
   do l = lnd%ls,lnd%le
      call land_tile_list_init(land_tile_map(l))
@@ -385,13 +381,13 @@ function land_tile_ctor_predefined(frac,glac,lake,soil,vegn,tag,htag_j,htag_k,&
 
   ! ---- local vars
   integer :: glac_, lake_, soil_, vegn_
-  
+
   ! initialize internal variables
   glac_ = -1 ; if(present(glac)) glac_ = glac
   lake_ = -1 ; if(present(lake)) lake_ = lake
   soil_ = -1 ; if(present(soil)) soil_ = soil
   vegn_ = -1 ; if(present(vegn)) vegn_ = vegn
-  
+
   allocate(tile)
   ! fill common fields
   tile%frac = 0.0 ; if(present(frac)) tile%frac = frac
@@ -473,40 +469,6 @@ end subroutine delete_land_tile
 
 
 ! ============================================================================
-! returns tags of the component model tiles
-subroutine get_tile_tags(tile,land,glac,lake,soil,snow,cana,vegn)
-   type(land_tile_type), intent(in)  :: tile
-   integer, optional,    intent(out) :: land,glac,lake,soil,snow,cana,vegn
-
-   if(present(land)) land=tile%tag
-   if(present(glac)) then
-      glac=-HUGE(glac)
-      if (associated(tile%glac)) glac=get_glac_tile_tag(tile%glac)
-   endif
-   if(present(lake)) then
-      lake=-HUGE(lake)
-      if (associated(tile%lake)) lake=get_lake_tile_tag(tile%lake)
-   endif
-   if(present(soil)) then
-      soil=-HUGE(soil)
-      if (associated(tile%soil)) soil=get_soil_tile_tag(tile%soil)
-   endif
-   if(present(snow)) then
-      snow=-HUGE(snow)
-      if (associated(tile%snow)) snow=get_snow_tile_tag(tile%snow)
-   endif
-   if(present(cana)) then
-      cana=-HUGE(cana)
-      if (associated(tile%cana)) cana=get_cana_tile_tag(tile%cana)
-   endif
-   if(present(vegn)) then
-      vegn=-HUGE(vegn)
-      if (associated(tile%vegn)) vegn=get_vegn_tile_tag(tile%vegn)
-   endif
-end subroutine get_tile_tags
-
-
-! ============================================================================
 ! returns totals water and ice masses associated with tile
 subroutine get_tile_water(tile, lmass, fmass)
   type(land_tile_type), intent(in) :: tile
@@ -560,6 +522,22 @@ end function land_tile_carbon
 
 
 ! ============================================================================
+! returns total tile nitrogen, kg N/m2
+function land_tile_nitrogen(tile) result(nitrogen) ; real nitrogen
+  type(land_tile_type), intent(in) :: tile
+
+  nitrogen = 0
+  ! Not implemented for canopy yet
+  ! if (associated(tile%cana)) &
+  !    nitrogen = nitrogen + cana_tile_nitrogen(tile%cana)
+  if (associated(tile%vegn)) &
+     nitrogen = nitrogen + vegn_tile_nitrogen(tile%vegn)
+  if (associated(tile%soil)) &
+     nitrogen = nitrogen + soil_tile_nitrogen(tile%soil)
+end function land_tile_nitrogen
+
+
+! ============================================================================
 ! returns total heat content of the tile
 function land_tile_heat(tile) result(heat) ; real heat
   type(land_tile_type), intent(in) :: tile
@@ -579,7 +557,6 @@ function land_tile_heat(tile) result(heat) ; real heat
        heat = heat+vegn_tile_heat(tile%vegn)
 end function land_tile_heat
 
-
 ! ============================================================================
 ! returns ground surface temperature
 function land_tile_grnd_T(tile) result(T) ; real T
@@ -595,7 +572,6 @@ function land_tile_grnd_T(tile) result(T) ; real T
      T = tile%lake%T(1)
   endif
 end function land_tile_grnd_T
-
 
 ! ============================================================================
 ! returns true if two land tiles can be merged
@@ -637,6 +613,7 @@ subroutine merge_land_tiles(tile1,tile2)
 
   ! ---- local vars
   real :: x1,x2
+  real :: dheat
 
   if(associated(tile1%glac)) &
        call merge_glac_tiles(tile1%glac, tile1%frac, tile2%glac, tile2%frac)
@@ -650,8 +627,11 @@ subroutine merge_land_tiles(tile1,tile2)
   if(associated(tile1%snow)) &
        call merge_snow_tiles(tile1%snow, tile1%frac, tile2%snow, tile2%frac)
 
-  if(associated(tile1%vegn)) &
-       call merge_vegn_tiles(tile1%vegn, tile1%frac, tile2%vegn, tile2%frac)
+  dheat = 0.0
+  if (associated(tile1%vegn)) then
+     call merge_vegn_tiles(tile1%vegn, tile1%frac, tile2%vegn, tile2%frac, dheat)
+     call kill_small_cohorts_ppa(tile2%vegn,tile2%soil)
+  endif
 
   ! calculate normalized weights
   x1 = tile1%frac/(tile1%frac+tile2%frac)
@@ -661,15 +641,37 @@ subroutine merge_land_tiles(tile1,tile2)
   __MERGE__(lwup)
   __MERGE__(e_res_1)
   __MERGE__(e_res_2)
-  __MERGE__(runon_l)
-  __MERGE__(runon_s)
-  __MERGE__(runon_H)
-  __MERGE__(runon_Hl)
-  __MERGE__(runon_Hs)
 #undef __MERGE__
 
+  tile2%e_res_2 = tile2%e_res_2 - dheat
   tile2%frac = tile1%frac + tile2%frac
 end subroutine merge_land_tiles
+
+! ==============================================================================
+! given a pointer to a tile and a tile list, insert the tile into the list so that
+! if tile can be merged with any one already present, it is merged; otherwise
+! the tile is added to the list
+subroutine merge_land_tile_into_list(tile, list)
+  type(land_tile_type), pointer :: tile
+  type(land_tile_list_type), intent(inout) :: list
+
+  ! ---- local vars
+  type(land_tile_type), pointer :: ptr
+  type(land_tile_enum_type) :: ct
+
+  ! try to find a tile that we can merge to
+  ct = first_elmt(list)
+  do while(loop_over_tiles(ct,ptr))
+     if (land_tiles_can_be_merged(tile,ptr)) then
+        call merge_land_tiles(tile,ptr)
+        call delete_land_tile(tile)
+        return ! break out of the subroutine
+     endif
+  enddo
+  ! we reach here only if no suitable files was found in the list
+  ! if no suitable tile was found, just insert given tile into the list.
+  call insert(tile,list)
+end subroutine merge_land_tile_into_list
 
 ! #### tile container ########################################################
 

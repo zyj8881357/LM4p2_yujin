@@ -7,7 +7,7 @@ use fms_mod, only: open_namelist_file
 #endif
 use mpp_mod, only: mpp_max
 use constants_mod, only: PI
-use fms_mod, only: error_mesg, file_exist, check_nml_error, stdlog, &
+use fms_mod, only: error_mesg, file_exist, check_nml_error, stdlog, lowercase, &
      close_file, mpp_pe, mpp_npes, mpp_root_pe, string, FATAL, WARNING, NOTE
 use time_manager_mod, only : &
      time_type, get_date, set_date, operator(<=), operator(>=)
@@ -39,12 +39,14 @@ public :: check_conservation
 
 public :: land_error_message
 public :: log_date
+public :: string_from_time
 public :: dpri
 
 interface dpri
    module procedure debug_printout_r0d
    module procedure debug_printout_i0d
    module procedure debug_printout_l0d
+   module procedure debug_printout_t0d
    module procedure debug_printout_r1d
    module procedure debug_printout_i1d
    module procedure debug_printout_r2d
@@ -68,7 +70,7 @@ end interface set_current_point
 ! conservation tolerances for use across the code. This module doesn't use
 ! them, just serves as a convenient place to share them across all land code
 public :: water_cons_tol
-public :: carbon_cons_tol
+public :: carbon_cons_tol, nitrogen_cons_tol
 public :: heat_cons_tol
 public :: do_check_conservation
 
@@ -81,12 +83,12 @@ integer, allocatable :: current_debug_level(:)
 integer              :: mosaic_tile_sg = 0, mosaic_tile_ug = 0
 integer, allocatable :: curr_i(:), curr_j(:), curr_k(:), curr_l(:)
 type(time_type)      :: start_watch_time, stop_watch_time
-character(128)       :: fixed_format
+character(128)       :: fixed_label_format
+integer              :: watch_point_lindex = 0  ! watch point index in unstructured grid.
 
 !---- namelist ---------------------------------------------------------------
 integer :: watch_point(4)=(/0,0,0,1/) ! coordinates of the point of interest,
            ! i,j,tile,mosaic_tile
-integer :: watch_point_lindex = 0  ! watch point index in unstructure grid.
 integer :: start_watching(6) = (/    1, 1, 1, 0, 0, 0 /)
 integer :: stop_watching(6)  = (/ 9999, 1, 1, 0, 0, 0 /)
 logical :: watch_conservation = .FALSE. ! if true, conservation check reports are
@@ -100,17 +102,20 @@ logical :: trim_labels = .FALSE. ! if TRUE, the length of text labels in debug
            ! printout is never allowed to exceed label_len, resulting in
            ! trimming of the labels. Set it to TRUE to match earlier debug
            ! printout
+character(64) :: value_format = 'short'
+
 namelist/land_debug_nml/ watch_point, &
    start_watching, stop_watching, watch_conservation, &
    temp_lo, temp_hi, &
-   print_hex_debug, label_len, trim_labels
+   value_format, print_hex_debug, label_len, trim_labels
 
 logical, protected :: do_check_conservation = .FALSE.
 real, protected    :: water_cons_tol  = 1e-11 ! tolerance of water conservation checks
 real, protected    :: carbon_cons_tol = 1e-13 ! tolerance of carbon conservation checks
 real, protected    :: heat_cons_tol   = 1e-8  ! tolerance of heat conservation checks
+real, protected    :: nitrogen_cons_tol = 1e-13 ! tolerance of nitrogen conservation checks, kgN/m2
 namelist/land_conservation_nml/ do_check_conservation, &
-      water_cons_tol, carbon_cons_tol, heat_cons_tol
+      water_cons_tol, carbon_cons_tol, heat_cons_tol, nitrogen_cons_tol
 
 contains
 
@@ -165,8 +170,19 @@ subroutine land_debug_init()
   allocate(current_debug_level(max_threads))
   current_debug_level(:) = 0
 
-  ! construct the format string for output
-  fixed_format = '(a'//trim(string(label_len))//',99g23.16)'
+  ! construct the label format string for output
+  fixed_label_format = '(a'//trim(string(label_len))//')'
+
+  ! construct value format
+  if (trim(lowercase(value_format))=='short') then
+     value_format = '(g13.6)'
+  else if (trim(lowercase(value_format))=='long') then
+     value_format = '(g23.16)'
+  else if (trim(lowercase(value_format))=='full') then
+     value_format = '(g23.16)'
+  else
+     ! do nothing: use value_format provided in the namelis for printing
+  endif
 
   start_watch_time = set_date(start_watching(1), start_watching(2), start_watching(3), &
                               start_watching(4), start_watching(5), start_watching(6)  )
@@ -177,11 +193,11 @@ subroutine land_debug_init()
   mosaic_tile_ug = lnd%ug_face
   watch_point_lindex = 0
   do l = lnd%ls, lnd%le
-     if(watch_point(1) == lnd%i_index(l) .AND. watch_point(2) == lnd%j_index(l)) then
+     if ( watch_point(1) == lnd%i_index(l) .AND. &
+          watch_point(2) == lnd%j_index(l)       ) then
         watch_point_lindex = l
      endif
   enddo
-  call mpp_max(watch_point_lindex)
 
 end subroutine land_debug_init
 
@@ -226,8 +242,9 @@ subroutine set_current_point_ug(l,k)
   curr_k(thread) = k; curr_l(thread) = l
 
   current_debug_level(thread) = 0
-  if ( watch_point_lindex==l.and. &
-       watch_point(3)==k.and. &
+  if ( watch_point(1)==curr_i(thread).and. &
+       watch_point(2)==curr_j(thread).and. &
+       watch_point(3)==curr_k(thread).and. &
        watch_point(4)==mosaic_tile_ug) then
      current_debug_level(thread) = 1
   endif
@@ -403,16 +420,24 @@ end subroutine check_var_range_1d
 
 
 ! ============================================================================
+subroutine print_label(description)
+  character(*), intent(in) :: description
+
+  if (trim_labels.or.len_trim(description)<label_len) then
+     write(*,fixed_label_format,advance='NO')trim(description)
+  else
+     write(*,'(x,a,g23.16)',advance='NO')trim(description)
+  endif
+end subroutine print_label
+
+! ============================================================================
 ! debug printout procedures
 subroutine debug_printout_r0d(description,value)
   character(*), intent(in) :: description
   real        , intent(in) :: value
 
-  if (trim_labels.or.len_trim(description)<label_len) then
-     write(*,fixed_format,advance='NO')trim(description),value
-  else
-     write(*,'(x,a,g23.16)',advance='NO')trim(description),value
-  endif
+  call print_label(description)
+  write(*,value_format,advance='NO')value
   if(print_hex_debug) write(*,'(z17)',advance='NO')value
 end subroutine
 
@@ -421,11 +446,8 @@ subroutine debug_printout_i0d(description,value)
   character(*), intent(in) :: description
   integer     , intent(in) :: value
 
-  if (trim_labels.or.len_trim(description)<label_len) then
-     write(*,fixed_format,advance='NO')trim(description),value
-  else
-     write(*,'(x,a,g23.16)',advance='NO')trim(description),value
-  endif
+  call print_label(description)
+  write(*,value_format,advance='NO')value
 end subroutine
 
 
@@ -433,13 +455,17 @@ subroutine debug_printout_l0d(description,value)
   character(*), intent(in) :: description
   logical     , intent(in) :: value
 
-  if (trim_labels.or.len_trim(description)<label_len) then
-     write(*,fixed_format,advance='NO')trim(description),value
-  else
-     write(*,'(x,a,g23.16)',advance='NO')trim(description),value
-  endif
+  call print_label(description)
+  write(*,value_format,advance='NO')value
 end subroutine
 
+subroutine debug_printout_t0d(description,value)
+  character(*), intent(in) :: description
+  character(*), intent(in) :: value
+
+  call print_label(description)
+  write(*,value_format,advance='NO')'"'//trim(value)//'"'
+end subroutine
 
 subroutine debug_printout_r1d(description,values)
   character(*), intent(in) :: description
@@ -447,13 +473,9 @@ subroutine debug_printout_r1d(description,values)
 
   integer :: i
 
-  if (trim_labels.or.len_trim(description)<label_len) then
-     write(*,fixed_format,advance='NO')trim(description)
-  else
-     write(*,'(x,a)',advance='NO')trim(description)
-  endif
+  call print_label(description)
   do i = 1,size(values)
-     write(*,'(g23.16)',advance='NO')values(i)
+     write(*,value_format,advance='NO')values(i)
      if(print_hex_debug) write(*,'(z17)',advance='NO')values(i)
   enddo
 end subroutine
@@ -464,23 +486,25 @@ subroutine debug_printout_i1d(description,values)
 
   integer :: i
 
-  if (trim_labels.or.len_trim(description)<label_len) then
-     write(*,fixed_format,advance='NO')trim(description),values
-  else
-     write(*,'(x,a,99g23.16)',advance='NO')trim(description),values
-  endif
+  call print_label(description)
+  do i = 1,size(values)
+     write(*,value_format,advance='NO')values(i)
+  enddo
 end subroutine
 
 subroutine debug_printout_r2d(description,values)
   character(*), intent(in) :: description
   real        , intent(in) :: values(:,:)
 
-  if (trim_labels.or.len_trim(description)<label_len) then
-     write(*,fixed_format,advance='NO')trim(description),values
-  else
-     write(*,'(x,a,99g23.16)',advance='NO')trim(description),values
-  endif
-  ! TODO: print values as a matrix
+  integer :: i,j
+
+  ! TODO: print 2D value as a matrix
+  call print_label(description)
+  do i = 1,size(values,1)
+  do j = 1,size(values,2)
+     write(*,value_format,advance='NO')values(i,j)
+  enddo
+  enddo
 end subroutine
 
 
@@ -571,6 +595,17 @@ subroutine land_error_message(text,severity)
   call error_mesg(text,message,severity_)
 
 end subroutine land_error_message
+
+! ============================================================================
+function string_from_time(time) result(str)
+  character(19) :: str  ! YYYY-MM-DD HH:MM:YY
+  type(time_type), intent(in) :: time
+
+  integer :: y,mo,d,h,m,s ! components of date for debug printout
+
+  call get_date(lnd%time,y,mo,d,h,m,s)
+  write(str,'(i4.4,2("-",i2.2),x,i2.2,2(":",i2.2))')y,mo,d,h,m,s
+end function string_from_time
 
 ! ============================================================================
 ! print time in the debug output

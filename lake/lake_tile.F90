@@ -16,18 +16,14 @@ use land_constants_mod, only : NBANDS
 use land_data_mod, only : lnd, log_version
 use land_io_mod, only : init_cover_field
 use land_tile_selectors_mod, only : tile_selector_type, SEL_LAKE, register_tile_selector
-use tiling_input_types_mod, only : lake_predefined_type
-use land_debug_mod, only : is_watch_point
 
 implicit none
 private
 
 ! ==== public interfaces =====================================================
-public :: lake_pars_type
 public :: lake_tile_type
 
 public :: new_lake_tile, delete_lake_tile
-public :: new_lake_tile_predefined
 public :: lake_tiles_can_be_merged, merge_lake_tiles
 public :: lake_is_selected
 public :: get_lake_tile_tag
@@ -37,7 +33,7 @@ public :: lake_tile_heat
 public :: read_lake_data_namelist
 public :: lake_cover_cold_start
 
-public :: lake_radiation
+public :: lake_data_radiation
 public :: lake_roughness
 public :: lake_data_thermodynamics
 
@@ -49,10 +45,7 @@ interface new_lake_tile
    module procedure lake_tile_ctor
    module procedure lake_tile_copy_ctor
 end interface
-interface new_lake_tile_predefined
-   module procedure lake_tile_ctor_predefined
-   module procedure lake_tile_copy_ctor
-end interface
+
 
 ! ==== module constants ======================================================
 character(len=*), parameter :: module_name = 'lake_tile_mod'
@@ -133,7 +126,6 @@ real, public :: &
      cpw = 1952.0, & ! specific heat of water vapor at constant pressure
      clw = 4218.0, & ! specific heat of water (liquid)
      csw = 2106.0    ! specific heat of water (ice)
-logical, public :: use_brdf
 
 !---- namelist ---------------------------------------------------------------
 real    :: lake_width_inside_lake = 1.e5
@@ -165,6 +157,7 @@ real, public :: outlet_width(100)
   real :: f_iso_liq(NBANDS) = (/ 0.056, 0.131 /)
   real :: f_vol_liq(NBANDS) = (/ 0.017, 0.053 /)
   real :: f_geo_liq(NBANDS) = (/ 0.004, 0.010 /)
+  real :: refl_ice_dif(NBANDS), refl_liq_dif(NBANDS)
 
 ! ---- remainder are used only for cold start ---------
 logical :: round_frac_down       = .false.  ! when false, any lake_frac < min_lake_frac
@@ -273,6 +266,9 @@ subroutine read_lake_data_namelist(lake_n_lev)
 
   ! initialize global module data here
 
+  refl_ice_dif = g_iso*f_iso_ice + g_vol*f_vol_ice + g_geo*f_geo_ice
+  refl_liq_dif = g_iso*f_iso_liq + g_vol*f_vol_liq + g_geo*f_geo_liq
+
   ! register selectors for tile-specific diagnostics
   do i=1, n_dim_lake_types
      call register_tile_selector(tile_names(i), long_name='',&
@@ -283,29 +279,6 @@ subroutine read_lake_data_namelist(lake_n_lev)
   lake_n_lev = num_l
 end subroutine read_lake_data_namelist
 
-! ============================================================================
-function lake_tile_ctor_predefined(tag,lake_predefined,itile) result(ptr)
-  type(lake_tile_type), pointer :: ptr ! return value
-  integer, intent(in)           :: tag ! kind of lake
-  type(lake_predefined_type), intent(in) :: lake_predefined
-  integer, intent(in) :: itile
-
-  allocate(ptr)
-  ptr%tag = tag
-  ! allocate storage for tile data
-  allocate(ptr%dz     (num_l), &
-           ptr%wl     (num_l), &
-           ptr%ws     (num_l), &
-           ptr%T      (num_l), &
-           ptr%K_z    (num_l), &
-           ptr%w_fc   (num_l),  &
-           ptr%w_wilt (num_l),  &
-           ptr%heat_capacity_dry(num_l),  &
-           ptr%e      (num_l),  &
-           ptr%f      (num_l)   )
-  call init_lake_data_0d_predefined(ptr,lake_predefined,itile)
-
-end function lake_tile_ctor_predefined
 
 ! ============================================================================
 function lake_tile_ctor(tag) result(ptr)
@@ -315,11 +288,11 @@ function lake_tile_ctor(tag) result(ptr)
   allocate(ptr)
   ptr%tag = tag
   ! allocate storage for tile data
-  allocate(ptr%dz     (num_l), &
-           ptr%wl     (num_l), &
-           ptr%ws     (num_l), &
-           ptr%T      (num_l), &
-           ptr%K_z    (num_l), &
+  allocate(ptr%dz     (num_l),  &
+           ptr%wl     (num_l),  &
+           ptr%ws     (num_l),  &
+           ptr%T      (num_l),  &
+           ptr%K_z    (num_l),  &
            ptr%w_fc   (num_l),  &
            ptr%w_wilt (num_l),  &
            ptr%heat_capacity_dry(num_l),  &
@@ -413,7 +386,7 @@ subroutine init_lake_data_0d_predefined(lake,lake_predefined,itile)
    print*,'refl_dry_dif o:',dat_refl_dry_dif(k,:),' n:',lake%pars%refl_dry_dif
    print*,'refl_sat_dir o:',dat_refl_sat_dir(k,:),' n:',lake%pars%refl_sat_dir
    print*,'refl_sat_dif o:',dat_refl_sat_dif(k,:),' n:',lake%pars%refl_sat_dif
-   print*,'emis_dry o:',dat_emis_dry(k),' n:',lake%pars%emis_dry 
+   print*,'emis_dry o:',dat_emis_dry(k),' n:',lake%pars%emis_dry
    print*,'emis_sat o:',dat_emis_sat(k),' n:',lake%pars%emis_sat
    print*,'z0_momentum o:',dat_z0_momentum(k),' n:',lake%pars%z0_momentum
    print*,'z0_momentum_ice o:',dat_z0_momentum_ice(k),'n:',lake%pars%z0_momentum_ice
@@ -444,7 +417,7 @@ subroutine init_lake_data_0d_predefined(lake,lake_predefined,itile)
   lake%z0_scalar_ice = lake%pars%z0_momentum_ice * exp(-k_over_B_ice)
   lake%geothermal_heat_flux = geothermal_heat_flux_constant
 
-end subroutine 
+end subroutine
 
 subroutine init_lake_data_0d(lake)
   type(lake_tile_type), intent(inout) :: lake
@@ -612,11 +585,12 @@ end function get_lake_tile_tag
 
 ! ============================================================================
 ! compute bare-lake albedos and bare-lake emissivity
-subroutine lake_radiation ( lake, cosz, &
-     lake_refl_dir, lake_refl_dif, lake_refl_lw, lake_emis )
-  type(lake_tile_type), intent(in) :: lake
-  real, intent(in) :: cosz
-  real, intent(out) :: lake_refl_dir(NBANDS), lake_refl_dif(NBANDS), lake_refl_lw, lake_emis
+subroutine lake_data_radiation ( lake, cosz, use_brdf, &
+                                  lake_alb_dir, lake_alb_dif, lake_emis )
+  type(lake_tile_type), intent(in)  :: lake
+  real,                 intent(in)  :: cosz
+  logical,              intent(in)  :: use_brdf
+  real,                 intent(out) :: lake_alb_dir(:), lake_alb_dif(:), lake_emis
 
   ! ---- local vars
   real :: lake_sfc_vlc, blend
@@ -628,28 +602,27 @@ subroutine lake_radiation ( lake, cosz, &
   lake_sfc_vlc = lake%wl(1)/lake%dz(1)
   blend        = lake_sfc_vlc/lake%pars%w_sat
   if (use_brdf) then
-     zenith_angle = acos(cosz)
-     zsq = zenith_angle*zenith_angle
-     zcu = zenith_angle*zsq
-     liq_value_dir =  f_iso_liq*(g0_iso+g1_iso*zsq+g2_iso*zcu) &
-                    + f_vol_liq*(g0_vol+g1_vol*zsq+g2_vol*zcu) &
-                    + f_geo_liq*(g0_geo+g1_geo*zsq+g2_geo*zcu)
-     ice_value_dir =  f_iso_ice*(g0_iso+g1_iso*zsq+g2_iso*zcu) &
-                    + f_vol_ice*(g0_vol+g1_vol*zsq+g2_vol*zcu) &
-                    + f_geo_ice*(g0_geo+g1_geo*zsq+g2_geo*zcu)
-     liq_value_dif = g_iso*f_iso_liq + g_vol*f_vol_liq + g_geo*f_geo_liq
-     ice_value_dif = g_iso*f_iso_ice + g_vol*f_vol_ice + g_geo*f_geo_ice
-  else
-     liq_value_dir = lake%pars%refl_sat_dir
-     ice_value_dir = lake%pars%refl_dry_dir
-     liq_value_dif = lake%pars%refl_sat_dif
-     ice_value_dif = lake%pars%refl_dry_dif
-  endif
-  lake_refl_dir = ice_value_dir + blend*(liq_value_dir-ice_value_dir)
-  lake_refl_dif = ice_value_dif + blend*(liq_value_dif-ice_value_dif)
-  lake_emis     = lake%pars%emis_dry   + blend*(lake%pars%emis_sat-lake%pars%emis_dry  )
-  lake_refl_lw  = 1 - lake_emis
-end subroutine lake_radiation
+      zenith_angle = acos(cosz)
+      zsq = zenith_angle*zenith_angle
+      zcu = zenith_angle*zsq
+      liq_value_dir =  f_iso_liq*(g0_iso+g1_iso*zsq+g2_iso*zcu) &
+                     + f_vol_liq*(g0_vol+g1_vol*zsq+g2_vol*zcu) &
+                     + f_geo_liq*(g0_geo+g1_geo*zsq+g2_geo*zcu)
+      ice_value_dir =  f_iso_ice*(g0_iso+g1_iso*zsq+g2_iso*zcu) &
+                     + f_vol_ice*(g0_vol+g1_vol*zsq+g2_vol*zcu) &
+                     + f_geo_ice*(g0_geo+g1_geo*zsq+g2_geo*zcu)
+      liq_value_dif = refl_liq_dif
+      ice_value_dif = refl_ice_dif
+    else
+      liq_value_dir = lake%pars%refl_sat_dir
+      ice_value_dir = lake%pars%refl_dry_dir
+      liq_value_dif = lake%pars%refl_sat_dif
+      ice_value_dif = lake%pars%refl_dry_dif
+    endif
+  lake_alb_dir = ice_value_dir + blend*(liq_value_dir-ice_value_dir)
+  lake_alb_dif = ice_value_dif + blend*(liq_value_dif-ice_value_dif)
+  lake_emis = lake%pars%emis_dry   + blend*(lake%pars%emis_sat-lake%pars%emis_dry  )
+end subroutine lake_data_radiation
 
 ! ============================================================================
 ! compute bare-lake roughness
@@ -708,7 +681,7 @@ subroutine lake_tile_stock_pe (lake, twd_liq, twd_sol  )
   do n=1, size(lake%wl)
     twd_liq = twd_liq + lake%wl(n)
     twd_sol = twd_sol + lake%ws(n)
-    enddo
+  enddo
 
 end subroutine lake_tile_stock_pe
 

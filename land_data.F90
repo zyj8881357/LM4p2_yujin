@@ -9,7 +9,7 @@ use mpp_domains_mod   , only : domain2d, mpp_get_compute_domain, &
      domainUG, mpp_define_unstruct_domain, mpp_get_UG_domain_tile_id, &
      mpp_get_UG_io_domain, mpp_get_UG_domain_npes, mpp_get_ug_domain_pelist, &
      mpp_get_ug_compute_domain, mpp_get_ug_domain_grid_index, mpp_pass_sg_to_ug, &
-     mpp_pass_ug_to_sg, mpp_get_io_domain_UG_layout
+     mpp_pass_ug_to_sg, mpp_get_io_domain_UG_layout, mpp_get_data_domain
 use fms_mod           , only : write_version_number, mpp_npes, stdout, &
      file_exist, error_mesg, FATAL, read_data
 use fms_io_mod        , only : parse_mask_table
@@ -126,6 +126,7 @@ end type land_data_type
 ! and it is public in this module.
 type :: land_state_type
    integer :: is,ie,js,je ! compute domain boundaries
+   integer :: isd,ied,jsd,jed ! data domain boundaries
    integer :: ls,le       ! boundaries of unstructured domain
    integer :: gs,ge       ! min and max value of grid index ( j*nx+i )
    integer :: nlon,nlat   ! size of global grid
@@ -209,7 +210,6 @@ subroutine log_version(version, modname, filename, tag, unit)
   call write_version_number (trim(message)//': '//trim(version),tag,unit)
 end subroutine log_version
 
-
 ! ============================================================================
 subroutine land_data_init(layout, io_layout, time, dt_fast, dt_slow, mask_table, npes_io_group)
   integer, intent(inout) :: layout(2) ! layout of our domains
@@ -288,7 +288,8 @@ subroutine land_data_init(layout, io_layout, time, dt_fast, dt_slow, mask_table,
   if(mask_table_exist) deallocate(maskmap)
 
   ! get the domain information of structured domain2D
-  call mpp_get_compute_domain(lnd%sg_domain, lnd%is,lnd%ie,lnd%js,lnd%je)
+  call mpp_get_compute_domain(lnd%sg_domain, lnd%is,  lnd%ie,  lnd%js,  lnd%je)
+  call mpp_get_data_domain   (lnd%sg_domain, lnd%isd, lnd%ied, lnd%jsd, lnd%jed)
 
   ! get the mosaic tile number for this processor: this assumes that there is only one
   ! mosaic tile per PE.
@@ -330,16 +331,16 @@ end subroutine land_data_init
 
 
 ! ============================================================================
-!   set up for unstructure domain and land state data
+!   set up for unstructured domain and land state data
 subroutine set_land_state_ug(npes_io_group, ntiles, nlon, nlat)
-  integer,          intent(in) :: npes_io_group, ntiles, nlon, nlat
+  integer, intent(in) :: npes_io_group, ntiles, nlon, nlat
 
   ! ---- local vars
   type(domainUG), pointer :: io_domain=>NULL() ! our io_domain
   integer :: n_io_pes ! number of PEs in our io_domain
   integer :: outunit
 
-  !--- variables for unstructure grid domain.
+  !--- variables for unstructured grid domain.
   integer, allocatable :: num_lnd(:), grid_index(:), ntiles_grid(:)
   real,    allocatable :: lnd_area(:,:,:)
   integer              :: i, j, n, l, nland, ug_io_layout
@@ -405,16 +406,24 @@ subroutine set_land_state_ug(npes_io_group, ntiles, nlon, nlat)
   ug_io_layout = mpp_get_io_domain_UG_layout(lnd%ug_domain)
   lnd%append_io_id = (ug_io_layout>1)
 
-  ! get the domain information for unstructure domain
-  call mpp_get_UG_compute_domain(lnd%ug_domain, lnd%ls,lnd%le)
+  ! get the domain information for unstructured domain.
+  ! NOTE that lnd%ls is always set to 1. This a work around (apparent) compiler issue,
+  ! when with multiple openmp threads *and* debug flags Intel compilers (15 and 16) report
+  ! index errors, as if global land_tile_map array started from 1 instead of lnd%ls
+  !
+  ! This problem does not occur with other compilation flags (e.g. prod, or prod-openmp are
+  ! both fine). Nevertheless, to address this issue we now start all our lnd%ls:lnd%le
+  ! arrays at index 1.
+  lnd%ls = 1
+  call mpp_get_UG_compute_domain(lnd%ug_domain, size=lnd%le)
 
-  !--- get the i,j index of each unstructure grid.
+  !--- get the i,j index of each unstructured grid.
   allocate(grid_index(lnd%ls:lnd%le))
   call mpp_get_UG_domain_grid_index(lnd%ug_domain, grid_index)
-  !--- make sure grid_index is monotone increasing.
+  !--- make sure grid_index is monotonically increasing.
   do l = lnd%ls+1,lnd%le
      if(grid_index(l) .LE. grid_index(l-1)) call error_mesg('land_model_init', &
-         'grid_index is not monotone increasing', FATAL)
+         'grid_index is not in increasing order', FATAL)
   enddo
   lnd%gs = grid_index(lnd%ls)
   lnd%ge = grid_index(lnd%le)
@@ -464,11 +473,9 @@ subroutine set_land_state_ug(npes_io_group, ntiles, nlon, nlat)
 
 end subroutine set_land_state_ug
 
-
 ! ============================================================================
 subroutine land_data_end()
   module_is_initialized = .FALSE.
-
 end subroutine land_data_end
 
 ! ============================================================================
