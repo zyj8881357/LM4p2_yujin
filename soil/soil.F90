@@ -1468,8 +1468,27 @@ subroutine soil_diag_init(id_ug,id_band,id_zfull,id_ptid)
        lnd%time, 'Moisture in Top 1 Meter of Land Use Tile Soil Column', 'kg m-2', &
        missing_value=-100.0, standard_name='moisture_content_of_soil_layer', &
        fill_missing=.FALSE.)
+  id_nSoil = register_tiled_diag_field ( cmor_name, 'nSoil', axes(1:1),  &
+       lnd%time, 'Nitrogen Mass in Soil Pool', 'kg m-2', missing_value=-100.0, &
+       standard_name='soil_mass_content_of_nitrogen', fill_missing=.TRUE.)
+  id_nMineral = register_tiled_diag_field ( cmor_name, 'nMineral', axes(1:1),  &
+       lnd%time, 'Mineral nitrogen in the soil', 'kg m-2', missing_value=-100.0, &
+       standard_name='soil_mass_content_of_inorganic_nitrogen_expressed_as_nitrogen', fill_missing=.TRUE.)
+  id_nMineralNH4 = register_tiled_diag_field ( cmor_name, 'nMineralNH4', axes(1:1),  &
+       lnd%time, 'Mineral ammonium in the soil', 'kg m-2', missing_value=-100.0, &
+       standard_name='soil_mass_content_of_inorganic_ammonium_expressed_as_nitrogen', fill_missing=.TRUE.)
+  id_nMineralNO3 = register_tiled_diag_field ( cmor_name, 'nMineralNO3', axes(1:1),  &
+       lnd%time, 'Mineral nitrate in the soil', 'kg m-2', missing_value=-100.0, &
+       standard_name='soil_mass_content_of_inorganic_nitrate_expressed_as_nitrogen', fill_missing=.TRUE.)
+  id_nLitter = register_tiled_diag_field ( cmor_name, 'nLitter', axes(1:1), &
+       lnd%time, 'Nitrogen Mass in Litter Pool', 'kg m-2', &
+       missing_value=-100.0, standard_name='litter_mass_content_of_nitrogen', &
+       fill_missing=.TRUE.)
+  id_nLitterCwd = register_tiled_diag_field ( cmor_name, 'nLitterCwd', axes(1:1), &
+       lnd%time, 'Nitrogen Mass in Coarse Woody Debris', 'kg m-2', &
+       missing_value=-100.0, standard_name='wood_debris_mass_content_of_nitrogen', &
+       fill_missing=.TRUE.)
 
-<<<<<<< HEAD
   !Full tile output
   if (present(id_ptid)) then
    call set_default_diag_filter('soil')
@@ -1505,28 +1524,6 @@ subroutine soil_diag_init(id_ug,id_band,id_zfull,id_ptid)
        lnd%time, 'bulk density of liquid water', 'kg/m3', missing_value=-100.0,op='stdev')
   id_swc_std  = register_tiled_diag_field ( module_name, 'soil_ice_std',  axes,  &
        lnd%time, 'bulk density of solid water', 'kg/m3',  missing_value=-100.0,op='stdev')
-=======
-  id_nSoil = register_tiled_diag_field ( cmor_name, 'nSoil', axes(1:1),  &
-       lnd%time, 'Nitrogen Mass in Soil Pool', 'kg m-2', missing_value=-100.0, &
-       standard_name='soil_mass_content_of_nitrogen', fill_missing=.TRUE.)
-  id_nMineral = register_tiled_diag_field ( cmor_name, 'nMineral', axes(1:1),  &
-       lnd%time, 'Mineral nitrogen in the soil', 'kg m-2', missing_value=-100.0, &
-       standard_name='soil_mass_content_of_inorganic_nitrogen_expressed_as_nitrogen', fill_missing=.TRUE.)
-  id_nMineralNH4 = register_tiled_diag_field ( cmor_name, 'nMineralNH4', axes(1:1),  &
-       lnd%time, 'Mineral ammonium in the soil', 'kg m-2', missing_value=-100.0, &
-       standard_name='soil_mass_content_of_inorganic_ammonium_expressed_as_nitrogen', fill_missing=.TRUE.)
-  id_nMineralNO3 = register_tiled_diag_field ( cmor_name, 'nMineralNO3', axes(1:1),  &
-       lnd%time, 'Mineral nitrate in the soil', 'kg m-2', missing_value=-100.0, &
-       standard_name='soil_mass_content_of_inorganic_nitrate_expressed_as_nitrogen', fill_missing=.TRUE.)
-  id_nLitter = register_tiled_diag_field ( cmor_name, 'nLitter', axes(1:1), &
-       lnd%time, 'Nitrogen Mass in Litter Pool', 'kg m-2', &
-       missing_value=-100.0, standard_name='litter_mass_content_of_nitrogen', &
-       fill_missing=.TRUE.)
-  id_nLitterCwd = register_tiled_diag_field ( cmor_name, 'nLitterCwd', axes(1:1), &
-       lnd%time, 'Nitrogen Mass in Coarse Woody Debris', 'kg m-2', &
-       missing_value=-100.0, standard_name='wood_debris_mass_content_of_nitrogen', &
-       fill_missing=.TRUE.)
->>>>>>> master
 
 end subroutine soil_diag_init
 
@@ -3881,7 +3878,6 @@ end subroutine soil_push_down_excess
          call get_current_point(ipt,jpt,kpt,fpt)
          write(*,*) '=== warning: dPsi=',dPsi(1),'<min=',dPsi_min,'at',ipt,jpt,kpt,fpt
        endif
-<<<<<<< HEAD
      w_shortage = -(soil%wl(1)+dW_l(1))
      l_dest = 1
      call move_up_revisited(soil%wl, dW_l, flow, w_shortage, num_l, l_dest,dz)
@@ -3898,29 +3894,6 @@ end subroutine soil_push_down_excess
         call move_up(dW_l, flow, w_shortage, num_l, l_dest)
       endif
     enddo
-=======
-     l_internal = 1
-     dW_l_internal = -1.e20
-     do l = 2, num_l
-        if (dW_l(l).gt.dW_l_internal) then
-           l_internal = l
-           dW_l_internal = dW_l(l)
-        endif
-     enddo
-     w_to_move_up = min(dW_l_internal, -(soil%wl(1)+dW_l(1)))
-     w_to_move_up = max(w_to_move_up, 0.)
-     write(*,*) 'l_internal=',l_internal
-     write(*,*) 'dW_l(l_internal)=',dW_l(l_internal)
-     write(*,*) 'soil%wl(1)+dW_l(1)',soil%wl(1)+dW_l(1)
-     write(*,*) 'w_to_move_up=',w_to_move_up
-     if (l_internal.gt.1) then
-        dW_l(1) = dW_l(1) + w_to_move_up
-        dW_l(l_internal) = dW_l(l_internal) - w_to_move_up
-        do l = 2, l_internal
-           flow(l) = flow(l) - w_to_move_up
-        enddo
-     endif
->>>>>>> master
   endif
 
   if (fix_neg_subsurface_wl_revisited) then
