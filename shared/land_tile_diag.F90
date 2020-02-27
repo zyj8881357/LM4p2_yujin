@@ -988,10 +988,6 @@ subroutine dump_tile_diag_fields(time)
         if (fields(ifld)%ids(isel) <= 0) cycle
         call dump_diag_field_with_sel (fields(ifld)%ids(isel), &
              fields(ifld), selectors(isel), time )
-        else
-          call dump_diag_field_with_sel_full (land_tile_map, fields(ifld)%ids(isel), &
-             fields(ifld), selectors(isel), time )
-        endif
      enddo
   enddo
   ! zero out the number of data points sent to the field

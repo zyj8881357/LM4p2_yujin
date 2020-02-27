@@ -16,6 +16,8 @@ use land_constants_mod, only : NBANDS
 use land_data_mod, only : lnd, log_version
 use land_io_mod, only : init_cover_field
 use land_tile_selectors_mod, only : tile_selector_type, SEL_LAKE, register_tile_selector
+use tiling_input_types_mod, only : lake_predefined_type
+use land_debug_mod, only : is_watch_point
 
 implicit none
 private
@@ -24,6 +26,7 @@ private
 public :: lake_tile_type
 
 public :: new_lake_tile, delete_lake_tile
+public :: new_lake_tile_predefined
 public :: lake_tiles_can_be_merged, merge_lake_tiles
 public :: lake_is_selected
 public :: get_lake_tile_tag
@@ -45,6 +48,11 @@ interface new_lake_tile
    module procedure lake_tile_ctor
    module procedure lake_tile_copy_ctor
 end interface
+interface new_lake_tile_predefined
+   module procedure lake_tile_ctor_predefined
+   module procedure lake_tile_copy_ctor
+end interface
+
 
 
 ! ==== module constants ======================================================
@@ -278,6 +286,31 @@ subroutine read_lake_data_namelist(lake_n_lev)
   ! set up output arguments
   lake_n_lev = num_l
 end subroutine read_lake_data_namelist
+
+
+! ============================================================================
+function lake_tile_ctor_predefined(tag,lake_predefined,itile) result(ptr)
+  type(lake_tile_type), pointer :: ptr ! return value
+  integer, intent(in)           :: tag ! kind of lake
+  type(lake_predefined_type), intent(in) :: lake_predefined
+  integer, intent(in) :: itile
+
+  allocate(ptr)
+  ptr%tag = tag
+  ! allocate storage for tile data
+  allocate(ptr%dz     (num_l), &
+           ptr%wl     (num_l), &
+           ptr%ws     (num_l), &
+           ptr%T      (num_l), &
+           ptr%K_z    (num_l), &
+           ptr%w_fc   (num_l),  &
+           ptr%w_wilt (num_l),  &
+           ptr%heat_capacity_dry(num_l),  &
+           ptr%e      (num_l),  &
+           ptr%f      (num_l)   )
+  call init_lake_data_0d_predefined(ptr,lake_predefined,itile)
+
+end function lake_tile_ctor_predefined
 
 
 ! ============================================================================

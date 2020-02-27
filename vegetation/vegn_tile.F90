@@ -62,7 +62,6 @@ public :: vegn_seed_N_supply
 public :: vegn_tran_priority ! returns transition priority for land use
 
 public :: vegn_add_bliving
-public :: update_derived_vegn_data  ! given state variables, calculate derived values
 public :: new_vegn_tile_predefined
 
 integer, public, parameter :: MAX_MDF_LENGTH = 30 ! maximum number of days that multi-day

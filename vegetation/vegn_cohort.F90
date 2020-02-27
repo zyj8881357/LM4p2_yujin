@@ -578,13 +578,7 @@ function height_from_biomass(btotal) result (height)
     real :: height ! return value
     real, intent(in) :: btotal ! total biomass
 
-  lai = bl*(spdata(species)%specific_leaf_area);
-  if ((lai .gt. 0.0) .and. (lai .lt. 10.0**-10.0))then
-   !print*,'b',lai
-   lai = 10.0**-10.0
-   !print*,'b',lai
-  endif
-
+    height = 24.19*(1.0-exp(-0.19*btotal))
 end function
 
 

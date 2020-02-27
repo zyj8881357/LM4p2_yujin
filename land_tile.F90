@@ -6,15 +6,18 @@ use land_constants_mod, only : NBANDS
 use glac_tile_mod, only : &
      glac_tile_type, new_glac_tile, delete_glac_tile, glac_is_selected, &
      glac_tiles_can_be_merged, merge_glac_tiles, get_glac_tile_tag, &
-     glac_tile_stock_pe, glac_tile_heat
+     glac_tile_stock_pe, glac_tile_heat, &
+     new_glac_tile_predefined
 use lake_tile_mod, only : &
      lake_tile_type, new_lake_tile, delete_lake_tile, lake_is_selected, &
      lake_tiles_can_be_merged, merge_lake_tiles, get_lake_tile_tag, &
-     lake_tile_stock_pe, lake_tile_heat
+     lake_tile_stock_pe, lake_tile_heat, &
+     new_lake_tile_predefined
 use soil_tile_mod, only : &
      soil_tile_type, new_soil_tile, delete_soil_tile, soil_is_selected, &
      soil_tiles_can_be_merged, merge_soil_tiles, get_soil_tile_tag, &
-     soil_tile_stock_pe, soil_tile_carbon, soil_tile_nitrogen, soil_tile_heat
+     soil_tile_stock_pe, soil_tile_carbon, soil_tile_nitrogen, soil_tile_heat, &
+     new_soil_tile_predefined
 use hillslope_tile_mod, only : hlsp_is_selected
 use cana_tile_mod, only : &
      cana_tile_type, new_cana_tile, delete_cana_tile, cana_is_selected, &
@@ -35,6 +38,8 @@ use land_tile_selectors_mod, only : tile_selector_type, &
 use tile_diag_buff_mod, only : &
      diag_buff_type, init_diag_buff
 use land_data_mod, only : lnd
+use tiling_input_types_mod, only : soil_predefined_type, lake_predefined_type, &
+     glacier_predefined_type
 
 implicit none
 private
@@ -49,7 +54,11 @@ public :: init_tile_map, free_tile_map
 public :: max_n_tiles
 
 ! operations with tile
-public :: new_land_tile, delete_land_tile
+public :: new_land_tile
+public :: new_land_tile_glac
+public :: new_land_tile_lake
+public :: new_land_tile_soil
+public :: delete_land_tile
 public :: land_tiles_can_be_merged, merge_land_tiles, merge_land_tile_into_list
 
 public :: get_tile_water ! returns liquid and frozen water masses
@@ -88,6 +97,21 @@ public :: land_tile_map ! array of tile lists
 interface new_land_tile
    module procedure land_tile_ctor
    module procedure land_tile_copy_ctor
+end interface
+
+interface new_land_tile_glac
+   module procedure land_tile_glac_ctor
+   module procedure land_tile_glac_ctor_predefined
+end interface
+
+interface new_land_tile_lake
+   module procedure land_tile_lake_ctor
+   module procedure land_tile_lake_ctor_predefined
+end interface
+
+interface new_land_tile_soil
+   module procedure land_tile_soil_ctor
+   module procedure land_tile_soil_ctor_predefined
 end interface
 
 interface first_elmt
@@ -308,54 +332,242 @@ function max_n_tiles() result(n)
   enddo
 end function max_n_tiles
 
+function land_tile_soil_ctor(frac, soil, vegn, htag_j, htag_k, tag) result(tile)
+
+   real,               intent(in) :: frac ! fractional area of tile
+   integer,            intent(in) :: soil ! kind of soil tile
+   integer,            intent(in) :: vegn ! kind of vegn tile
+   integer, optional,  intent(in) :: htag_j  ! optional hillslope position tag
+   integer, optional,  intent(in) :: htag_k  ! optional hillslope parent tag
+   integer, optional,  intent(in) :: tag  ! general tile tag
+   type(land_tile_type), pointer  :: tile ! return value
+
+   allocate(tile)
+   ! fill common fields
+   tile%frac = frac
+   tile%tag  = 0; if(present(tag)) tile%tag = tag
+   tile%cana => new_cana_tile()
+   tile%snow => new_snow_tile()
+   if (present(htag_j) .and. present(htag_k)) then
+       tile%soil => new_soil_tile(soil, htag_j, htag_k)
+   else
+       ! Hillslope model is inactive or these indices will be set in hlsp_init.
+       tile%soil => new_soil_tile(soil, 0, 0)
+   end if
+   tile%vegn => new_vegn_tile(vegn)
+
+   ! create a buffer for diagnostic output
+   call init_diag_buff(tile%diag)
+
+   ! increment total number of created files for tile statistics
+   n_created_land_tiles = n_created_land_tiles + 1
+
+end function land_tile_soil_ctor
+
+function land_tile_soil_ctor_predefined( &
+   frac, soil, vegn, soil_predefined, itile, pid, &
+   dws_prec, dws_srad, dws_tavg, htag_j, htag_k, tag) result(tile)
+
+   real,               intent(in) :: frac ! fractional area of tile
+   integer,            intent(in) :: soil ! kind of soil tile
+   integer,            intent(in) :: vegn ! kind of vegn tile
+   type(soil_predefined_type), intent(in) :: soil_predefined
+   integer, intent(in)            :: itile
+   integer, intent(in)            :: pid  ! parent ID
+   real, intent(in)               :: dws_prec(12)
+   real, intent(in)               :: dws_srad(12)
+   real, intent(in)               :: dws_tavg(12)
+   integer, optional,  intent(in) :: htag_j  ! optional hillslope position tag
+   integer, optional,  intent(in) :: htag_k  ! optional hillslope parent tag
+   integer, optional,  intent(in) :: tag  ! general tile tag
+   type(land_tile_type), pointer  :: tile ! return value
+
+   integer :: ttype
+   ttype = 3 ! lake tile type
+
+   allocate(tile)
+   ! fill common fields
+   tile%frac = frac
+   tile%tag  = 0; if(present(tag)) tile%tag = tag
+   tile%pid  = pid
+   tile%ttype = ttype
+   tile%cana => new_cana_tile()
+   tile%snow => new_snow_tile()
+   if (present(htag_j) .and. present(htag_k)) then
+       tile%soil => new_soil_tile_predefined(htag_j,htag_k,soil_predefined,itile)
+   else
+       ! Hillslope model is inactive or these indices will be set in hlsp_init.
+       tile%soil => new_soil_tile_predefined(0,0,soil_predefined,itile)
+   end if
+   tile%vegn => new_vegn_tile_predefined(soil_predefined,itile)
+
+   tile%dws_prec = dws_prec
+   tile%dws_srad = dws_srad
+   tile%dws_tavg = dws_tavg
+
+   ! create a buffer for diagnostic output
+   call init_diag_buff(tile%diag)
+
+   ! increment total number of created files for tile statistics
+   n_created_land_tiles = n_created_land_tiles + 1
+
+end function land_tile_soil_ctor_predefined
+
+function land_tile_lake_ctor(frac, lake, tag) result(tile)
+
+   real,               intent(in) :: frac ! fractional area of tile
+   integer,            intent(in) :: lake ! kind of lake tile
+   integer, optional,  intent(in) :: tag  ! general tile tag
+   type(land_tile_type), pointer  :: tile ! return value
+
+   allocate(tile)
+   ! fill common fields
+   tile%frac = frac
+   tile%tag  = 0; if(present(tag)) tile%tag = tag
+   tile%cana => new_cana_tile()
+   tile%lake => new_lake_tile(lake)
+   tile%snow => new_snow_tile()
+
+   ! create a buffer for diagnostic output
+   call init_diag_buff(tile%diag)
+
+   ! increment total number of created files for tile statistics
+   n_created_land_tiles = n_created_land_tiles + 1
+
+end function land_tile_lake_ctor
+
+function land_tile_lake_ctor_predefined( &
+   frac, lake, lake_predefined, itile, pid, &
+   dws_prec, dws_srad, dws_tavg, tag) result(tile)
+
+   real,               intent(in) :: frac ! fractional area of tile
+   integer,            intent(in) :: lake ! kind of lake tile
+   type(lake_predefined_type), intent(in) :: lake_predefined
+   integer, intent(in)            :: itile
+   integer, intent(in)            :: pid  ! parent ID
+   real, intent(in)               :: dws_prec(12)
+   real, intent(in)               :: dws_srad(12)
+   real, intent(in)               :: dws_tavg(12)
+   integer, optional,  intent(in) :: tag  ! general tile tag
+   type(land_tile_type), pointer  :: tile ! return value
+
+   integer :: ttype
+   ttype = 2 ! lake tile type
+
+   allocate(tile)
+   ! fill common fields
+   tile%frac = frac
+   tile%tag  = 0; if(present(tag)) tile%tag = tag
+   tile%pid  = pid
+   tile%ttype = ttype
+   tile%cana => new_cana_tile()
+   tile%lake => new_lake_tile_predefined(lake, lake_predefined, itile)
+   tile%snow => new_snow_tile()
+
+   tile%dws_prec = dws_prec
+   tile%dws_srad = dws_srad
+   tile%dws_tavg = dws_tavg
+
+   ! create a buffer for diagnostic output
+   call init_diag_buff(tile%diag)
+
+   ! increment total number of created files for tile statistics
+   n_created_land_tiles = n_created_land_tiles + 1
+
+end function land_tile_lake_ctor_predefined
+
+function land_tile_glac_ctor(frac, glac, tag) result(tile)
+
+   real,               intent(in) :: frac ! fractional area of tile
+   integer,            intent(in) :: glac ! kind of glacier tile
+   integer, optional,  intent(in) :: tag  ! general tile tag
+   type(land_tile_type), pointer  :: tile ! return value
+
+   allocate(tile)
+   ! fill common fields
+   tile%frac = frac
+   tile%tag  = 0; if(present(tag)) tile%tag = tag
+   tile%cana => new_cana_tile()
+   tile%glac => new_glac_tile(glac)
+   tile%snow => new_snow_tile()
+
+   ! create a buffer for diagnostic output
+   call init_diag_buff(tile%diag)
+
+   ! increment total number of created files for tile statistics
+   n_created_land_tiles = n_created_land_tiles + 1
+
+end function land_tile_glac_ctor
+
+
+function land_tile_glac_ctor_predefined( &
+   frac, glac, glac_predefined, itile, pid, &
+   dws_prec, dws_srad, dws_tavg, tag) result(tile)
+
+   real,               intent(in) :: frac ! fractional area of tile
+   integer,            intent(in) :: glac ! kind of glacier tile
+   type(glacier_predefined_type), intent(in) :: glac_predefined
+   integer, intent(in)            :: itile
+   integer, intent(in)            :: pid  ! parent ID
+   real, intent(in)               :: dws_prec(12)
+   real, intent(in)               :: dws_srad(12)
+   real, intent(in)               :: dws_tavg(12)
+   integer, optional,  intent(in) :: tag  ! general tile tag
+   type(land_tile_type), pointer  :: tile ! return value
+
+   integer :: ttype
+   ttype = 1 ! glacier tile type
+
+   allocate(tile)
+   ! fill common fields
+   tile%frac = frac
+   tile%tag  = 0; if(present(tag)) tile%tag = tag
+   tile%pid  = pid
+   tile%ttype = ttype
+   tile%cana => new_cana_tile()
+   tile%glac => new_glac_tile_predefined(glac, glac_predefined, itile)
+   tile%snow => new_snow_tile()
+
+   tile%dws_prec = dws_prec
+   tile%dws_srad = dws_srad
+   tile%dws_tavg = dws_tavg
+
+   ! create a buffer for diagnostic output
+   call init_diag_buff(tile%diag)
+
+   ! increment total number of created files for tile statistics
+   n_created_land_tiles = n_created_land_tiles + 1
+
+end function land_tile_glac_ctor_predefined
+
 ! ============================================================================
 ! tile constructor: given a list of sub-model tile tags, creates a land tile
 ! calls sub-tile constructors from individual component models
-function land_tile_ctor(frac,glac,lake,soil,vegn,tag,htag_j,htag_k) result(tile)
-  real   , optional, intent(in) :: frac ! fractional area of tile
-  integer, optional, intent(in) :: &
-               glac,lake,soil,vegn ! kinds of respective tiles
-  integer, optional, intent(in) :: tag  ! general tile tag
-  integer, optional, intent(in) :: htag_j  ! optional hillslope position tag
-  integer, optional, intent(in) :: htag_k  ! optional hillslope parent tag
-  type(land_tile_type), pointer :: tile ! return value
+function land_tile_ctor(frac,glac,lake,soil,vegn) result(tile)
+   real   , intent(in) :: frac ! fractional area of tile
+   integer, intent(in) :: glac,lake,soil,vegn ! kinds of respective tiles
+   type(land_tile_type), pointer :: tile ! return value
 
-  ! ---- local vars
-  integer :: glac_, lake_, soil_, vegn_
+   allocate(tile)
+   ! fill common fields
+   tile%frac = frac
 
-  ! initialize internal variables
-  glac_ = -1 ; if(present(glac)) glac_ = glac
-  lake_ = -1 ; if(present(lake)) lake_ = lake
-  soil_ = -1 ; if(present(soil)) soil_ = soil
-  vegn_ = -1 ; if(present(vegn)) vegn_ = vegn
+   ! create sub-model tiles
+   tile%cana => new_cana_tile()
+   tile%snow => new_snow_tile()
+   if(glac>=0) tile%glac => new_glac_tile(glac)
+   if(lake>=0) tile%lake => new_lake_tile(lake)
+   if(soil>=0) tile%soil => new_soil_tile(soil, 0, 0) ! Hillslope model is inactive or these indices will be set in hlsp_init.
+   if(vegn>=0) tile%vegn => new_vegn_tile(vegn)
 
-  allocate(tile)
-  ! fill common fields
-  tile%frac = 0.0 ; if(present(frac)) tile%frac = frac
-  tile%tag  = 0   ; if(present(tag))  tile%tag  = tag
+   ! create a buffer for diagnostic output
+   call init_diag_buff(tile%diag)
 
-  ! create sub-model tiles
-  tile%cana => new_cana_tile()
-  if(glac_>=0) tile%glac => new_glac_tile(glac_)
-  if(lake_>=0) tile%lake => new_lake_tile(lake_)
-  tile%snow => new_snow_tile()
-  if(soil_>=0) then
-    if (present(htag_j) .and. present(htag_k)) then
-        tile%soil => new_soil_tile(soil_, htag_j, htag_k)
-    else
-        tile%soil => new_soil_tile(soil_, 0, 0) ! Hillslope model is inactive or
-        ! these indices will be set in hlsp_init.
-    end if
-  end if
-  if(vegn_>=0) tile%vegn => new_vegn_tile(vegn_)
-
-  ! create a buffer for diagnostic output
-  call init_diag_buff(tile%diag)
-
-  ! increment total number of created files for tile statistics
-  n_created_land_tiles = n_created_land_tiles + 1
+   ! increment total number of created files for tile statistics
+   n_created_land_tiles = n_created_land_tiles + 1
 
 end function land_tile_ctor
+
 
 ! ============================================================================
 ! tile constructor: given a list of sub-model tile tags, creates a land tile

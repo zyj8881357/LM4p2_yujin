@@ -18,6 +18,9 @@ use land_tile_selectors_mod, only : &
 use land_io_mod, only : print_netcdf_error
 use soil_carbon_mod, only : soil_carbon_option, SOILC_CORPSE, SOILC_CORPSE_N, &
     soil_pool, combine_pools, init_soil_pool, poolTotals, N_C_TYPES
+use tiling_input_types_mod, only : soil_predefined_type
+use land_debug_mod, only : is_watch_point
+
 
 implicit none
 private
@@ -30,6 +33,7 @@ include 'netcdf.inc'
 public :: soil_tile_type
 
 public :: new_soil_tile, delete_soil_tile
+public :: new_soil_tile_predefined
 public :: soil_tiles_can_be_merged, merge_soil_tiles
 public :: soil_is_selected
 public :: get_soil_tile_tag
@@ -81,6 +85,12 @@ interface new_soil_tile
    module procedure soil_tile_ctor
    module procedure soil_tile_copy_ctor
 end interface
+interface new_soil_tile_predefined
+   module procedure soil_tile_ctor_predefined
+   module procedure soil_tile_copy_ctor
+end interface
+
+
 
 ! ==== module constants ======================================================
 character(len=*), parameter :: module_name = 'soil_tile_mod'
@@ -755,7 +765,6 @@ function soil_tile_ctor_predefined(hidx_j, hidx_k, tile_parameters, &
             ptr%k_macro_z         (num_l),  &
             ptr%k_macro_x         (num_l),  &
             ptr%vwc_max           (num_l),  &
-            ptr%uptake_frac       (num_l),  &
             ptr%heat_capacity_dry (num_l),  &
             ptr%e                 (num_l),  &
             ptr%f                 (num_l),  &
@@ -769,22 +778,14 @@ function soil_tile_ctor_predefined(hidx_j, hidx_k, tile_parameters, &
             ptr%slow_soil_C       (num_l),  &
             ptr%fsc_in            (num_l),  &
             ptr%ssc_in            (num_l),  &
-            ptr%asoil_in          (num_l),   &
+            ptr%asoil_in          (num_l),  &
             ptr%is_peat           (num_l),  &
-            ptr%fast_protected_in        (num_l),  &
-            ptr%slow_protected_in        (num_l),  &
-            ptr%deadmic_protected_in        (num_l),  &
-            ptr%deadmic_in        (num_l),  &
-            ptr%fast_turnover_accumulated(num_l), &
-            ptr%slow_turnover_accumulated(num_l), &
-            ptr%deadmic_turnover_accumulated(num_l), &
-            ptr%fast_protected_turnover_accumulated(num_l), &
-            ptr%slow_protected_turnover_accumulated(num_l), &
-            ptr%deadmic_protected_turnover_accumulated(num_l), &
-            ptr%soil_C            (num_l),  &
-            ptr%div_hlsp_DOC      (n_c_types, num_l), &
-            ptr%gtos          (num_l),  &
-            ptr%gtosh     (num_l))
+            ptr%org_matter        (num_l),  &
+            ptr%frozen_freq       (num_l),  &
+            ptr%div_hlsp_DOC      (N_C_TYPES, num_l), &
+            ptr%div_hlsp_DON      (N_C_TYPES, num_l), &
+            ptr%div_hlsp_NO3   (num_l) , &
+            ptr%div_hlsp_NH4   (num_l)         )
 
   ! Initialize to catch use before appropriate
   !ptr%psi(:) = initval
@@ -792,10 +793,14 @@ function soil_tile_ctor_predefined(hidx_j, hidx_k, tile_parameters, &
   ptr%div_hlsp(:)      = initval
   ptr%div_hlsp_heat(:) = initval
   ptr%div_hlsp_DOC(:,:) = initval
+  ptr%div_hlsp_DON(:,:) = initval
+  ptr%div_hlsp_NO3(:) = initval
+  ptr%div_hlsp_NH4(:) = initval
+
 
   call soil_data_init_0d_predefined(ptr,tile_parameters,itile)
   do i=1,num_l
-     call init_soil_carbon(ptr%soil_C(i),Qmax=ptr%pars%Qmax)
+     call init_soil_pool(ptr%org_matter(i),Qmax=ptr%pars%Qmax)
   enddo
   do i = 1,N_LITTER_POOLS
      call init_soil_pool(ptr%litter(i), protectionRate=0.0, Qmax=0.0, max_cohorts=1)

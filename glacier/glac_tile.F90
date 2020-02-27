@@ -14,6 +14,7 @@ use land_io_mod, only : init_cover_field
 use land_tile_selectors_mod, only : tile_selector_type, register_tile_selector, &
      SEL_GLAC
 use land_data_mod, only : log_version
+use tiling_input_types_mod, only : glacier_predefined_type
 
 implicit none
 private
@@ -22,6 +23,7 @@ private
 public :: glac_tile_type
 
 public :: new_glac_tile, delete_glac_tile
+public :: new_glac_tile_predefined
 public :: glac_tiles_can_be_merged, merge_glac_tiles
 public :: glac_is_selected
 public :: get_glac_tile_tag
@@ -40,6 +42,11 @@ public :: max_lev
 ! =====end of public interfaces ==============================================
 interface new_glac_tile
    module procedure glac_tile_ctor
+   module procedure glac_tile_copy_ctor
+end interface
+
+interface new_glac_tile_predefined
+   module procedure glac_tile_ctor_predefined
    module procedure glac_tile_copy_ctor
 end interface
 
@@ -267,6 +274,29 @@ function glac_tile_ctor(tag) result(ptr)
   ! set initial values of the tile data
   call glacier_data_init_0d(ptr)
 end function glac_tile_ctor
+
+! ============================================================================
+function glac_tile_ctor_predefined(tag,glacier_predefined,itile) result(ptr)
+  type(glac_tile_type), pointer :: ptr ! return value
+  integer, intent(in)  :: tag ! kind of tile
+  type(glacier_predefined_type), intent(in) :: glacier_predefined
+  integer, intent(in) :: itile
+
+  allocate(ptr)
+  ptr%tag = tag
+  ! allocate storage for tile data
+  allocate(ptr%wl     (num_l), &
+           ptr%ws     (num_l), &
+           ptr%T      (num_l), &
+           ptr%w_fc   (num_l),  &
+           ptr%w_wilt (num_l),  &
+           ptr%heat_capacity_dry (num_l),  &
+           ptr%e      (num_l),  &
+           ptr%f      (num_l)   )
+
+  ! set initial values of the tile data
+  call glacier_data_init_0d_predefined(ptr,glacier_predefined,itile)
+end function glac_tile_ctor_predefined
 
 
 ! ============================================================================

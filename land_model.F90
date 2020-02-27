@@ -95,20 +95,11 @@ use land_tile_io_mod, only: land_restart_type, &
      init_land_restart, open_land_restart, save_land_restart, free_land_restart, &
      add_tile_data, add_int_tile_data, get_tile_data, &
      field_exists, print_netcdf_error
-<<<<<<< HEAD
-use land_tile_diag_mod, only : tile_diag_init, tile_diag_end, &
-     set_default_diag_filter, get_area_id, &
-     register_tiled_diag_field, register_tiled_area_fields, &
-     add_tiled_diag_field_alias, send_tile_data, dump_tile_diag_fields, &
-     cmor_name, send_global_land_diag
-use land_tile_diag_mod, only : OP_AVERAGE, OP_SUM, OP_STD
-=======
 use land_tile_diag_mod, only : OP_AVERAGE, OP_SUM, OP_STD, cmor_name, tile_diag_init, tile_diag_end, &
      register_tiled_diag_field, send_tile_data, dump_tile_diag_fields, &
      add_tiled_diag_field_alias, register_cohort_diag_field, send_cohort_data, &
      set_default_diag_filter, register_tiled_area_fields, send_global_land_diag, &
      get_area_id
->>>>>>> master
 use land_debug_mod, only : land_debug_init, land_debug_end, set_current_point, &
      is_watch_point, is_watch_cell, is_watch_time, get_watch_point, get_current_point, &
      check_conservation, do_check_conservation, water_cons_tol, carbon_cons_tol, nitrogen_cons_tol, &
