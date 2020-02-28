@@ -145,6 +145,7 @@ character(len=*), parameter :: module_name = 'river_mod'
   integer :: id_outflowmean, id_lake_depth_sill
   integer :: id_dx, id_basin, id_So, id_depth, id_width, id_vel
   integer :: id_lake_abst, id_lake_habst
+  integer :: id_rsv_outflow
   integer :: id_irr_full, id_irr_met, id_irr_unmet
   integer :: id_gw_s_abst, id_gw_d_abst, id_gw_s_habst, id_gw_d_habst
   integer :: id_LWSr, id_FWSr, id_HSr, id_meltr
@@ -760,7 +761,8 @@ end subroutine print_river_tracer_data
                              rivr_MELT,        & ! net mass melt in rivers in cell
                              rivr_HEAT,        & ! sensible heat content of rivers in cell
                              irr_demand,       & ! left irrigation demand
-                             rsv_depth
+                             rsv_depth,        &
+                             rsv_outflow
     real, dimension(isc:iec,jsc:jec,num_lake_lev) :: &
                              lake_T
 
@@ -773,7 +775,7 @@ end subroutine print_river_tracer_data
                              lake_backwater_1_ug, &
                              lake_whole_area_ug, &
                              irr_demand_ug, lake_abst_ug, lake_habst_ug, river_abst_ug, &
-                             rsv_depth_ug, Afrac_rsv_ug, Vfrac_rsv_ug
+                             rsv_depth_ug, Afrac_rsv_ug, Vfrac_rsv_ug, rsv_outflow_ug
     real, dimension(lnd%ls:lnd%le,num_lake_lev) :: &
                              lake_T_ug
     real, dimension(lnd%ls:lnd%le,num_species) :: river_abstflow_c_ug
@@ -840,6 +842,7 @@ end subroutine print_river_tracer_data
     rsv_depth = 0
     Afrac_rsv = 0
     Vfrac_rsv = 0
+    rsv_outflow = 0
     lake_sfc_A_ug  = 0
     lake_sfc_bot_ug= 0
     lake_T_ug  = 0
@@ -860,6 +863,7 @@ end subroutine print_river_tracer_data
     rsv_depth_ug = 0
     Afrac_rsv_ug = 0
     Vfrac_rsv_ug = 0
+    rsv_outflow_ug = 0
 
     ce = first_elmt(land_tile_map, ls=lnd%ls)
     do while(loop_over_tiles(ce, tile, l,k))
@@ -993,7 +997,7 @@ end subroutine print_river_tracer_data
          lake_sfc_A, lake_sfc_bot, lake_depth_sill, &
          lake_width_sill, lake_whole_area,         &
          lake_T, lake_wl, lake_ws, lake_dz, irr_demand, &
-         rsv_depth, Afrac_rsv, Vfrac_rsv, use_reservoir )
+         rsv_depth, Afrac_rsv, Vfrac_rsv, rsv_outflow, use_reservoir )
 !***************************************************************
        call mpp_clock_end(physicsclock)
     enddo
@@ -1008,6 +1012,7 @@ end subroutine print_river_tracer_data
     call mpp_pass_SG_to_UG(lnd%ug_domain, River%abst, river_abst_ug) !m3
     call mpp_pass_SG_to_UG(lnd%ug_domain, River%abstflow_c, river_abstflow_c_ug)  ! m3/s, J m3/kg / s
     call mpp_pass_SG_to_UG(lnd%ug_domain, Vfrac_rsv, Vfrac_rsv_ug)
+    call mpp_pass_SG_to_UG(lnd%ug_domain, rsv_outflow, rsv_outflow_ug)  !kg
 
     ce = first_elmt(land_tile_map, ls=lnd%ls)
     do while(loop_over_tiles(ce, tile, l,k))
@@ -1157,6 +1162,12 @@ end subroutine print_river_tracer_data
        demand_unmet = demand_unmet*DENS_H2O / (River%land_area*River%dt_slow)  ! m3 * kg/m3 / (m2 s) = kg/(m2 s) 
        used = send_data (id_irr_unmet, demand_unmet, River%time, mask=River%mask)      
     end if
+
+    if (id_rsv_outflow > 0) then
+       rsv_outflow_ug = rsv_outflow_ug / (River%land_area*River%dt_slow)  ! kg / (m2 s) = kg/(m2 s) 
+       used = send_data (id_rsv_outflow, rsv_outflow_ug, River%time, mask=River%mask)      
+    end if
+
 
     if(mod(slow_step, diag_freq) == 0)  call river_diag(lake_depth_sill)
     call mpp_clock_end(diagclock)    
@@ -1647,7 +1658,10 @@ end subroutine groundwater_abstraction
     id_irr_met   = register_diag_field ( mod_name, 'irr_met', (/id_lon, id_lat/), &
          River%Time, 'met irrigation rate over land', 'kg/(m2 s)', missing_value=missing )     
     id_irr_unmet   = register_diag_field ( mod_name, 'irr_unmet', (/id_lon, id_lat/), &
-         River%Time, 'unmet irrigation rate over land', 'kg/(m2 s)', missing_value=missing )                               
+         River%Time, 'unmet irrigation rate over land', 'kg/(m2 s)', missing_value=missing )      
+
+    id_rsv_outflow   = register_diag_field ( mod_name, 'rsv_outflow', (/id_lon, id_lat/), &
+         River%Time, 'reservoir outflow', 'kg/(m2 s)', missing_value=missing )                                    
 
 
     id_LWSr   = register_diag_field ( mod_name, 'LWSr', (/id_lon, id_lat/), &

@@ -195,7 +195,7 @@ contains
   subroutine river_physics_step(River, cur_travel, &
          lake_sfc_A, lake_sfc_bot, lake_depth_sill, lake_width_sill, &
          lake_whole_area, lake_T, lake_wl, lake_ws, lake_dz, irr_demand, &
-         rsv_depth, Afrac_rsv, Vfrac_rsv, use_reservoir )
+         rsv_depth, Afrac_rsv, Vfrac_rsv, rsv_outflow, use_reservoir )
 
     type(river_type),     intent(inout) :: River
     integer,                 intent(in) :: cur_travel
@@ -211,7 +211,8 @@ contains
     real, dimension(isc:iec,jsc:jec), intent(inout) :: irr_demand !m3
     real, dimension(isc:iec,jsc:jec), intent(in) :: rsv_depth
     real, dimension(isd:ied,jsd:jed), intent(in) :: Afrac_rsv 
-    real, dimension(isd:ied,jsd:jed), intent(inout) :: Vfrac_rsv 
+    real, dimension(isd:ied,jsd:jed), intent(inout) :: Vfrac_rsv
+    real, dimension(isc:iec,jsc:jec), intent(inout) :: rsv_outflow !kg
     logical, intent(in) :: use_reservoir
 ! ---- local vars ----------------------------------------------------------
     integer   :: i, j, to_i, to_j, i_species, lev
@@ -230,7 +231,6 @@ contains
     real    :: abst_thres = 1.e-15 !m3
     real    :: vr1 = 0.
     real    :: v1 = 0.
-    real    :: rsv_outflow = 0.
     real    :: rsv_outflow_s = 0.
     real    :: rsv_outflow_h = 0.    
     real    :: V2A_l = 0.
@@ -302,7 +302,7 @@ contains
                                        tot_area, lake_depth_sill(i,j), rsv_depth(i,j), &
                                        lake_T(i,j,:), lake_wl(i,j,:), lake_ws(i,j,:),lake_dz(i,j,:), &
                                        River%lake_abst(i,j), River%lake_habst(i,j), &
-                                       rsv_outflow, rsv_outflow_s, rsv_outflow_h, vr1)                                                 
+                                       rsv_outflow(i,j), rsv_outflow_s, rsv_outflow_h, vr1)                                                 
                 v1 = sum(lake_wl(i,j,:)+lake_ws(i,j,:))*tot_area/DENS_H2O !m3
                 if(use_reservoir.and.Afrac_rsv(i,j)<1..and.v1 > 0.) Vfrac_rsv(i,j) = max(0., min(vr1/v1, 1.))
                 if (is_watch_cell()) then 
@@ -311,7 +311,7 @@ contains
                          write(*,*) 'irr_demand(i,j):', irr_demand(i,j) 
                          write(*,*) 'River%lake_abst(i,j):', River%lake_abst(i,j)
                          write(*,*) 'River%lake_habst(i,j):', River%lake_habst(i,j)                        
-                         write(*,*) 'rsv_outflow:', rsv_outflow
+                         write(*,*) 'rsv_outflow(i,j):', rsv_outflow(i,j)
                          write(*,*) 'rsv_outflow_s:', rsv_outflow_s
                          write(*,*) 'rsv_outflow_h:', rsv_outflow_h
                          write(*,*) 'vr1:', vr1
@@ -367,14 +367,14 @@ contains
                                             tot_area, lake_depth_sill(i,j), rsv_depth(i,j), &
                                             lake_T(i,j,:), lake_wl(i,j,:), lake_ws(i,j,:),lake_dz(i,j,:), &
                                             River%lake_abst(i,j), River%lake_habst(i,j), &
-                                            rsv_outflow, rsv_outflow_s, rsv_outflow_h, vr1)  
+                                            rsv_outflow(i,j), rsv_outflow_s, rsv_outflow_h, vr1)  
                      if (is_watch_cell()) then 
                          write(*,*) 'after lake_abstraction'
                          write(*,*) 'sum(lake_dz(i,j,:)):', sum(lake_dz(i,j,:))
                          write(*,*) 'irr_demand(i,j):', irr_demand(i,j) 
                          write(*,*) 'River%lake_abst(i,j):', River%lake_abst(i,j)
                          write(*,*) 'River%lake_habst(i,j):', River%lake_habst(i,j)                        
-                         write(*,*) 'rsv_outflow:', rsv_outflow
+                         write(*,*) 'rsv_outflow(i,j):', rsv_outflow(i,j)
                          write(*,*) 'rsv_outflow_s:', rsv_outflow_s
                          write(*,*) 'rsv_outflow_h:', rsv_outflow_h
                          write(*,*) 'vr1:', vr1                         
@@ -462,7 +462,7 @@ contains
                        v1 = sum(lake_wl(i,j,:)+lake_ws(i,j,:))*tot_area/DENS_H2O  !m3
                        if(use_reservoir.and.Afrac_rsv(i,j)<1..and.v1 > 0.) Vfrac_rsv(i,j) = max(0., min(vr1/v1, 1.))
                        if(Afrac_rsv(i,j)>=1.) then !special case: only reservoir, no lake
-                         River%lake_outflow  (i,j)   = rsv_outflow !kg
+                         River%lake_outflow  (i,j)   = rsv_outflow(i,j) !kg
                          River%lake_outflow_c(i,j,1) = rsv_outflow_s !kg
                          River%lake_outflow_c(i,j,2) = rsv_outflow_h !J    
                        endif

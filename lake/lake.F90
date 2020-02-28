@@ -111,9 +111,8 @@ real            :: max_rat
 
 ! ---- diagnostic field IDs
 integer :: id_lwc, id_swc, id_temp
-integer :: id_evap, id_dz, id_wl, id_ws, id_K_z, id_silld, id_sillw, id_backw, &
-           id_lake_abst_est, id_lake_abst_act, id_lake_abst_dif, &
-           id_lake_habst_est, id_lake_habst_act, id_lake_habst_dif
+integer :: id_evap, id_dz, id_wl, id_ws, id_K_z, id_silld, id_sillw, id_backw
+integer :: id_Afrac_rsv, id_Vfrac_rsv, id_rsv_depth
 integer :: id_back1
 ! ==== end of module variables ===============================================
 
@@ -807,6 +806,10 @@ end subroutine lake_step_1
   call send_tile_data (id_K_z,  lake%K_z(1:num_l),        diag )
   call send_tile_data (id_evap, lake_levap+lake_fevap, diag )
 
+  call send_tile_data (id_Afrac_rsv, lake%Afrac_rsv, diag)
+  call send_tile_data (id_Vfrac_rsv, lake%Vfrac_rsv, diag)
+  call send_tile_data (id_rsv_depth, lake%rsv_depth, diag)
+
 end subroutine lake_step_2
 
 
@@ -993,7 +996,8 @@ subroutine lake_abstraction (use_reservoir, is_terminal, &
   real, dimension(num_l), intent(inout) ::  lake_T, lake_wl, lake_ws, lake_dz
   real, intent(out)   :: lake_abst !m3
   real, intent(out)   :: lake_habst !J
-  real, intent(out)   :: rsv_out, rsv_out_s, rsv_out_h !kg, kg, J
+  real, intent(inout) :: rsv_out !kg
+  real, intent(out)   :: rsv_out_s, rsv_out_h !kg, J
   real, intent(out)   :: vr1 !m3
 
   real :: res_capacity, lake_avail, lake_abst_vol, lake_abst_tot, &
@@ -1111,7 +1115,7 @@ subroutine rsv_outflow_c(lake_wl,lake_ws,lake_T,lake_dz,&
      ice_this_lev = (1.-out_frac)*qt_this_lev  !kg   
      lake_wl(1) = max(0., lake_wl(1)-liq_this_lev/tot_area) !kg/m2
      lake_ws(1) = max(0., lake_ws(1)-ice_this_lev/tot_area) !kg/m2  
-     qt_to_flow = qt_to_flow - qt_this_lev       
+     qt_to_flow = qt_to_flow - qt_this_lev !kg       
      qh = qh + (clw*liq_this_lev+csw*ice_this_lev)*(lake_T(1)-tfreeze) !J  
      ql = ql + liq_this_lev
      qs = qs + ice_this_lev
@@ -1120,7 +1124,7 @@ subroutine rsv_outflow_c(lake_wl,lake_ws,lake_T,lake_dz,&
   enddo
   if(n>=n_max) call error_mesg('rsv_outflow_c', 'relayer too many times', NOTE)
 
-  qt = ql + qs 
+  qt = ql + qs !kg
   
 end subroutine rsv_outflow_c                          
 
@@ -1173,18 +1177,15 @@ subroutine lake_diag_init(id_ug)
   id_evap  = register_tiled_diag_field ( module_name, 'lake_evap',  axes(1:1),  &
        lnd%time, 'lake evap',            'kg/(m2 s)',  missing_value=-100.0 )
 
-  id_lake_abst_est  = register_tiled_diag_field ( module_name, 'lake_abst_est',  axes(1:1),  &
-       lnd%time, 'estimated lake/reservoir withdrawal flux for irrigation', 'kg/(m2 s)',  missing_value=-100.0 )
-  id_lake_abst_act  = register_tiled_diag_field ( module_name, 'lake_abst_act',  axes(1:1),  &
-       lnd%time, 'actual lake/reservoir withdrawal flux for irrigation', 'kg/(m2 s)',  missing_value=-100.0 )  
-  id_lake_abst_dif  = register_tiled_diag_field ( module_name, 'lake_abst_dif',  axes(1:1),  &
-       lnd%time, 'difference between lake_abst_est and lake_abst_act', 'kg/(m2 s)',  missing_value=-100.0 )
-  id_lake_habst_est  = register_tiled_diag_field ( module_name, 'lake_abst_temp_est',  axes(1:1),        &
-       lnd%time, 'estimated heat of lake/reservoir water withdrawal for irrigation',  'W/m2',  missing_value=-100.0 )
-  id_lake_habst_act  = register_tiled_diag_field ( module_name, 'lake_abst_temp_act',  axes(1:1),        &
-       lnd%time, 'actual heat of lake/reservoir water withdrawal for irrigation',  'W/m2',  missing_value=-100.0 )
-  id_lake_habst_dif  = register_tiled_diag_field ( module_name, 'lake_abst_temp_dif',  axes(1:1),        &
-       lnd%time, 'difference between lake_abst_temp_est and lake_abst_temp_act',  'W/m2',  missing_value=-100.0 )                
+  id_Afrac_rsv = register_tiled_diag_field ( module_name, 'Afrac_rsv',  axes(1:1),  &
+       lnd%time, 'reservoir area fraction to the tile', 'none',  missing_value=-100.0 )
+  id_Vfrac_rsv = register_tiled_diag_field ( module_name, 'Vfrac_rsv',  axes(1:1),  &
+       lnd%time, 'reservoir area fraction to the tile', 'none',  missing_value=-100.0 )
+  id_rsv_depth  = register_tiled_diag_field ( module_name, 'rsv_depth',  axes(1:1),  &
+       lnd%time, 'reservoir construction depth',            'm',  missing_value=-100.0 )  
+
+
+
 
   call add_tiled_static_field_alias (id_silld, module_name, 'sill_depth', &
        axes(1:1), 'obsolete, pls use lake_depth (static)','m', &
