@@ -564,7 +564,7 @@ contains
                                          +River%lake_outflow_c(i,j,:)/DENS_H2O)                
                 if (is_watch_cell()) then
                    write(*,*)'outflow_c(:):', River%outflow_c(i,j,:)
-                   write(*,*)'absflow_c(:):', River%abstflow_c(i,j,:)                   
+                   write(*,*)'abstflow_c(:):', River%abstflow_c(i,j,:)                   
                 end if
 
                 ! 2011/05/13 PCM: fix ice outflow temperature bug

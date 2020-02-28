@@ -775,7 +775,7 @@ end subroutine print_river_tracer_data
                              lake_backwater_1_ug, &
                              lake_whole_area_ug, &
                              irr_demand_ug, lake_abst_ug, lake_habst_ug, river_abst_ug, &
-                             rsv_depth_ug, Afrac_rsv_ug, Vfrac_rsv_ug, rsv_outflow_ug
+                             rsv_depth_ug, Afrac_rsv_ug, Vfrac_rsv_ug
     real, dimension(lnd%ls:lnd%le,num_lake_lev) :: &
                              lake_T_ug
     real, dimension(lnd%ls:lnd%le,num_species) :: river_abstflow_c_ug
@@ -863,7 +863,6 @@ end subroutine print_river_tracer_data
     rsv_depth_ug = 0
     Afrac_rsv_ug = 0
     Vfrac_rsv_ug = 0
-    rsv_outflow_ug = 0
 
     ce = first_elmt(land_tile_map, ls=lnd%ls)
     do while(loop_over_tiles(ce, tile, l,k))
@@ -1012,7 +1011,6 @@ end subroutine print_river_tracer_data
     call mpp_pass_SG_to_UG(lnd%ug_domain, River%abst, river_abst_ug) !m3
     call mpp_pass_SG_to_UG(lnd%ug_domain, River%abstflow_c, river_abstflow_c_ug)  ! m3/s, J m3/kg / s
     call mpp_pass_SG_to_UG(lnd%ug_domain, Vfrac_rsv, Vfrac_rsv_ug)
-    call mpp_pass_SG_to_UG(lnd%ug_domain, rsv_outflow, rsv_outflow_ug)  !kg
 
     ce = first_elmt(land_tile_map, ls=lnd%ls)
     do while(loop_over_tiles(ce, tile, l,k))
@@ -1164,8 +1162,8 @@ end subroutine print_river_tracer_data
     end if
 
     if (id_rsv_outflow > 0) then
-       rsv_outflow_ug = rsv_outflow_ug / (River%land_area*River%dt_slow)  ! kg / (m2 s) = kg/(m2 s) 
-       used = send_data (id_rsv_outflow, rsv_outflow_ug, River%time, mask=River%mask)      
+       rsv_outflow = rsv_outflow / (River%land_area*River%dt_slow)  ! kg / (m2 s) = kg/(m2 s) 
+       used = send_data (id_rsv_outflow, rsv_outflow, River%time, mask=River%mask)      
     end if
 
 
