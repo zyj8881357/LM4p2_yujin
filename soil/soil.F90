@@ -3715,7 +3715,7 @@ end subroutine soil_push_down_excess
   ! ---- local vars ----------------------------------------------------------
   integer l, ipt, jpt, kpt, fpt, l_internal
   real, dimension(num_l-1) :: del_z, K, DKDPm, DKDPp, grad, eee, fff
-  real aaa, bbb, ccc, ddd, xxx, dW_l_internal, w_to_move_up
+  real aaa, bbb, ccc, ddd, xxx, dW_l_internal, w_shortage
   logical flag
 
   flag = .false.
@@ -3877,10 +3877,10 @@ end subroutine soil_push_down_excess
      if (verbose) then
          call get_current_point(ipt,jpt,kpt,fpt)
          write(*,*) '=== warning: dPsi=',dPsi(1),'<min=',dPsi_min,'at',ipt,jpt,kpt,fpt
-       endif
+     endif
      w_shortage = -(soil%wl(1)+dW_l(1))
-     l_dest = 1
-     call move_up_revisited(soil%wl, dW_l, flow, w_shortage, num_l, l_dest,dz)
+     l_internal = 1
+     call move_up_revisited(soil%wl, dW_l, flow, w_shortage, num_l, l_internal,dz)
   endif
 
 ! Adjust for negative water content in subsurface.
@@ -3889,9 +3889,9 @@ end subroutine soil_push_down_excess
       if ((soil%wl(l)+dW_l(l))/(dens_h2o*dz(l)*soil%pars%vwc_sat) < thetathresh) then
         call get_current_point(ipt,jpt,kpt,fpt)
         write(*,*) '=== warning: fixing neg wl=',soil%wl(l)+dW_l(l),'at',l,ipt,jpt,kpt,fpt
-        l_dest = l
-        w_shortage = -(soil%wl(l_dest)+dW_l(l_dest))
-        call move_up(dW_l, flow, w_shortage, num_l, l_dest)
+        l_internal = l
+        w_shortage = -(soil%wl(l_internal)+dW_l(l_internal))
+        call move_up(dW_l, flow, w_shortage, num_l, l_internal)
       endif
     enddo
   endif
@@ -3901,9 +3901,9 @@ end subroutine soil_push_down_excess
       if ((soil%wl(l)+dW_l(l))/(dens_h2o*dz(l)*soil%pars%vwc_sat) < thetathresh) then
         call get_current_point(ipt,jpt,kpt,fpt)
         !write(*,*) '=== warning: fixing neg wl=',soil%wl(l)+dW_l(l),'at',l,ipt,jpt,kpt,fpt
-        l_dest = l
-        w_shortage = -(soil%wl(l_dest)+dW_l(l_dest))
-        call move_up_revisited(soil%wl, dW_l, flow, w_shortage, num_l, l_dest,dz)
+        l_internal = l
+        w_shortage = -(soil%wl(l_internal)+dW_l(l_internal))
+        call move_up_revisited(soil%wl, dW_l, flow, w_shortage, num_l, l_internal,dz)
       endif
     enddo
   endif
@@ -3945,20 +3945,20 @@ end subroutine richards_clean
 
 
 ! ============================================================================
-  subroutine move_up_revisited(w_l, dW_l, flow, w_shortage, num_l, l_dest, dz)
+  subroutine move_up_revisited(w_l, dW_l, flow, w_shortage, num_l, l_internal, dz)
   real, intent(in), dimension(num_l) :: w_l,dz
   real, intent(inout), dimension(num_l)   :: dW_l
   real, intent(inout), dimension(num_l+1) :: flow
   real, intent(in)                        ::  w_shortage
-  integer, intent(in)                     ::  num_l, l_dest
+  integer, intent(in)                     ::  num_l, l_internal
   ! ---- local vars ----------------------------------------------------------
   integer l, l_source
   real dW_l_source, w_to_move_up
 
   !If a layer doesn't have enough water move the remaining extraction to lower layers
-     l_source = l_dest
+     l_source = l_internal
      dW_l_source = -1.e20
-     do l = l_dest+1, num_l
+     do l = l_internal+1, num_l
         !if (dW_l(l).gt.dW_l_source) then
         if ((w_l(l)+dW_l(l)-w_shortage) .gt. 0.01*dz(l)) then
            l_source = l
@@ -3969,328 +3969,50 @@ end subroutine richards_clean
      !w_to_move_up = min(dW_l_source, w_shortage)
      !w_to_move_up = max(w_to_move_up, 0.)
      w_to_move_up = w_shortage
-     !write(*,*) 'l_dest,l_source=',l_dest,l_source
+     !write(*,*) 'l_internal,l_source=',l_internal,l_source
      !write(*,*) 'dW_l_source=',dW_l_source
-     !write(*,*) 'w_shortage',w_shortage
+     !write(*,*) 'w_shortage=',w_shortage
      !write(*,*) 'w_to_move_up=',w_to_move_up
-     if (l_source.gt.l_dest) then
-        dW_l(l_dest)   = dW_l(l_dest)   + w_to_move_up
+     if (l_source.gt.l_internal) then
+        dW_l(l_internal)   = dW_l(l_internal)   + w_to_move_up
         dW_l(l_source) = dW_l(l_source) - w_to_move_up
-        do l = l_dest+1, l_source
+        do l = l_internal+1, l_source
            flow(l) = flow(l) - w_to_move_up
         enddo
      endif
   end subroutine move_up_revisited
 
 ! ============================================================================
-  subroutine move_up(dW_l, flow, w_shortage, num_l, l_dest)
-  real, intent(inout), dimension(num_l)   :: dW_l
-  real, intent(inout), dimension(num_l+1) :: flow
-  real, intent(in)                        ::  w_shortage
-  integer, intent(in)                     ::  num_l, l_dest
-  ! ---- local vars ----------------------------------------------------------
-  real, dimension(num_l)   :: u_minus, u_plus, del_t
-  real, dimension(num_l-1) :: eee, fff
-  real hcap, aaa, bbb, ccc
-  integer l
-  ! For energy conservation
-  real :: esum1, esum2 ! [W/m^2] heat content of soil before and after solution
-  real, parameter :: ethresh = 1.e-4 ! [W/m^2] Allowable error in energy solution for roundoff
-
-!  if (do_component_balchecks .and. .not. LM2) then
-
-     ! Sum energy content in soil before solution
-     esum1 = clw*max(flow(1), 0.)*(tflow-tfreeze) ! initialize to incoming surface energy tendency
-     do l = 1, num_l
-        esum1 = esum1 + (soil%heat_capacity_dry(l)*dz(l) + csw*soil%ws(l) + &
-                           clw*(soil%wl(l) - dW_l(l)) ) * (soil%T(l)-tfreeze)
-                           ! use water content before Richards eq. update to be consistent with
-                           ! heat advection solution
-     end do
-
-!  end if
-
-! Upstream weighting of advection. Preserving u_plus here for now.
-  u_minus = 1.
-  where (flow(1:num_l).lt.0.) u_minus = 0.
-  do l = 1, num_l-1
-     u_plus(l) = 1. - u_minus(l+1)
-  enddo
-  hcap = (soil%heat_capacity_dry(num_l)*dz(num_l) &
-                              + csw*soil%ws(num_l))/clw
-  aaa = -flow(num_l) * u_minus(num_l)
-  bbb =  hcap + soil%wl(num_l) - dW_l(num_l) - aaa
-  eee(num_l-1) = -aaa/bbb
-  fff(num_l-1) = aaa*(soil%T(num_l)-soil%T(num_l-1)) / bbb
-
-  do l = num_l-1, 2, -1
-     hcap = (soil%heat_capacity_dry(l)*dz(l) &
-                               + csw*soil%ws(l))/clw
-     aaa = -flow(l)   * u_minus(l)
-     ccc =  flow(l+1) * u_plus (l)
-     bbb =  hcap + soil%wl(l) - dW_l(l) - aaa - ccc
-     eee(l-1) = -aaa / ( bbb +ccc*eee(l) )
-     fff(l-1) = (   aaa*(soil%T(l)-soil%T(l-1))    &
-                        + ccc*(soil%T(l)-soil%T(l+1))    &
-                        - ccc*fff(l) ) / ( bbb +ccc*eee(l) )
-  enddo
-
-  hcap = (soil%heat_capacity_dry(1)*dz(1) + csw*soil%ws(1))/clw
-  aaa = -flow(1) * u_minus(1)
-  ccc =  flow(2) * u_plus (1)
-  bbb =  hcap + soil%wl(1) - dW_l(1) - aaa - ccc
-
-  del_t(1) =  (  aaa*(soil%T(1)-tflow          ) &
-                     + ccc*(soil%T(1)-soil%T(2)) &
-                     - ccc*fff(1) ) / (bbb+ccc*eee(1))
-  soil%T(1) = soil%T(1) + del_t(1)
-
-  if(is_watch_point()) then
-     write(*,*) ' ***** soil_step_2 checkpoint 3.4.1 ***** '
-     write(*,*) 'hcap', hcap
-     write(*,*) 'aaa', aaa
-     write(*,*) 'bbb', bbb
-     write(*,*) 'ccc', ccc
-     write(*,*) 'del_t(1)', del_t(1)
-     write(*,*) ' T(1)', soil%T(1)
-  endif
-
-  do l = num_l-1, 2, -1
-    xxx = dens_h2o*dz(l)*DThDP(l)/dt_richards
-    aaa = - ( K(l-1)/del_z(l-1) - DKDPm(l-1)*grad(l-1))
-    bbb = xxx-( -K(l-1)/del_z(l-1) - DKDPp(l-1)*grad(l-1)&
-                -K(l  )/del_z(l  ) + DKDPm(l  )*grad(l  ))
-    ccc =   - (  K(l  )/del_z(l  ) + DKDPp(l  )*grad(l  ))
-    ddd =       K(l)*grad(l) - K(l-1)*grad(l-1) &
-                          - div(l)
-    eee(l-1) =                    -aaa/(bbb+ccc*eee(l))
-    fff(l-1) =  (ddd-ccc*fff(l))/(bbb+ccc*eee(l))
-    if(is_watch_point()) then
-       write(*,'(a,i2.2,100(2x,g23.16))') 'l,a,b,c,d', l,aaa, bbb,ccc,ddd
-    endif
-  enddo
-
-  l = 1
-  xxx = dens_h2o*dz(l)*DThDP(l)/dt_richards
-  bbb = xxx - ( -K(l  )/del_z(l  ) + DKDPm(l  )*grad(l  ))
-  ccc =     - (  K(l  )/del_z(l  ) + DKDPp(l  )*grad(l  ))
-  ddd =          flow(1)/dt_richards +    K(l)     *grad(l) &
-                          - div(l)
-
-  if (Dpsi_min.ge.Dpsi_max) call error_mesg(module_name, '=== Dpsi_min.ge.Dpsi_max', FATAL)
-
-  IF (bbb+ccc*eee(l) .NE. 0.) THEN
-     dPsi(l) = (ddd-ccc*fff(l))/(bbb+ccc*eee(l))
-     if(is_watch_point()) then
-        write(*,*) 'bbb+ccc*eee(l) .NE. 0.'
-        write(*,*) 'bbb', bbb
-        write(*,*) 'ccc', ccc
-        write(*,*) 'ddd', ddd
-        write(*,*) 'eee(l)', eee(l)
-        write(*,*) 'fff(l)', fff(l)
-        write(*,*) 'dPsi(l)', dPsi(l)
-        write(*,*) 'dPsi(l)', dPsi(l)
-        write(*,*) 'Dpsi_min', Dpsi_min
-        write(*,*) 'Dpsi_max', Dpsi_max
-     endif
-     if (verbose.and.dPsi(l).lt.Dpsi_min) then
-         call get_current_point(ipt,jpt,kpt,fpt)
-         write(*,*) '=== warning: dPsi=',dPsi(l),'<min=',dPsi_min,'at',ipt,jpt,kpt,fpt
-     endif
-     if ((dPsi(l).gt.Dpsi_min.or.no_min_Dpsi) .and. dPsi(l).lt.Dpsi_max) then
-        lrunf_ie = 0.
-     else
-        dPsi(l) = min (dPsi(l), Dpsi_max)
-        if (dPsi(l).lt.Dpsi_min.and.(.not.no_min_Dpsi)) then
-           flag = .true.
-           dPsi(l) = Dpsi_min
-        endif
-        if (div_bug_fix) then
-           flow(l) = (dPsi(l)*(bbb+ccc*eee(l))+ccc*fff(l)+div(l) &
-                   - K(l)*grad(l))*dt_richards
-        else
-           flow(l) = (dPsi(l)*(bbb+ccc*eee(l))+ccc*fff(l) &
-                   - K(l)*grad(l))*dt_richards
-        endif
-        lrunf_ie = lprec_eff - flow(l)/dt_richards
-        if (lrunf_ie.lt.-lrunf_ie_tol) then
-           if (verbose) then
-              call get_current_point(ipt,jpt,kpt,fpt)
-              write(*,*) '=== warning: rie= ',lrunf_ie,'<0 at',ipt,jpt,kpt,fpt
-           endif
-           if (.not.allow_negative_rie) then
-              flag = .true.
-              dpsi_alt = (ddd-ccc*fff(l))/(bbb+ccc*eee(l))
-              if (verbose) write(*,*) '=== rie= ',lrunf_ie,'<0 reset to 0 and dPsi=',dPsi(l),' reset to ',dpsi_alt,'at ',ipt,jpt,kpt,fpt
-              dPsi(l) = dpsi_alt
-              lrunf_ie = 0.
-              flow(l) = lprec_eff*dt_richards
-           endif
-        endif
-     endif
-  ELSE
-     call error_mesg(module_name, 'b+ce=0 in soil-water equations', FATAL)
-     if (verbose) then
-       call get_current_point(ipt,jpt,kpt,fpt)
-       write(*,*) '===richards b+ce=0 ===','at point ',ipt,jpt,kpt,fpt
-       endif
-     if(is_watch_point()) then
-        write(*,*) 'bbb+ccc*eee(l) .EQ. 0.'
-        write(*,*) 'bbb', bbb
-        write(*,*) 'ccc', ccc
-        write(*,*) 'ddd', ddd
-        write(*,*) 'eee(l)', eee(l)
-        write(*,*) 'fff(l)', fff(l)
-        write(*,*) 'dPsi(l)', dPsi(l)
-        write(*,*) 'dPsi(l)', dPsi(l)
-        write(*,*) 'Dpsi_min', Dpsi_min
-        write(*,*) 'Dpsi_max', Dpsi_max
-     endif
-     dPsi(l) = Dpsi_max
-     flow(l) = (dPsi(l)*(bbb+ccc*eee(l))+ccc*fff(l) &
-                   - K(l)*grad(l))*dt_richards
-     lrunf_ie = lprec_eff - flow(l)/dt_richards
-     if (lrunf_ie.lt.-lrunf_ie_tol) then
-        if (verbose) then
-           call get_current_point(ipt,jpt,kpt,fpt)
-           write(*,*) '===richards b+ce=0 AND lrunf_ie.lt.-lrunf_ie_tol at point ',ipt,jpt,kpt,fpt
-           write(*,*) '===richards b+ce=0 AND lrunf_ie.lt.-lrunf_ie_tol at point ',ipt,jpt,kpt,fpt,'rie=',lrunf_ie
-        endif
-        if(.not.allow_negative_rie) then
-           flag = .true.
-           dpsi_alt = 0.
-           if (verbose) then
-             write(*,*) '===richards b+ce=0 AND lrunf_ie.lt.-lrunf_ie_tol at point ',ipt,jpt,kpt,fpt,'rie=',lrunf_ie,' reset to 0'
-             write(*,*) '===richards b+ce=0 AND lrunf_ie.lt.-lrunf_ie_tol at point ',ipt,jpt,kpt,fpt,'dPsi=',dPsi(l),' reset to',dpsi_alt
-             write(*,*) '===richards b+ce=0 AND lrunf_ie.lt.-lrunf_ie_tol at point ',ipt,jpt,kpt,fpt,'dPsi_min/max=',dPsi_min,dPsi_max
-           endif
-           dPsi(l) = dpsi_alt
-           lrunf_ie = 0.
-           flow(l) = lprec_eff*dt_richards
-        endif
-     endif
-  ENDIF
-
-  if(is_watch_point().or.(flag.and.write_when_flagged)) then
-     write(*,'(a,i2.2,100(2x,g23.16))') 'l,  b,c,d', l, bbb,ccc,ddd
-     write(*,*) ' ##### soil_step_2 checkpoint 3.2 #####'
-     write(*,*) 'ie:', lrunf_ie
-     do l = 1, num_l-1
-        write(*,'(a,i2.2,100(2x,g23.16))') 'l,eee(l),fff(l)',l,eee(l),fff(l)
-     enddo
-     write(*,*) 'DThDP(1)', DThDP(1)
-     write(*,*) 'K(1)', K(1)
-     write(*,*) 'grad(1)', grad(1)
-     write(*,*) 'ddd(1)', ddd
-     write(*,*) 'ccc(1)', ccc
-     write(*,*) 'bbb(1)', bbb
-     write(*,*) 'dPsi(1)', dPsi(1)
-     write(*,*) 'Psi(1)', Psi(1)
-     write(*,*) 'div(1)', div(1)
-  endif
-
-  do l = 1, num_l-1
-     dPsi(l+1) = eee(l)*dPsi(l) + fff(l)
-     flow(l+1) = dt_richards*( &
-         -K(l)*(grad(l)&
-         +(DPsi(l+1)-DPsi(l))/ del_z(l)) &
-         -grad(l)*(DKDPp(l)*Dpsi(l+1)+ &
-                         DKDPm(l)*Dpsi(l) )  )
-     dW_l(l) = flow(l) - flow(l+1) - div(l)*dt_richards
-  enddo
-  flow(num_l+1) = 0.
-  dW_l(num_l) = flow(num_l) - flow(num_l+1) &
-                          - div(num_l)*dt_richards
-
-  if(is_watch_point().or.(flag.and.write_when_flagged)) then
-     write(*,*) ' ##### soil_step_2 checkpoint 3.21 #####'
-     do l = 1, num_l
-        write(*,'(i2.2,100(2x,a,g23.16))') l,&
-             ' dW_l=', dW_l(l),&
-             ' flow=', flow(l),&
-             ' div=', div(l)
-     enddo
-  endif
-
-  if (flag) then
-     w_shortage=-(soil%wl(1)+dW_l(1))
-     l_dest = 1
-     call move_up(dW_l, flow, w_shortage, num_l, l_dest)
-  endif
-
-! Adjust for negative water content in subsurface.
-  if (fix_neg_subsurface_wl) then
-    do l=2, num_l
-      if ((soil%wl(l)+dW_l(l))/(dens_h2o*dz(l)*soil%pars%vwc_sat) < thetathresh) then
-        call get_current_point(ipt,jpt,kpt,fpt)
-        write(*,*) '=== warning: fixing neg wl=',soil%wl(l)+dW_l(l),'at',l,ipt,jpt,kpt,fpt
-        l_dest = l
-        w_shortage = -(soil%wl(l_dest)+dW_l(l_dest))
-        call move_up(dW_l, flow, w_shortage, num_l, l_dest)
+  subroutine move_up(dW_l, flow, w_shortage, num_l, l_internal)
+   real, intent(inout), dimension(num_l)   :: dW_l
+   real, intent(inout), dimension(num_l+1) :: flow
+   real, intent(in)                        ::  w_shortage
+   integer, intent(in)                     ::  num_l, l_internal
+   ! ---- local vars ----------------------------------------------------------
+   integer l, l_source
+   real dW_l_source, w_to_move_up
+      l_source = l_internal
+      dW_l_source = -1.e20
+      do l = l_internal+1, num_l
+         if (dW_l(l).gt.dW_l_source) then
+            l_source = l
+            dW_l_source = dW_l(l)
+         endif
+      enddo
+      w_to_move_up = min(dW_l_source, w_shortage)
+      w_to_move_up = max(w_to_move_up, 0.)
+      write(*,*) 'l_internal,l_source=',l_internal,l_source
+      write(*,*) 'dW_l_source=',dW_l_source
+      write(*,*) 'w_shortage=',w_shortage
+      write(*,*) 'w_to_move_up=',w_to_move_up
+      if (l_source.gt.l_internal) then
+         dW_l(l_internal)   = dW_l(l_internal)   + w_to_move_up
+         dW_l(l_source) = dW_l(l_source) - w_to_move_up
+         do l = l_internal+1, l_source
+            flow(l) = flow(l) - w_to_move_up
+         enddo
       endif
-    enddo
-  endif
-
-
-  if(is_watch_point().or.(flag.and.write_when_flagged)) then
-     write(*,*) ' ##### soil_step_2 checkpoint 3.22 #####'
-     do l = 1, num_l
-        write(*,'(i2.2,100(2x,a,g23.16))') l,&
-             ' dW_l=', dW_l(l),&
-             ' flow=', flow(l),&
-             ' div=', div(l)
-     enddo
-  endif
-
-! In rare situations where lrunf_ie is large and negative, clip any liquid supersaturation
-! layer by layer and recompute lrunf_ie (this is not good, since it ignores 'comp'):
-
-  IF (lrunf_ie < lrunf_ie_min) THEN
-     call get_current_point(ipt,jpt,kpt,fpt)
-     write(*,*) 'note: at point ',ipt,jpt,kpt,fpt,' clip triggered by lrunf_ie=',lrunf_ie
-     call error_mesg(module_name, 'lrunf_ie < lrunf_ie_min', FATAL)
-     do l = num_l, 1, -1
-        adj = max(dW_l(l)+soil%ws(l)+soil%wl(l) &
-             - soil%pars%vwc_sat*dz(l)*dens_h2o, 0. )
-
-        if(is_watch_point()) then
-           write(*,*) '3.22 l=', l,&
-                ' soil%wl=',soil%wl(l),  &
-                ' soil%ws=',soil%ws(l) , &
-                ' soil%pars%vwc_sat=', soil%pars%vwc_sat, &
-                ' dz=', dz(l), &
-                ' adj=', adj
-        endif
-
-        adj = min(adj, max(0.,soil%wl(l)))
-
-        if(is_watch_point()) then
-           write(*,*) '3.23 l=', l, ' adj=', adj
-        endif
-
-        dW_l(l) = dW_l(l) - adj
-        flow(l) = flow(l+1) + dW_l(l) + div(l)*dt_richards
-     enddo
-     lrunf_ie = lprec_eff - flow(1)/dt_richards
-
-  ENDIF
-
-  if(is_watch_point().or.(flag.and.write_when_flagged)) then
-     write(*,*) ' ***** soil_step_2 checkpoint 3.3 ***** '
-     write(*,*) 'psi_sat',soil%pars%psi_sat_ref
-     write(*,*) 'Dpsi_max',Dpsi_max
-     do l = 1, num_l
-        write(*,'(i2.2,100(2x,a,g23.16))') l, &
-             'Th=', (soil%ws(l) +soil%wl(l)+dW_l(l))/(dens_h2o*dz(l)), &
-             'wl=', soil%wl(l)+dW_l(l), &
-             'ws=', soil%ws(l), &
-             'dW_l=', dW_l(l), &
-             'dPsi=', dPsi(l), &
-             'flow=', flow(l)
-     enddo
-  endif
-
-end subroutine richards
+   end subroutine move_up
 
 ! ============================================================================
   subroutine advection(soil, flow, dW_l, tflow, d_GW, div, delta_time)

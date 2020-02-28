@@ -3264,9 +3264,4 @@ subroutine array2str(a,s)
   enddo
 end subroutine array2str
 
-! for reproducibility across mid-day restarts
-DEFINE_COHORT_ACCESSOR(real,carbon_gain)
-DEFINE_COHORT_ACCESSOR(real,bwood_gain)
-DEFINE_COHORT_ACCESSOR(real,npp_previous_day_tmp)
-
 end module vegetation_mod

@@ -50,8 +50,6 @@ integer :: id_gdiv, & !  groundwater divergence (excl. to stream) (mm/s)
            id_ghdiv   !  heat flux associated with groundwater divergence (excl. to stream) (W/m^2)
 integer :: id_gtos, id_gtos_std, & !  groundwater divergence from tile to stream (mm/s)
            id_gtosh   !  heat flux associated with groundwater divergence to stream (W/m^2)
-integer :: id_gtdiv, & ! tracer flux associated with groundwater divergence (excl. to stream) (kg C/m^2/s)
-           id_gtost    ! tracer flux from tile to stream (kg C/m^2/s)
 integer :: id_gtos_tile, id_gtosh_tile,id_gdiv_tile,id_ghdiv_tile
 integer :: id_gDOCdiv, & ! tracer flux associated with groundwater divergence (excl. to stream) (kg C/m^2/s)
            id_gtosDOC  ! tracer flux from tile to stream (kg C/m^2/s)
@@ -298,8 +296,8 @@ subroutine hlsp_hydrology_1(num_species)
    real    ::     A1, A2      ! tile area fractions 1 and 2
    real    ::     w_hat       ! mean hillslope width (m)
    real    ::     deltapsi    ! Absolute difference in hydraulic head for tile 1 - tile 2 (m)
-   real    ::     wflux       ! water flux, temporary (mm/s)
-   real    ::     eflux       ! energy flux, temproary (W/m^2)
+   real    ::     wflux(num_l)       ! water flux, temporary (mm/s)
+   real    ::     eflux(num_l)       ! energy flux, temproary (W/m^2)
    real    ::     docflux(num_species),donflux(num_species),NO3flux,NH4flux ! tracer flux, temporary (1/m^2/s)
    real    ::     delta_h     ! elevation difference between tile 1 and 2 (m)
    real    ::     y           ! disturbance lengthscale (m)
@@ -535,40 +533,40 @@ subroutine hlsp_hydrology_1(num_species)
                         !endif
 
                         ! Energy flux
-                        if (wflux < 0.) then ! water flowing into tile: heat advected in
-                           eflux = wflux * (soil2%T(l)- tfreeze)* clw
+                        if (wflux(l) < 0.) then ! water flowing into tile: heat advected in
+                           eflux(l) = wflux(l) * (soil2%T(l)- tfreeze)* clw
                         else                 ! water flowing out of tile: heat advected out
-                           eflux = wflux * (soil%T(l)- tfreeze)* clw
+                           eflux(l) = wflux(l) * (soil%T(l)- tfreeze)* clw
                         end if
 
                         ! Update fluxes
                         !print*,soil%hidx_j,soil2%hidx_j,wflux0,wflux1
                         !print*,soil%hidx_j,soil2%hidx_j,wflux,w2*L2,tile%frac
                         if (soil%hidx_j == soil2%hidx_j - 1) then ! tile2 above tile
-                           div_above(l) = div_above(l) + wflux
-                           hdiv_above(l) = hdiv_above(l) + eflux
+                           div_above(l) = div_above(l) + wflux(l)
+                           hdiv_above(l) = hdiv_above(l) + eflux(l)
                         else ! tile2 below tile
-                           div_below(l) = div_below(l) + wflux
-                           hdiv_below(l) = hdiv_below(l) + eflux
+                           div_below(l) = div_below(l) + wflux(l)
+                           hdiv_below(l) = hdiv_below(l) + eflux(l)
                         end if
 
                         ! Tracer flux
                         if (tiled_DOC_flux) then
 
-                          if (wflux < 0.) then ! water flowing into tile: tracers advected in
+                          if (wflux(l) < 0.) then ! water flowing into tile: tracers advected in
                               do s=1,num_species
-                                 docflux(s) = wflux * DOC2(s,l) / max(soil2%wl(l), minwl)
-                                 donflux(s) = wflux * DON2(s,l) / max(soil2%wl(l), minwl)
+                                 docflux(s) = wflux(l) * DOC2(s,l) / max(soil2%wl(l), minwl)
+                                 donflux(s) = wflux(l) * DON2(s,l) / max(soil2%wl(l), minwl)
                               end do
-                              NO3flux = wflux * nitrate2(l)/max(soil2%wl(l), minwl)
-                              NH4flux = wflux * ammonium2(l)/max(soil2%wl(l), minwl)
+                              NO3flux = wflux(l) * nitrate2(l)/max(soil2%wl(l), minwl)
+                              NH4flux = wflux(l) * ammonium2(l)/max(soil2%wl(l), minwl)
                           else                 ! water flowing out of tile: tracers advected out
                               do s=1,num_species
-                                  docflux(s) = wflux * DOC(s,l) / max(soil%wl(l), minwl)
-                                  donflux(s) = wflux * DON(s,l) / max(soil%wl(l), minwl)
+                                  docflux(s) = wflux(l) * DOC(s,l) / max(soil%wl(l), minwl)
+                                  donflux(s) = wflux(l) * DON(s,l) / max(soil%wl(l), minwl)
                               end do
-                              NO3flux = wflux * nitrate(l) / max(soil%wl(l), minwl)
-                              NH4flux = wflux * ammonium(l) / max(soil%wl(l), minwl)
+                              NO3flux = wflux(l) * nitrate(l) / max(soil%wl(l), minwl)
+                              NH4flux = wflux(l) * ammonium(l) / max(soil%wl(l), minwl)
                           end if
 
                            ! Update fluxes
@@ -589,7 +587,7 @@ subroutine hlsp_hydrology_1(num_species)
                         ! Debug
                         if (is_watch_cell()) then
                            write(*,'(a,i2.2)',advance='NO')'level=',l
-                           __DEBUG2__(wflux,eflux)
+                           __DEBUG2__(wflux(l),eflux(l))
                         end if
 
                      end do ! l
@@ -641,33 +639,33 @@ subroutine hlsp_hydrology_1(num_species)
 
                         ! Flux from tile --> tile2
                         ! Will be normalized below by area_level.
-                        wflux = k_hat * deltapsi / (y*y)/2. * dz(l) * A2 ! ZMS double-check this
+                        wflux(l) = k_hat * deltapsi / (y*y)/2. * dz(l) * A2 ! ZMS double-check this
                        ! mm/s =  mm/s *   m      /   m^2      *m      --
-                        div_level(l) = div_level(l) + wflux
+                        div_level(l) = div_level(l) + wflux(l)
 
                         ! Energy flux
-                        if (wflux < 0.) then ! water flowing into tile: heat advected in
-                           eflux = wflux * (soil2%T(l)- tfreeze) * clw
+                        if (wflux(l) < 0.) then ! water flowing into tile: heat advected in
+                           eflux(l) = wflux(l) * (soil2%T(l)- tfreeze) * clw
                         else                 ! water flowing out of tile: heat advected out
-                           eflux = wflux * (soil%T(l)- tfreeze) * clw
+                           eflux(l) = wflux(l) * (soil%T(l)- tfreeze) * clw
                         end if
-                        hdiv_level(l) = hdiv_level(l) + eflux
+                        hdiv_level(l) = hdiv_level(l) + eflux(l)
 
                         if (tiled_DOC_flux) then
-                            if (wflux < 0.) then ! water flowing into tile: tracers advected in
+                            if (wflux(l) < 0.) then ! water flowing into tile: tracers advected in
                                 do s=1,num_species
-                                    docflux(s) = wflux * DOC2(s,l) / max(soil2%wl(l), minwl)
-                                    donflux(s) = wflux * DON2(s,l) / max(soil2%wl(l), minwl)
+                                    docflux(s) = wflux(l) * DOC2(s,l) / max(soil2%wl(l), minwl)
+                                    donflux(s) = wflux(l) * DON2(s,l) / max(soil2%wl(l), minwl)
                                 end do
-                                NO3flux = wflux * nitrate2(l) / max(soil2%wl(l), minwl)
-                                NH4flux = wflux * ammonium2(l) / max(soil2%wl(l), minwl)
+                                NO3flux = wflux(l) * nitrate2(l) / max(soil2%wl(l), minwl)
+                                NH4flux = wflux(l) * ammonium2(l) / max(soil2%wl(l), minwl)
                               else                 ! water flowing out of tile: tracers advected out
                                   do s=1,num_species
-                                      docflux(s) = wflux * DOC(s,l) / max(soil%wl(l), minwl)
-                                      donflux(s) = wflux * DON(s,l) / max(soil%wl(l), minwl)
+                                      docflux(s) = wflux(l) * DOC(s,l) / max(soil%wl(l), minwl)
+                                      donflux(s) = wflux(l) * DON(s,l) / max(soil%wl(l), minwl)
                                   end do
-                                  NO3flux = wflux * nitrate(l) / max(soil%wl(l), minwl)
-                                  NH4flux = wflux * ammonium(l) / max(soil%wl(l), minwl)
+                                  NO3flux = wflux(l) * nitrate(l) / max(soil%wl(l), minwl)
+                                  NH4flux = wflux(l) * ammonium(l) / max(soil%wl(l), minwl)
                               end if
 
                            ! Update fluxes
@@ -680,7 +678,7 @@ subroutine hlsp_hydrology_1(num_species)
                         ! Debug
                         if (is_watch_cell()) then
                            write(*,'(a,i2.2)',advance='NO')'level=',l
-                           __DEBUG2__(wflux,eflux)
+                           __DEBUG2__(wflux(l),eflux(l))
                         end if
 
                      end do ! l
@@ -791,77 +789,51 @@ subroutine hlsp_hydrology_1(num_species)
                                                              ! depth
 
                   ! Flux from tile --> stream, per unit area of tile
-                  wflux = k_hat*ks * deltapsi/L_hat * dz(l)/L1
+                  wflux(l) = k_hat*ks * deltapsi/L_hat * dz(l)/L1
                                                                         ! ZMS double-check this
                   ! mm/s =  mm/s *   m     / m    *  m  /m
                   if (turn_gtos_off)wflux(l) = 0.0
 
                   ! Energy flux
-                  if (wflux < 0.) then ! water flowing into tile: heat advected in
+                  if (wflux(l) < 0.) then ! water flowing into tile: heat advected in
                      ! Need to access stream state: eflux = wflux * __ * clw
                      ! ZMS For now don't allow this.
                      soil%gtos(l) = 0.0
                      soil%gtosh(l) = 0.0
                   else  ! water flowing into stream: heat advected out
-<<<<<<< HEAD
                      eflux(l) = wflux(l) * (soil%T(l)- tfreeze)* clw
-                     div_hlsp(l) = div_hlsp(l) + wflux(l)
-                     div_hlsp_heat(l) = div_hlsp_heat(l) + eflux(l)
-
-                     ! For diagnostics
-                     gtos_bytile(k,l) = wflux(l)
-                     gtosh_bytile(k,l) = eflux(l)
-                     soil%gtos(l) = wflux(l)
-                     soil%gtosh(l) = eflux(l)
-=======
-                     eflux = wflux * (soil%T(l)- tfreeze)* clw
                   end if
 
                   if (tiled_DOC_flux) then
 
-                        if (wflux < 0.) then !water flowing into tile
+                        if (wflux(l) < 0.) then !water flowing into tile
                         !
                         else ! water flowing into stream: DOC advected to stream
                             do s=1,num_species
-                                docflux(s) = wflux * DOC(s,l) / max(soil%wl(l), minwl)
-                                donflux(s) = wflux * DON(s,l) / max(soil%wl(l), minwl)
+                                docflux(s) = wflux(l) * DOC(s,l) / max(soil%wl(l), minwl)
+                                donflux(s) = wflux(l) * DON(s,l) / max(soil%wl(l), minwl)
                            end do
-                           NO3flux = wflux * nitrate(l) / max(soil%wl(l), minwl)
-                           NH4flux = wflux * ammonium(l) / max(soil%wl(l), minwl)
+                           NO3flux = wflux(l) * nitrate(l) / max(soil%wl(l), minwl)
+                           NH4flux = wflux(l) * ammonium(l) / max(soil%wl(l), minwl)
                         end if
 
                   end if
 
 
-                  if (wflux < 0.) then
+                  if (wflux(l) < 0.) then
                      ! ZMS for now only allow flow into stream
                   else
-                     soil%div_hlsp(l) = soil%div_hlsp(l) + wflux
-                     soil%div_hlsp_heat(l) = soil%div_hlsp_heat(l) + eflux
+                     soil%div_hlsp(l) = soil%div_hlsp(l) + wflux(l)
+                     soil%div_hlsp_heat(l) = soil%div_hlsp_heat(l) + eflux(l)
 
                      ! For diagnostics
-                     gtos_bytile(k,l) = wflux
-                     gtosh_bytile(k,l) = eflux
->>>>>>> master
+                     gtos_bytile(k,l) = wflux(l)
+                     gtosh_bytile(k,l) = eflux(l)
 
                      ! In units flowing into stream
-                     ground_to_stream(ll) = ground_to_stream(ll) + wflux * A1
-                     ground_to_stream_heat(ll) = ground_to_stream_heat(ll) + eflux * A1
+                     ground_to_stream(ll) = ground_to_stream(ll) + wflux(l) * A1
+                     ground_to_stream_heat(ll) = ground_to_stream_heat(ll) + eflux(l) * A1
 
-<<<<<<< HEAD
-               if (tiled_DOC_flux) then
-                  do s=1,num_species
-                     do l=1,num_l
-                        if (wflux(l) .GE. 0) then
-                           tflux = wflux(l) * DOC(s,l) / max(soil%wl(l), minwl)
-                           div_hlsp_DOC(s,l) = div_hlsp_DOC(s,l) + tflux
-                           gtost_bytile(k,l,s) = tflux
-                           ground_to_stream_tracers(ll,s) = ground_to_stream_tracers(ll,s) + tflux * A1
-                        end if
-                     end do
-                  end do
-               end if
-=======
                      if (tiled_DOC_flux) then
                         do s=1,num_species
                            soil%div_hlsp_DOC(s,l) = soil%div_hlsp_DOC(s,l) + docflux(s)
@@ -874,12 +846,10 @@ subroutine hlsp_hydrology_1(num_species)
                         soil%div_hlsp_NO3(l) = soil%div_hlsp_NO3(l) + NO3flux
                         gtosNO3_bytile(k,l) = NO3flux
                         ground_to_stream_NO3(ll) = ground_to_stream_NO3(ll) + NO3flux * A1
->>>>>>> master
 
                        soil%div_hlsp_NH4(l) = soil%div_hlsp_NH4(l) + NH4flux
                        gtosNH4_bytile(k,l) = NH4flux
-                       ground_to_stream_NH4(ll) = ground_to_stream_NH4(ll) &
-                              + NH4flux * A1
+                       ground_to_stream_NH4(ll) = ground_to_stream_NH4(ll) + NH4flux * A1
 
                      end if
                   end if
@@ -953,8 +923,6 @@ subroutine hlsp_hydrology_1(num_species)
                gtosDON(l) = sum(gtosDON_bytile(k,l,:))
                gDONdiv(l) = sum(tile%soil%div_hlsp_DON(:,l)) - gtosDON(l)
             end do
-            call send_tile_data(id_gtost, gtost, tile%diag)
-            call send_tile_data(id_gtdiv, gtdiv, tile%diag)
             call send_tile_data(id_gtos_tile,sum(tile%soil%gtos(:)),tile%diag)
             call send_tile_data(id_gtosh_tile,sum(tile%soil%gtosh(:)),tile%diag)
             call send_tile_data(id_gdiv_tile,sum(tile%soil%div_hlsp-tile%soil%gtos),tile%diag)

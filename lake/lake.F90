@@ -41,6 +41,7 @@ private
 ! ==== public interfaces =====================================================
 public :: read_lake_namelist
 public :: lake_init
+public :: lake_init_predefined
 public :: lake_end
 public :: save_lake_restart
 
