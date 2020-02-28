@@ -27,8 +27,7 @@ use land_tile_mod, only : land_tile_map, land_tile_type, land_tile_enum_type, &
 use land_tile_diag_mod, only : OP_SUM, OP_AVERAGE, cmor_name, diag_buff_type, &
      register_tiled_diag_field, add_tiled_diag_field_alias, send_tile_data, &
      register_cohort_diag_field, send_cohort_data, set_default_diag_filter
-use vegn_data_mod, only : spdata, nspecies, do_ppa, &&
-     fsc_liv, fsc_wood, fsc_froot, soil_carbon_depth_scale, C2B, agf_bs, l_fract, &
+use vegn_data_mod, only : spdata, nspecies, do_ppa, soil_carbon_depth_scale, C2B, agf_bs, &
      PHEN_DECIDUOUS, PHEN_EVERGREEN, LEAF_ON, LEAF_OFF, FORM_WOODY, FORM_GRASS, &
      ALLOM_EW, ALLOM_EW1, ALLOM_HML, LU_CROP, &
      NSC_TARGET_FROM_BLMAX, NSC_TARGET_FROM_CANOPY_BLMAX, NSC_TARGET_FROM_BSW, &
@@ -921,8 +920,8 @@ subroutine vegn_carbon_int_lm3(vegn, soil, soilt, theta, diag)
 
   ! ---- diagnostic section
   call send_tile_data(id_gpp,gpp,diag)
-  call send_tile_data(id_npp,vegn%npp,diag)
-  call send_tile_data(id_npp_std,vegn%npp,diag)
+  call send_tile_data(id_npp,npp,diag)
+  call send_tile_data(id_npp_std,npp,diag)
   call send_tile_data(id_nep,vegn%nep,diag)
   call send_tile_data(id_litter,vegn%litter,diag)
   call send_cohort_data(id_resp, diag, c(1:N), resp(1:N), weight=c(1:N)%nindivs, op=OP_SUM)
@@ -2644,3 +2643,4 @@ subroutine spread_seeds(ug_bseed)
 end subroutine spread_seeds
 
 end module vegn_dynamics_mod
+
