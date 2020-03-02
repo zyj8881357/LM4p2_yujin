@@ -926,7 +926,7 @@ subroutine land_cover_cold_start()
      endif
   enddo
 
-  deallocate(glac,lake,soil,soiltags,hlsp_pos,hlsp_par,vegn,rbuffer)
+  !deallocate(glac,lake,soil,soiltags,hlsp_pos,hlsp_par,vegn,rbuffer)
 end subroutine land_cover_cold_start
 
 ! ============================================================================
