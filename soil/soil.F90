@@ -2520,13 +2520,13 @@ end subroutine soil_step_1
                  / (soil%pars%hillslope_length*soil%pars%hillslope_length)
         enddo
      endif
-     print*,'length',soil%pars%hillslope_length
-     print*,'relief',soil%pars%hillslope_relief
+     !print*,'length',soil%pars%hillslope_length
+     !print*,'relief',soil%pars%hillslope_relief
      !print*,'slope',soil%pars%hillslope_slope
-     print*,'soil_e_depth',soil%pars%soil_e_depth
-     print*,'zeta_bar',soil%pars%hillslope_zeta_bar
-     print*,'hillslope_a',soil%pars%hillslope_a
-     print*,'hillslope_n',soil%pars%hillslope_n
+     !print*,'soil_e_depth',soil%pars%soil_e_depth
+     !print*,'zeta_bar',soil%pars%hillslope_zeta_bar
+     !print*,'hillslope_a',soil%pars%hillslope_a
+     !print*,'hillslope_n',soil%pars%hillslope_n
 
   CASE (GW_TILED)
      call hlsp_hydrology_2(soil, psi, vlc, vsc, div_it, hdiv_it, &
