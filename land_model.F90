@@ -46,7 +46,7 @@ use soil_mod, only : read_soil_namelist, soil_init, soil_end, soil_get_sfc_temp,
      soil_radiation, soil_step_1, soil_step_2, soil_step_3, save_soil_restart, &
      ! moved here to eliminate circular dependencies with hillslope mods:
      soil_cover_cold_start, retrieve_soil_tags, &
-     irrigation_deficit
+     irrigation_deficit, irrigation_deficit_evap
 use soil_carbon_mod, only : read_soil_carbon_namelist, N_C_TYPES, soil_carbon_option, &
     SOILC_CORPSE_N
 use snow_mod, only : read_snow_namelist, snow_init, snow_end, snow_get_sfc_temp, &
@@ -1149,8 +1149,6 @@ subroutine update_land_model_fast ( cplr2land, land2cplr )
 
   real :: snc(lnd%ls:lnd%le), snow_depth, snow_area ! snow cover, for CMIP6 diagnostics
 
-  real :: irr_area(lnd%ls:lnd%le) !actual irrigated area 
-
   logical :: used          ! return value of send_data diagnostics routine
   integer :: i,j,k,l   ! lon, lat, and tile indices
   integer :: is,ie,js,je ! horizontal bounds of the override buffer
@@ -1194,7 +1192,7 @@ subroutine update_land_model_fast ( cplr2land, land2cplr )
   ! ZMS: Eventually pass these args into river or main tile loop.
 
   ! Calculate demand of irrigation rate for each gridcell
-  call irrigation_deficit(irr_area)
+  call irrigation_deficit()
 
   ! main tile loop
 !$OMP parallel do default(none) shared(lnd,land_tile_map,cplr2land,land2cplr,phot_co2_overridden, &

@@ -107,6 +107,7 @@ real            :: delta_time
 integer         :: num_l              ! # of water layers
 real, allocatable:: zfull (:)    ! diag axis, dimensionless layer number
 real, allocatable:: zhalf (:)
+real, allocatable:: lake_heat_capacity_dry(:)
 real            :: max_rat
 
 ! ---- diagnostic field IDs
@@ -151,7 +152,7 @@ subroutine read_lake_namelist()
   endif
 
   ! ---- set up vertical discretization
-  allocate (zhalf(num_l+1), zfull(num_l))
+  allocate (zhalf(num_l+1), zfull(num_l), lake_heat_capacity_dry(num_l))
   zhalf(1) = 0
   do l = 1, num_l
      zhalf(l+1) = zhalf(l) + 1.
@@ -448,6 +449,7 @@ subroutine lake_step_1 ( u_star_a, p_surf, latitude, lake, &
     endif
   call lake_data_thermodynamics ( lake%pars, lake_depth, lake_rh, &
                                   lake%heat_capacity_dry, thermal_cond )
+  lake_heat_capacity_dry = lake%heat_capacity_dry
 ! Ignore air humidity in converting atmospheric friction velocity to lake value
   rho_a = p_surf/(rdgas*lake_T)
 ! No momentum transfer through ice cover
@@ -706,9 +708,6 @@ end subroutine lake_step_1
     write(*,*) ' tfreeze', tfreeze
     write(*,*) ' snow_hlprec', snow_hlprec
   endif
-
-  !if (do_lake_abstraction) call lake_abstraction ( lake, diag ) 
-  !we conduct lake abstraction at here becuase we don't want to change any land states before the surface balance equations are solved
 
   do l = 1, num_l
     ! ---- compute explicit melt/freeze --------------------------------------
@@ -974,6 +973,54 @@ end subroutine lake_step_2
 
   end subroutine lake_relayer_converge
 ! ============================================================================
+  subroutine remove_negative_water(lake_wl, lake_ws, lake_T, lake_dz)
+    real, dimension(num_l), intent(inout) ::  lake_wl, lake_ws, lake_T, lake_dz
+    
+    integer :: n
+    integer :: n_max = 100000 
+     
+    call melt_negative(lake_wl, lake_ws, lake_T, lake_dz)
+    n = 0
+    do while(lake_ws(1)<0.or.lake_wl(1)<0.)
+      call lake_relayer2 (lake_wl, lake_ws, lake_T, lake_dz)
+      call melt_negative(lake_wl, lake_ws, lake_T, lake_dz)
+      n = n+1
+      if(n>=n_max) call error_mesg('remove_negative_water', 'relayer too many times', FATAL)      
+    enddo     
+
+  end subroutine remove_negative_water
+
+! ============================================================================
+  subroutine melt_negative(lake_wl,lake_ws,lake_T, lake_dz)
+    real, dimension(num_l), intent(inout) ::  lake_wl, lake_ws, lake_T, lake_dz
+
+    integer :: l   
+    real :: hcap, melt
+
+    do l = 1, num_l
+      if(lake_ws(l)<0.or.lake_wl(l)<0.)then
+        hcap = lake_heat_capacity_dry(l)*lake_dz(l) &
+             + clw*lake_wl(l) + csw*lake_ws(l)
+        if(lake_ws(l)<0..and.lake_wl(l)>0.)then
+          melt = lake_ws(l)
+        else if(lake_wl(l)<0..and.lake_ws(l)>0.)then
+          melt = -lake_wl(l)
+        else
+          melt = 0.
+        endif
+        lake_wl(l) = lake_wl(l) + melt
+        lake_ws(l) = lake_ws(l) - melt
+        lake_T(l) = tfreeze &
+                   + (hcap*(lake_T(l)-tfreeze) - hlf*melt) &
+                            / ( hcap + (clw-csw)*melt )
+        if(l>=2.and.(lake_ws(l)<0.or.lake_wl(l)<0.)) & 
+          call error_mesg('remove_negative_water', 'negative mass in l>=2 lake', FATAL) 
+      endif !if(lake_ws(l)<0.or.lake_wl(l)<0.)then
+    enddo
+
+  end subroutine melt_negative
+
+! ============================================================================
 ! conduct lake abstraction for irrigation
 ! if both use_reservoir and do_lake_abstraction are true, water can only be extracted from reservoir
 ! if use_reservoir is false and do_lake_abstraction is true, water is extracted from lake
@@ -1013,10 +1060,10 @@ subroutine lake_abstraction (use_reservoir, is_terminal, &
   lake_abst = 0. !m3
   lake_habst = 0. !J
 
-  if(use_reservoir)then
+  if(use_reservoir)then !We extract water from reservoir only, if there is no reservoir, we don't extract water.
     res_capacity = (Afrac_rsv*tot_area) * rsv_depth  !m3 
     frac_abst = Vfrac_rsv 
-  else
+  else ! There is no reservoir at all, and we extract water from lake.
     res_capacity = tot_area * lake_depth_sill !m3
     frac_abst = 1.
   endif
@@ -1028,6 +1075,8 @@ subroutine lake_abstraction (use_reservoir, is_terminal, &
                    vr0 + influx/DENS_H2O - ResMin*res_capacity)   !m3 
   !if we use reservoir, all water must be extracted from reservoir, otherwise, all water must be extracted from lake  
   if(use_reservoir.and.Afrac_rsv<=0.) lake_avail = 0. 
+
+  if(use_reservoir.or.do_lake_abstraction) call remove_negative_water(lake_wl, lake_ws, lake_T, lake_dz)
 
   IF (do_lake_abstraction.and.&
       (lake_ws(1) < lake_ws_thres).and.&
@@ -1064,6 +1113,7 @@ subroutine lake_abstraction (use_reservoir, is_terminal, &
    else
      rsv_out = vr0 + influx/DENS_H2O - lake_abst - ResMax*res_capacity !m3
    endif
+   !if here is river terminal point, and all area is reservoir, then no rsv_out allowed.
    if(is_terminal.and.Afrac_rsv>=1.) rsv_out = 0. !m3
    vr1 = vr0 + influx/DENS_H2O - lake_abst - rsv_out !m3
    rsv_out = rsv_out*DENS_H2O !m3 * kg/m3 = kg

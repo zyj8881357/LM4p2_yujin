@@ -307,6 +307,9 @@ contains
                 if(use_reservoir.and.Afrac_rsv(i,j)<1..and.v1 > 0.) Vfrac_rsv(i,j) = max(0., min(vr1/v1, 1.))
                 if (is_watch_cell()) then 
                          write(*,*) 'after lake_abstraction'
+                         write(*,*) 'lake_wl(1):', lake_wl(i,j,1)
+                         write(*,*) 'lake_ws(1):', lake_ws(i,j,1)
+                         write(*,*) 'lake_T (1):', lake_T (i,j,1)                         
                          write(*,*) 'sum(lake_dz(i,j,:)):', sum(lake_dz(i,j,:))
                          write(*,*) 'irr_demand(i,j):', irr_demand(i,j) 
                          write(*,*) 'River%lake_abst(i,j):', River%lake_abst(i,j)
@@ -370,6 +373,9 @@ contains
                                             rsv_outflow(i,j), rsv_outflow_s, rsv_outflow_h, vr1)  
                      if (is_watch_cell()) then 
                          write(*,*) 'after lake_abstraction'
+                         write(*,*) 'lake_wl(1):', lake_wl(i,j,1)
+                         write(*,*) 'lake_ws(1):', lake_ws(i,j,1)
+                         write(*,*) 'lake_T (1):', lake_T (i,j,1)                         
                          write(*,*) 'sum(lake_dz(i,j,:)):', sum(lake_dz(i,j,:))
                          write(*,*) 'irr_demand(i,j):', irr_demand(i,j) 
                          write(*,*) 'River%lake_abst(i,j):', River%lake_abst(i,j)

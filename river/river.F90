@@ -169,7 +169,7 @@ character(len=*), parameter :: module_name = 'river_mod'
   integer, allocatable, dimension(:)   :: id_infloc_c,  id_storage_c, id_stordis_c, id_inflow_c, &
         id_run_stor_c, id_outflow_c, id_removal_c, id_dis_c, id_lake_outflow_c, id_abstflow_c
   integer :: id_dis_liq,  id_dis_ice,  id_dis_heat, id_dis_sink, id_dis_DOC, id_no_riv
-  integer :: num_fast_calls
+  integer, public :: num_fast_calls !public for soil_mod, this is not good, but in original code of lm4p1, soil_mod calls river_mod
   integer :: slow_step = 0          ! record number of slow time step run.
   type(domain2d), pointer :: domain    => NULL()
   type(domainUG), pointer :: UG_domain => NULL()
@@ -1057,8 +1057,7 @@ end subroutine print_river_tracer_data
         demand_full_ug(l) =  demand_full_ug(l) + soil%irr_demand_ac * (tile%frac*lnd%ug_area(l))/DENS_H2O !kg/m2 * m2 / kg/m3 = m3
         demand_met_ug(l) = demand_met_ug(l) + soil%irr_rate*River%dt_slow * (tile%frac*lnd%ug_area(l))/DENS_H2O !kg/(m2 s) * s * m2 / kg/m3 = m3               
         demand_unmet_ug(l) = demand_unmet_ug(l) &
-                         +(demand_left_tile-shallow_abst-deep_abst) * (tile%frac*lnd%ug_area(l))/DENS_H2O !kg/m2 * m2 / kg/m3 = m3
-        soil%irr_demand_ac = 0.     
+                         +(demand_left_tile-shallow_abst-deep_abst) * (tile%frac*lnd%ug_area(l))/DENS_H2O !kg/m2 * m2 / kg/m3 = m3    
       enddo
     enddo     
     demand_full(:,:) = 0. ; demand_met(:,:) = 0. ; demand_unmet(:,:) = 0. !m3    
