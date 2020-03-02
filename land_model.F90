@@ -3264,36 +3264,6 @@ contains
   end subroutine debug_rad_properties
 end subroutine land_sw_radiation
 
-subroutine realloc1(x,N)
-  real, allocatable, intent(inout) :: x(:)
-  integer, intent(in) :: N
-
-  if(allocated(x)) then
-     if (size(x)==N) then
-        return
-     else
-        deallocate(x)
-     endif
-  endif
-
-  allocate(x(N))
-end subroutine
-
-subroutine realloc2(x,N)
-  real, allocatable, intent(inout) :: x(:,:)
-  integer, intent(in) :: N
-
-  if(allocated(x)) then
-     if (size(x,1)==N) then
-        return
-     else
-        deallocate(x)
-     endif
-  endif
-
-  allocate(x(N,NBANDS))
-end subroutine
-
 ! ============================================================================
 subroutine update_land_bc_fast (tile, N, l,k, land2cplr, is_init)
   type(land_tile_type), intent(inout) :: tile
@@ -3370,23 +3340,16 @@ subroutine update_land_bc_fast (tile, N, l,k, land2cplr, is_init)
 
   if (associated(tile%glac)) then
      call glac_radiation(tile%glac, cosz, subs_refl_dir, subs_refl_dif, subs_refl_lw, grnd_emis)
-     call glac_roughness(tile%glac, subs_z0s, subs_z0m )
   else if (associated(tile%lake)) then
      call lake_radiation(tile%lake, cosz, subs_refl_dir, subs_refl_dif, subs_refl_lw, grnd_emis)
-     call lake_roughness(tile%lake, subs_z0s, subs_z0m )
   else if (associated(tile%soil)) then
      call soil_radiation(tile%soil, cosz, subs_refl_dir, subs_refl_dif, subs_refl_lw, grnd_emis)
-     call soil_roughness(tile%soil, subs_z0s, subs_z0m )
   else
-     call get_current_point(face=face)
-     call error_mesg('update_land_bc_fast','none of the surface tiles exist at ('//&
-             trim(string(i))//','//trim(string(j))//','//trim(string(k))//&
-             ', face='//trim(string(face))//')',FATAL)
+     call land_error_message('update_land_bc_fast: none of the surface tiles exist',FATAL)
   endif
 
   call snow_radiation ( tile%snow%T(1), cosz, associated(tile%glac), snow_refl_dir, snow_refl_dif, snow_refl_lw, snow_emis)
   call snow_get_depth_area ( tile%snow, snow_depth, snow_area )
-  call snow_roughness ( tile%snow, snow_z0s, snow_z0m )
 
   ! allocate storage in the land tile, to carry the values calculated here to
   ! update_land_bc_fast
@@ -3469,6 +3432,17 @@ subroutine update_land_bc_fast (tile, N, l,k, land2cplr, is_init)
        tile%Sg_dir, tile%Sg_dif, tile%Sv_dir, tile%Sv_dif, tile%Sdn_dir, tile%Sdn_dif, &
        tile%land_refl_dir, tile%land_refl_dif )
 
+
+  if (associated(tile%glac)) then
+     call glac_roughness(tile%glac, subs_z0s, subs_z0m )
+  else if (associated(tile%lake)) then
+     call lake_roughness(tile%lake, subs_z0s, subs_z0m )
+  else if (associated(tile%soil)) then
+     call soil_roughness(tile%soil, subs_z0s, subs_z0m )
+  else
+     call land_error_message('update_land_bc_fast: none of the surface tiles exist',FATAL)
+  endif
+  call snow_roughness ( tile%snow, snow_z0s, snow_z0m )
   call cana_roughness( lm2, &
      subs_z0m, subs_z0s, &
      snow_z0m, snow_z0s, snow_area, &
@@ -3560,6 +3534,36 @@ subroutine update_land_bc_fast (tile, N, l,k, land2cplr, is_init)
 
   ! --- debug section
   call check_temp_range(land2cplr%t_ca(l,k),'update_land_bc_fast','T_ca')
+
+  contains ! - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+
+  subroutine realloc1(x,N)
+    real, allocatable, intent(inout) :: x(:)
+    integer, intent(in) :: N
+
+    if(allocated(x)) then
+       if (size(x)==N) then
+          return
+       else
+          deallocate(x)
+       endif
+    endif
+    allocate(x(N))
+  end subroutine realloc1
+
+  subroutine realloc2(x,N)
+    real, allocatable, intent(inout) :: x(:,:)
+    integer, intent(in) :: N
+
+    if(allocated(x)) then
+       if (size(x,1)==N) then
+          return
+       else
+          deallocate(x)
+       endif
+    endif
+    allocate(x(N,NBANDS))
+  end subroutine realloc2
 
 end subroutine update_land_bc_fast
 
