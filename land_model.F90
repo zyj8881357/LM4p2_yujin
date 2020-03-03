@@ -39,7 +39,7 @@ use land_tracers_mod, only : land_tracers_init, land_tracers_end, ntcana, isphum
 use land_tracer_driver_mod, only: land_tracer_driver_init, land_tracer_driver_end, &
      update_cana_tracers
 use glacier_mod, only : read_glac_namelist, glac_init, glac_end, glac_get_sfc_temp, &
-     glac_radiation, glac_step_1, glac_step_2, save_glac_restart
+     glac_radiation, glac_step_1, glac_step_2, save_glac_restart, conserve_glacier_mass
 use lake_mod, only : read_lake_namelist, lake_init, lake_end, lake_get_sfc_temp, &
      lake_radiation, lake_step_1, lake_step_2, save_lake_restart
 use soil_mod, only : read_soil_namelist, soil_init, soil_end, soil_get_sfc_temp, &
@@ -60,9 +60,9 @@ use vegetation_mod, only : read_vegn_namelist, vegn_init, vegn_end, &
 use vegn_disturbance_mod, only : vegn_nat_mortality_ppa
 use vegn_fire_mod, only : update_fire_fast, fire_transitions, save_fire_restart
 use cana_tile_mod, only : canopy_air_mass, canopy_air_mass_for_tracers, cana_tile_heat, cana_tile_carbon
-use canopy_air_mod, only : read_cana_namelist, cana_init, cana_end,&
-     cana_roughness, do_fog_glac, do_fog_lake, do_fog_vegn, fog_form_rate, fog_diss_time, &
-     save_cana_restart
+use canopy_air_mod, only : read_cana_namelist, cana_init, cana_end, save_cana_restart, &
+     cana_roughness, cana_turbulence, surface_resistances, &
+     do_fog_glac, do_fog_lake, do_fog_vegn, fog_form_rate, fog_diss_time
 use river_mod, only : river_init, river_end, update_river, river_stock_pe, &
      save_river_restart, river_tracers_init, num_river_tracers, river_tracer_index, &
      river_tracer_names, get_river_water
@@ -1504,7 +1504,7 @@ subroutine update_land_model_fast_0d ( tile, l,itile, N, land2cplr, &
   integer :: i, j, ii, jj ! indices for debug output
   integer :: ierr
   integer :: tr ! tracer index
-  logical :: conserve_glacier_mass, snow_active, redo_leaf_water, redo_cana_q
+  logical :: snow_active, redo_leaf_water, redo_cana_q
   integer :: canopy_water_step, lw_step, fog_step
   real :: lmass0, fmass0, heat0, cmass0, nmass0, nflux0, v0
   real :: lmass1, fmass1, heat1, cmass1, nmass1, nflux1
@@ -1567,7 +1567,7 @@ subroutine update_land_model_fast_0d ( tile, l,itile, N, land2cplr, &
   if (associated(tile%glac)) then
      call glac_step_1 ( tile%glac, &
           grnd_T, grnd_rh, grnd_liq, grnd_ice, grnd_subl, grnd_tf, &
-          snow_G_Z, snow_G_TZ, conserve_glacier_mass  )
+          snow_G_Z, snow_G_TZ )
      grnd_E_min = -HUGE(grnd_E_min)
      grnd_E_max =  HUGE(grnd_E_max)
      grnd_rh_psi = 0
@@ -1614,8 +1614,11 @@ subroutine update_land_model_fast_0d ( tile, l,itile, N, land2cplr, &
   cana_q   = tile%cana%tr(isphum)
   cana_co2 = tile%cana%tr(ico2)
 
+  ! calculate conductances between canopy air and underlying surfaces, and between canopy
+  ! air and vegetation if vegetation exists
   call land_turbulence(tile, p_surf, ustar, grnd_T, snow_active, &
         con_v_h, con_v_v, con_g_h, con_g_v)
+
   if (associated(tile%vegn)) then
      ! calculate net short-wave radiation input to the vegetation
      do k = 1,N
@@ -1654,7 +1657,7 @@ subroutine update_land_model_fast_0d ( tile, l,itile, N, land2cplr, &
      prveg = precip_l + precip_s - vegn_lprec - vegn_fprec
   else ! i.e., no vegetation
      swnet    = 0
-      con_st_v = 0.0 ! does it matter?
+     con_st_v = 0.0 ! does it matter?
      vegn_T  = cana_T ; vegn_Wl = 0 ; vegn_Ws = 0
      vegn_ifrac  = 0 ; vegn_lai    = 0
      vegn_drip_l = 0 ; vegn_drip_s = 0
@@ -2579,9 +2582,6 @@ subroutine land_turbulence(tile, &
      snow_active, &
      ! output:
      con_v_h, con_v_v, con_g_h, con_g_v )
-
-  use canopy_air_mod, only: cana_turbulence, surface_resistances
-  use glacier_mod, only : conserve_glacier_mass
 
   type(land_tile_type), intent(inout) :: tile
   real, intent(in) :: &
