@@ -462,7 +462,7 @@ subroutine cana_roughness(lm2, &
      subs_z0m, subs_z0s, &
      snow_z0m, snow_z0s, snow_area, &
      vegn_cover, vegn_height, vegn_lai, vegn_sai, &
-     land_d, land_z0m, land_z0s )
+     land_d, land_z0m, land_z0s, grnd_z0m, grnd_z0s )
   logical, intent(in) :: lm2
   real, intent(in) :: &
        subs_z0m, subs_z0s, snow_z0m, snow_z0s, snow_area, vegn_cover, vegn_height, &
@@ -470,7 +470,9 @@ subroutine cana_roughness(lm2, &
   real, intent(out) :: &
        land_d    ,&
        land_z0m  ,&
-       land_z0s
+       land_z0s  ,&
+       grnd_z0m  ,&
+       grnd_z0s
 
   !---- local constants
   real, parameter :: d_h_max = 2./3.
@@ -479,7 +481,6 @@ subroutine cana_roughness(lm2, &
   ! ---- local vars
   real :: d_h      ! ratio of displacement height to vegetation height
   real :: z0m_h    ! ratio of roughness length to vegetation height
-  real :: grnd_z0m, grnd_z0s
   real :: z0s_h, z0s_h_max
   real :: vegn_idx ! total vegetation index = LAI+SAI
   real :: height   ! effective vegetation height

@@ -1506,7 +1506,6 @@ subroutine update_land_model_fast_0d ( tile, l,itile, N, land2cplr, &
   integer :: tr ! tracer index
   logical :: conserve_glacier_mass, snow_active, redo_leaf_water, redo_cana_q
   integer :: canopy_water_step, lw_step, fog_step
-  real :: subs_z0m, subs_z0s, snow_z0m, snow_z0s, grnd_z0s
   real :: lmass0, fmass0, heat0, cmass0, nmass0, nflux0, v0
   real :: lmass1, fmass1, heat1, cmass1, nmass1, nflux1
   real :: DOC_to_atmos
@@ -1591,10 +1590,7 @@ subroutine update_land_model_fast_0d ( tile, l,itile, N, land2cplr, &
      grnd_ice = 0 ! sorry, but solver cannot handle implicit melt anymore
                   ! no big loss, it is just the surface layer anyway
   else
-     call get_current_point(face=ii)
-     call error_mesg('update_land_model_fast','none of the surface tiles exist at ('//&
-          trim(string(i))//','//trim(string(j))//','//trim(string(itile))//&
-          ', face='//trim(string(ii))//')',FATAL)
+     call land_error_message('update_land_model_fast: none of the surface tiles exist',FATAL)
   endif
 
   ! + heat conservation check, part 1; land_tile_heat has to be called after
@@ -1624,10 +1620,6 @@ subroutine update_land_model_fast_0d ( tile, l,itile, N, land2cplr, &
         swnet(k,:) = tile%Sv_dir (k,:)*ISa_dn_dir + tile%Sv_dif (k,:)*ISa_dn_dif
         swdn (k,:) = tile%Sdn_dir(k,:)*ISa_dn_dir + tile%Sdn_dif(k,:)*ISa_dn_dif
      enddo
-     ! calculate roughness of sub-canopy surface
-     call soil_roughness(tile%soil, subs_z0s, subs_z0m)
-     call snow_roughness(tile%snow, snow_z0s, snow_z0m)
-     grnd_z0s = exp( (1-snow_area)*log(subs_z0s) + snow_area*log(snow_z0s))
 
      ! cana_co2 is moist mass mixing ratio [kg CO2/kg wet air], convert it to dry
      ! volumetric mixing ratio [mol CO2/mol dry air]
@@ -1637,7 +1629,7 @@ subroutine update_land_model_fast_0d ( tile, l,itile, N, land2cplr, &
      call vegn_step_1 ( tile%vegn, tile%soil, tile%diag, &
         p_surf, ustar, drag_q, &
         swdn, swnet, precip_l, precip_s, &
-        tile%land_d, tile%land_z0s, tile%land_z0m, grnd_z0s, grnd_T, &
+        tile%land_d, tile%land_z0s, tile%land_z0m, tile%grnd_z0s, grnd_T, &
         cana_T, cana_q, cana_co2_mol, &
         snow_active, &
         ! output
@@ -3277,10 +3269,9 @@ subroutine update_land_bc_fast (tile, N, l,k, land2cplr, is_init)
   ! as an argument.
 
   ! ---- local vars
-  real :: &
-         grnd_T, subs_z0m, subs_z0s, &
-                 snow_z0s, snow_z0m, &
-         snow_area, snow_depth
+  real :: grnd_T, subs_z0m, subs_z0s, &
+                  snow_z0s, snow_z0m, &
+          snow_area, snow_depth
 
   real :: subs_refl_dir(NBANDS), subs_refl_dif(NBANDS) ! direct and diffuse albedos
   real :: subs_refl_lw ! reflectance for thermal radiation
@@ -3447,7 +3438,7 @@ subroutine update_land_bc_fast (tile, N, l,k, land2cplr, is_init)
      subs_z0m, subs_z0s, &
      snow_z0m, snow_z0s, snow_area, &
      vegn_cover,  vegn_height, vegn_lai, vegn_sai, &
-     tile%land_d, tile%land_z0m, tile%land_z0s)
+     tile%land_d, tile%land_z0m, tile%land_z0s, tile%grnd_z0m, tile%grnd_z0s)
 
   if(is_watch_point()) then
      __DEBUG1__(tile%land_z0m)
