@@ -87,6 +87,7 @@ real :: rav_lit_deadmic   = 0.0 ! litter resistance to vapor per dead microbe C
 real :: rav_lit_bwood     = 0.0 ! litter resistance to vapor per bwood
 real :: d_visc_max        = 0.1 ! when positive, max thickness of viscous sublayer (m);
                                 ! negative or zero turn off limitation
+real :: k_over_B          = 2.0 !
 ! fog-related namelist variables
 logical, protected, public :: do_fog_vegn   = .FALSE.  ! if true, water vapore in canopy air can form condensate
 logical, protected, public :: do_fog_glac   = .FALSE.
@@ -98,6 +99,7 @@ real,    protected, public :: fog_diss_time = 0.0   ! e-folding time of fog evap
 namelist /cana_nml/ &
   init_T, init_T_cold, init_q, init_co2, turbulence_to_use, use_SAI_for_heat_exchange, &
   canopy_air_mass, canopy_air_mass_for_tracers, cpw, save_qco2, bare_rah_sca, &
+  k_over_B, &
   ! soil resistance parameters
   soil_resistance_to_use, &
   d_visc_max, &
@@ -530,7 +532,7 @@ subroutine cana_roughness(lm2, &
         land_d   = 0
         land_z0m = grnd_z0m
      endif
-     land_z0s = land_z0m*exp(-2.0)
+     land_z0s = land_z0m*exp(-k_over_B)
 
   end select
 
