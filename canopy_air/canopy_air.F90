@@ -85,7 +85,7 @@ real :: rav_lit_fsc       = 0.0 ! litter resistance to vapor per fsc
 real :: rav_lit_ssc       = 0.0 ! litter resistance to vapor per ssc
 real :: rav_lit_deadmic   = 0.0 ! litter resistance to vapor per dead microbe C
 real :: rav_lit_bwood     = 0.0 ! litter resistance to vapor per bwood
-real :: d_visc_max        =-1.0 ! when positive, max thickness of viscous sublayer (m);
+real :: d_visc_max        = 0.1 ! when positive, max thickness of viscous sublayer (m);
                                 ! negative or zero turn off limitation
 ! fog-related namelist variables
 logical, protected, public :: do_fog_vegn   = .FALSE.  ! if true, water vapore in canopy air can form condensate
@@ -258,24 +258,16 @@ subroutine cana_init (id_ug)
   module_is_initialized = .TRUE.
 
   ! set the default sub-sampling filter for the fields below
-  call set_default_diag_filter('soil')
-  id_r_litt_evap = register_tiled_diag_field( diag_mod_name, 'r_litt_evap', &
-       (/id_ug/), lnd%time, 'resistance of litter layer to water vapor flux', 's/m', missing_value=-1.0 )
+  call set_default_diag_filter('land')
   id_r_bl_sens = register_tiled_diag_field( diag_mod_name, 'r_bl_sens', &
        (/id_ug/), lnd%time, 'resistance of viscous boundary layer to heat flux', 's/m', missing_value=-1.0 )
   id_r_bl_evap = register_tiled_diag_field( diag_mod_name, 'r_bl_evap', &
        (/id_ug/), lnd%time, 'resistance of viscous boundary layer to water vapor flux', 's/m', missing_value=-1.0 )
-  id_r_sv_evap = register_tiled_diag_field( diag_mod_name, 'r_sv_evap', &
-       (/id_ug/), lnd%time, 'resistance of near-surface soil to for water flux', 's/m', missing_value=-1.0 )
 
-  id_c_litt_evap = register_tiled_diag_field( diag_mod_name, 'c_litt_evap', &
-       (/id_ug/), lnd%time, 'conductance of litter layer for water vapor', 'm/s', missing_value=-1.0 )
   id_c_bl_sens = register_tiled_diag_field( diag_mod_name, 'c_bl_sens', &
        (/id_ug/), lnd%time, 'conductance of viscous boundary layer for heat', 'm/s', missing_value=-1.0 )
   id_c_bl_evap = register_tiled_diag_field( diag_mod_name, 'c_bl_evap', &
        (/id_ug/), lnd%time, 'conductance of viscous boundary layer for water vapor', 'm/s', missing_value=-1.0 )
-  id_c_sv_evap = register_tiled_diag_field( diag_mod_name, 'c_sv_evap', &
-       (/id_ug/), lnd%time, 'conductance of near-surface soil for water flux', 'm/s', missing_value=-1.0 )
 
   id_d_visc = register_tiled_diag_field( diag_mod_name, 'd_visc', &
        (/id_ug/), lnd%time, 'thickness of viscous sublayer', 'm', missing_value=-1.0 )
@@ -283,6 +275,16 @@ subroutine cana_init (id_ug)
        (/id_ug/), lnd%time, 'near-surface wind velocity', 'm/s', missing_value=-1.0 )
   id_ustar_sfc = register_tiled_diag_field( diag_mod_name, 'ustar_sfc', &
        (/id_ug/), lnd%time, 'friction velocity at the surface', 'm/s', missing_value=-1.0 )
+
+  call set_default_diag_filter('soil')
+  id_r_litt_evap = register_tiled_diag_field( diag_mod_name, 'r_litt_evap', &
+       (/id_ug/), lnd%time, 'resistance of litter layer to water vapor flux', 's/m', missing_value=-1.0 )
+  id_c_litt_evap = register_tiled_diag_field( diag_mod_name, 'c_litt_evap', &
+       (/id_ug/), lnd%time, 'conductance of litter layer for water vapor', 'm/s', missing_value=-1.0 )
+  id_r_sv_evap = register_tiled_diag_field( diag_mod_name, 'r_sv_evap', &
+       (/id_ug/), lnd%time, 'resistance of near-surface soil to for water flux', 's/m', missing_value=-1.0 )
+  id_c_sv_evap = register_tiled_diag_field( diag_mod_name, 'c_sv_evap', &
+       (/id_ug/), lnd%time, 'conductance of near-surface soil for water flux', 'm/s', missing_value=-1.0 )
   id_theta_sfc = register_tiled_diag_field( diag_mod_name, 'theta_sfc', &
        (/id_ug/), lnd%time, 'relative soil wetness', 'unitless', missing_value=-1.0 )
 end subroutine cana_init
@@ -571,18 +573,17 @@ subroutine surface_resistances(tile, T_sfc, u_sfc, ustar_sfc, p, snow_active, &
       r_bl_sens = 0
       d_visc    = 0
   case(RESIST_HO2013)
-      d_visc    = min(sfc_visc_bl_depth(u_sfc, ustar_sfc, T_sfc, p),tile%land_d)
+      d_visc    = sfc_visc_bl_depth(u_sfc, ustar_sfc, T_sfc, p)
       if (d_visc_max > 0) d_visc = min(d_visc,d_visc_max)
       diff_air  = thermal_diff_air(T_sfc)
       r_bl_sens = d_visc/diff_air
-      if (associated(tile%soil)) then
-          theta_sfc = max(0.0, tile%soil%wl(1) / (dens_h2o * dz(1)))/tile%soil%pars%vwc_sat
-          r_sv_evap = soil_evap_sv_resistance(tile%soil)
-          r_bl_evap = soil_evap_bl_resistance(tile%soil, theta_sfc, T_sfc, p, d_visc)
-      else
-          r_sv_evap = 0.0
-          r_bl_evap = 0.0
-          r_bl_sens = 0.0
+
+      r_sv_evap = 0.0
+      r_bl_evap = d_visc/diffusivity_h2o(T_sfc,p)
+      if (associated(tile%soil).and..not.snow_active) then
+         r_sv_evap = soil_evap_sv_resistance(tile%soil)
+         theta_sfc = max(0.0, tile%soil%wl(1) / (dens_h2o * dz(1)))/tile%soil%pars%vwc_sat
+         r_bl_evap = soil_evap_bl_resistance(tile%soil, theta_sfc, T_sfc, p, d_visc)
       endif
   case default
      call error_mesg(module_name, 'invalid surface resistance option', FATAL)
@@ -608,10 +609,10 @@ subroutine surface_resistances(tile, T_sfc, u_sfc, ustar_sfc, p, snow_active, &
   call send_tile_data(id_c_bl_evap,   reciprocal(r_bl_evap),   tile%diag)
   call send_tile_data(id_c_sv_evap,   reciprocal(r_sv_evap),   tile%diag)
 
-  call send_tile_data(id_d_visc,      d_visc,      tile%diag)
-  call send_tile_data(id_u_sfc,       u_sfc,       tile%diag)
-  call send_tile_data(id_ustar_sfc,   ustar_sfc,   tile%diag)
-  call send_tile_data(id_theta_sfc,   theta_sfc,   tile%diag)
+  call send_tile_data(id_d_visc,      d_visc,                  tile%diag)
+  call send_tile_data(id_u_sfc,       u_sfc,                   tile%diag)
+  call send_tile_data(id_ustar_sfc,   ustar_sfc,               tile%diag)
+  call send_tile_data(id_theta_sfc,   theta_sfc,               tile%diag)
 
   contains
 

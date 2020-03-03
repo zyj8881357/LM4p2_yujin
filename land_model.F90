@@ -1616,7 +1616,7 @@ subroutine update_land_model_fast_0d ( tile, l,itile, N, land2cplr, &
 
   ! calculate conductances between canopy air and underlying surfaces, and between canopy
   ! air and vegetation if vegetation exists
-  call land_turbulence(tile, p_surf, ustar, grnd_T, snow_active, &
+  call land_turbulence(tile, p_surf, atmos_wind, ustar, grnd_T, snow_active, &
         con_v_h, con_v_v, con_g_h, con_g_v)
 
   if (associated(tile%vegn)) then
@@ -2577,6 +2577,7 @@ end subroutine update_land_model_fast_0d
 ! between canopy air and underlying surafce
 subroutine land_turbulence(tile, &
      p_surf, & ! surface pressure, N/m2
+     atmos_wind, & ! wind at the bottom of the atmosphere, m/s
      ustar, & ! friction velocity above canopy, m/s
      grnd_T, & ! surface temperature, degK
      snow_active, &
@@ -2586,6 +2587,7 @@ subroutine land_turbulence(tile, &
   type(land_tile_type), intent(inout) :: tile
   real, intent(in) :: &
       p_surf,      & ! surface pressure, N/m2
+      atmos_wind,  & ! wind speed at the top of constant flux layer, m/s
       ustar,       & ! friction velocity above canopy, m/s
       grnd_T         ! surface temperature, degK
   logical, intent(in) :: snow_active
@@ -2634,17 +2636,19 @@ subroutine land_turbulence(tile, &
      endif
   else
      con_g_h = con_fac_large ; con_g_v = con_fac_large
-     con_v_h = 0.0           ; con_v_v = 0.0;
-     if(associated(tile%glac).and.conserve_glacier_mass.and..not.snow_active) &
-          con_g_v = con_fac_small
+     con_v_h = 0.0           ; con_v_v = 0.0
+     ustar_sfc = ustar
+     u_sfc     = atmos_wind
   endif
   ! calculate surface resistances to evaporation and sensible heat
   call surface_resistances(tile, &
      grnd_T, u_sfc, ustar_sfc, p_surf, snow_active, &
      ! output:
      r_evap, r_sens)
-  con_g_v = con_g_v/(1.0+r_evap*con_g_v)
   con_g_h = con_g_h/(1.0+r_sens*con_g_h)
+  con_g_v = con_g_v/(1.0+r_evap*con_g_v)
+  if(associated(tile%glac).and.conserve_glacier_mass.and..not.snow_active) &
+          con_g_v = con_fac_small
 end subroutine land_turbulence
 
 ! ============================================================================
