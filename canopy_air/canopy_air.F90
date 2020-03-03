@@ -536,15 +536,12 @@ end subroutine cana_roughness
 
 ! ============================================================================
 ! calculate soil surface (laminar) resistances to evaporation and sensible heat
-subroutine surface_resistances(soil, vegn, diag, T_sfc, u_sfc, ustar_sfc, land_d, p, snow_active, &
+subroutine surface_resistances(tile, T_sfc, u_sfc, ustar_sfc, p, snow_active, &
        r_evap, r_sens)
-  type(soil_tile_type), intent(in) :: soil
-  type(vegn_tile_type), intent(in) :: vegn
-  type(diag_buff_type), intent(inout) :: diag ! diagnostic buffer
+  type(land_tile_type), intent(inout) :: tile
   real, intent(in) :: T_sfc     ! surface temperature, K
   real, intent(in) :: u_sfc     ! near-surface wind velocity, m/s
   real, intent(in) :: ustar_sfc ! friction velocity at the soil surface, m/s
-  real, intent(in) :: land_d    ! land displacement height, m
   real, intent(in) :: p         ! surface pressure, N/m2
   logical, intent(in) :: snow_active ! if TRUE, ground is covered by snow
   ! output
@@ -559,18 +556,11 @@ subroutine surface_resistances(soil, vegn, diag, T_sfc, u_sfc, ustar_sfc, land_d
   real :: d_visc      ! thickness of viscous sublayer, m
   real :: diff_air    ! thermal diffusivity of air, m/s
 
-  if (snow_active) then
-     r_litt_evap = 0
-  else
-     r_litt_evap = evap_resistance_litter(soil,vegn)
-  endif
+  r_litt_evap = evap_resistance_litter(tile, snow_active)
 
-  ! relative wetness of the surface:
-  theta_sfc = max(0.0, soil%wl(1) / (dens_h2o * dz(1)))/soil%pars%vwc_sat
   if (is_watch_point()) then
      write(*,*) '#### surface resistance input ####'
      __DEBUG5__(T_sfc,u_sfc,ustar_sfc,p,snow_active)
-     __DEBUG4__(theta_sfc,soil%wl(1),soil%ws(1),soil%pars%vwc_sat)
      write(*,*) '#### end of surface resistance input ####'
   endif
 
@@ -581,12 +571,19 @@ subroutine surface_resistances(soil, vegn, diag, T_sfc, u_sfc, ustar_sfc, land_d
       r_bl_sens = 0
       d_visc    = 0
   case(RESIST_HO2013)
-      r_sv_evap = soil_evap_sv_resistance(soil)
-      d_visc    = min(sfc_visc_bl_depth(u_sfc, ustar_sfc, T_sfc, p),land_d)
+      d_visc    = min(sfc_visc_bl_depth(u_sfc, ustar_sfc, T_sfc, p),tile%land_d)
       if (d_visc_max > 0) d_visc = min(d_visc,d_visc_max)
-      r_bl_evap = soil_evap_bl_resistance(soil, theta_sfc, T_sfc, p, d_visc)
       diff_air  = thermal_diff_air(T_sfc)
       r_bl_sens = d_visc/diff_air
+      if (associated(tile%soil)) then
+          theta_sfc = max(0.0, tile%soil%wl(1) / (dens_h2o * dz(1)))/tile%soil%pars%vwc_sat
+          r_sv_evap = soil_evap_sv_resistance(tile%soil)
+          r_bl_evap = soil_evap_bl_resistance(tile%soil, theta_sfc, T_sfc, p, d_visc)
+      else
+          r_sv_evap = 0.0
+          r_bl_evap = 0.0
+          r_bl_sens = 0.0
+      endif
   case default
      call error_mesg(module_name, 'invalid surface resistance option', FATAL)
   end select
@@ -601,20 +598,20 @@ subroutine surface_resistances(soil, vegn, diag, T_sfc, u_sfc, ustar_sfc, land_d
   endif
 
   ! diagnostic section
-  call send_tile_data(id_r_litt_evap, limited(r_litt_evap),    diag)
-  call send_tile_data(id_r_bl_sens,   limited(r_bl_sens),      diag)
-  call send_tile_data(id_r_bl_evap,   limited(r_bl_evap),      diag)
-  call send_tile_data(id_r_sv_evap,   limited(r_sv_evap),      diag)
+  call send_tile_data(id_r_litt_evap, limited(r_litt_evap),    tile%diag)
+  call send_tile_data(id_r_bl_sens,   limited(r_bl_sens),      tile%diag)
+  call send_tile_data(id_r_bl_evap,   limited(r_bl_evap),      tile%diag)
+  call send_tile_data(id_r_sv_evap,   limited(r_sv_evap),      tile%diag)
 
-  call send_tile_data(id_c_litt_evap, reciprocal(r_litt_evap), diag)
-  call send_tile_data(id_c_bl_sens,   reciprocal(r_bl_sens),   diag)
-  call send_tile_data(id_c_bl_evap,   reciprocal(r_bl_evap),   diag)
-  call send_tile_data(id_c_sv_evap,   reciprocal(r_sv_evap),   diag)
+  call send_tile_data(id_c_litt_evap, reciprocal(r_litt_evap), tile%diag)
+  call send_tile_data(id_c_bl_sens,   reciprocal(r_bl_sens),   tile%diag)
+  call send_tile_data(id_c_bl_evap,   reciprocal(r_bl_evap),   tile%diag)
+  call send_tile_data(id_c_sv_evap,   reciprocal(r_sv_evap),   tile%diag)
 
-  call send_tile_data(id_d_visc,      d_visc,      diag)
-  call send_tile_data(id_u_sfc,       u_sfc,       diag)
-  call send_tile_data(id_ustar_sfc,   ustar_sfc,   diag)
-  call send_tile_data(id_theta_sfc,   theta_sfc,   diag)
+  call send_tile_data(id_d_visc,      d_visc,      tile%diag)
+  call send_tile_data(id_u_sfc,       u_sfc,       tile%diag)
+  call send_tile_data(id_ustar_sfc,   ustar_sfc,   tile%diag)
+  call send_tile_data(id_theta_sfc,   theta_sfc,   tile%diag)
 
   contains
 
@@ -644,21 +641,22 @@ end subroutine surface_resistances
 ! additional resistance of litter to the water vapor flux.
 ! not a good parameterization, but just using for sensitivity analyses now.
 ! ignores differing biomass and litter turnover rates.
-real function evap_resistance_litter(soil,vegn) result(rav_lit)
-  type(soil_tile_type), intent(in) :: soil
-  type(vegn_tile_type), intent(in) :: vegn
+real function evap_resistance_litter(tile, snow_active) result(rav_lit)
+  type(land_tile_type), intent(in) :: tile
+  logical, intent(in) :: snow_active
 
   real :: litter_fast_C, litter_slow_C, litter_deadmic_C ! litter carbon pools
 
-  call get_soil_litter_C(soil, litter_fast_C, litter_slow_C, litter_deadmic_C)
+  rav_lit = 0.0
+  if (.not.associated(tile%soil)) return
+  if (snow_active)               return
 
-  associate(cc=>vegn%cohorts)
-  rav_lit = rav_lit_0 + rav_lit_vi * (vegn_tile_LAI(vegn)+vegn_tile_SAI(vegn)) &
+  call get_soil_litter_C(tile%soil, litter_fast_C, litter_slow_C, litter_deadmic_C)
+  rav_lit = rav_lit_0 + rav_lit_vi * (vegn_tile_LAI(tile%vegn)+vegn_tile_SAI(tile%vegn)) &
                       + rav_lit_fsc * litter_fast_C &
                       + rav_lit_ssc * litter_slow_C &
                       + rav_lit_deadmic * litter_deadmic_C &
-                      + rav_lit_bwood * vegn_tile_bwood(vegn)
-  end associate
+                      + rav_lit_bwood * vegn_tile_bwood(tile%vegn)
 end function evap_resistance_litter
 
 ! ============================================================================

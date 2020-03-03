@@ -1614,7 +1614,7 @@ subroutine update_land_model_fast_0d ( tile, l,itile, N, land2cplr, &
   cana_q   = tile%cana%tr(isphum)
   cana_co2 = tile%cana%tr(ico2)
 
-  call cana_resistances(tile, p_surf, ustar, grnd_T, snow_active, &
+  call land_turbulence(tile, p_surf, ustar, grnd_T, snow_active, &
         con_v_h, con_v_v, con_g_h, con_g_v)
   if (associated(tile%vegn)) then
      ! calculate net short-wave radiation input to the vegetation
@@ -2572,7 +2572,7 @@ end subroutine update_land_model_fast_0d
 ! ============================================================================
 ! givean a tile, calculate resisrances between canopy air and each cohort, and
 ! between canopy air and underlying surafce
-subroutine cana_resistances(tile, &
+subroutine land_turbulence(tile, &
      p_surf, & ! surface pressure, N/m2
      ustar, & ! friction velocity above canopy, m/s
      grnd_T, & ! surface temperature, degK
@@ -2624,13 +2624,6 @@ subroutine cana_resistances(tile, &
         tile%land_d, tile%land_z0m, tile%land_z0s, tile%grnd_z0s, &
         ! output:
         con_v_h, con_v_v, con_g_h, con_g_v, u_sfc, ustar_sfc)
-     ! calculate surface resistances to evaporation and sensible heat
-     call surface_resistances(tile%soil, tile%vegn, tile%diag, &
-        grnd_T, u_sfc, ustar_sfc, tile%land_d, p_surf, snow_active, &
-        ! output:
-        r_evap, r_sens)
-     con_g_v = con_g_v/(1.0+r_evap*con_g_v)
-     con_g_h = con_g_h/(1.0+r_sens*con_g_h)
 
      if(is_watch_point()) then
         __DEBUG4__(tile%land_d, tile%land_z0s, tile%land_z0m, tile%grnd_z0s)
@@ -2645,7 +2638,14 @@ subroutine cana_resistances(tile, &
      if(associated(tile%glac).and.conserve_glacier_mass.and..not.snow_active) &
           con_g_v = con_fac_small
   endif
-end subroutine cana_resistances
+  ! calculate surface resistances to evaporation and sensible heat
+  call surface_resistances(tile, &
+     grnd_T, u_sfc, ustar_sfc, p_surf, snow_active, &
+     ! output:
+     r_evap, r_sens)
+  con_g_v = con_g_v/(1.0+r_evap*con_g_v)
+  con_g_h = con_g_h/(1.0+r_sens*con_g_h)
+end subroutine land_turbulence
 
 ! ============================================================================
 subroutine update_land_model_slow ( cplr2land, land2cplr )
