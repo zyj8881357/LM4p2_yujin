@@ -59,7 +59,6 @@ use vegn_cohort_mod, only : vegn_cohort_type, &
      update_species, update_bio_living_fraction, get_vegn_wet_frac, &
      vegn_data_cover, btotal, height_from_biomass, leaf_area_from_biomass, &
      update_cohort_root_properties
-use canopy_air_mod, only : cana_turbulence, surface_resistances
 use soil_mod, only : soil_data_beta, redistribute_peat_carbon, &
      register_litter_soilc_diag_fields
 
@@ -1608,14 +1607,11 @@ end subroutine vegn_diffusion
 
 ! ============================================================================
 subroutine vegn_step_1 ( vegn, soil, diag, &
-        p_surf, ustar, drag_q, &
+        p_surf, drag_q, &
         SWdn, RSv, precip_l, precip_s, &
-        land_d, land_z0s, land_z0m, grnd_z0s, grnd_T, &
         cana_T, cana_q, cana_co2_mol, &
-        snow_active, &
+        con_v_h, con_v_v, & ! conductances between canopy air and canopy
         ! output
-        con_g_h, con_g_v, & ! aerodynamic conductance between canopy air and ground, for heat and vapor flux
-        con_v_v, & ! aerodynamic conductance between canopy air and canopy
         stomatal_cond, & ! integral stomatal conductance of cohort canopy
         vegn_T, vegn_Wl, vegn_Ws, & ! temperature, water and snow mass of the canopy
         vegn_ifrac,               & ! intercepted fraction of liquid and frozen precipitation
@@ -1633,22 +1629,18 @@ subroutine vegn_step_1 ( vegn, soil, diag, &
   type(soil_tile_type), intent(in)    :: soil ! soil data
   type(diag_buff_type), intent(inout) :: diag ! diagnostic buffer
   real, intent(in) :: &
-       p_surf,    & ! surface pressure, N/m2
-       ustar,     & ! friction velocity, m/s
-       drag_q,    & ! bulk drag coefficient for specific humidity
-       SWdn(:,:), & ! downward SW radiation on top of each cohort, W/m2 (NCOHORTS,NBANDS)
-       RSv (:,:), & ! net SW radiation balance of the canopy, W/m2, (NCOHORTS,NBANDS)
+       p_surf,      & ! surface pressure, N/m2
+       drag_q,      & ! bulk drag coefficient for specific humidity
+       SWdn(:,:),   & ! downward SW radiation on top of each cohort, W/m2 (NCOHORTS,NBANDS)
+       RSv (:,:),   & ! net SW radiation balance of the canopy, W/m2, (NCOHORTS,NBANDS)
        precip_l, precip_s, & ! liquid and solid precipitation rates, kg/(m2 s)
-       land_d, land_z0s, land_z0m, & ! land displacement height and roughness, m
-       grnd_z0s, & ! roughness of ground surface (including snow effect)
-       grnd_T,    & ! temperature of ground surface, deg K
-       cana_T,    & ! temperature of canopy air, deg K
-       cana_q,    & ! specific humidity of canopy air, kg/kg
-       cana_co2_mol ! co2 mixing ratio in the canopy air, mol CO2/mol dry air
-  logical, intent(in) :: snow_active ! indicator of snow on the ground, for soil evaporation resistance calculations
+       cana_T,      & ! temperature of canopy air, deg K
+       cana_q,      & ! specific humidity of canopy air, kg/kg
+       cana_co2_mol,& ! co2 mixing ratio in the canopy air, mol CO2/mol dry air
+       con_v_h(:),  & ! aerodyn. conductance between canopy and CAS, for heat
+       con_v_v(:)     ! aerodyn. conductance between canopy and CAS, for vapor
   ! output -- coefficients of linearized expressions for fluxes
   real, intent(out), dimension(:) ::   &
-       con_v_v, & ! aerodyn. conductance between canopy and CAS, for vapor (and tracers)
        stomatal_cond, & ! integral stomatal conductance of cohort canopy
        vegn_T, vegn_Wl, vegn_Ws,& ! temperature, water and snow mass of the canopy
        vegn_ifrac, & ! intercepted fraction of liquid and frozen precipitation
@@ -1662,8 +1654,7 @@ subroutine vegn_step_1 ( vegn, soil, diag, &
        Efi0,  DEfiDTv,  DEfiDqc,  DEfiDwl,  DEfiDwf, & ! sublimation of intercepted snow
        soil_uptake_T
   real, intent(out) :: &
-       prec_g_l, prec_g_s, & ! liquid and solid precipitation reaching ground, kg/(m2 s)
-       con_g_h, con_g_v  ! aerodynamic conductance between ground and canopy air
+       prec_g_l, prec_g_s ! liquid and solid precipitation reaching ground, kg/(m2 s)
 
   ! ---- local constants
   real, parameter :: min_reported_psi = -HUGE(1.0_4) ! limit water potential that we send to diagnostics
@@ -1683,11 +1674,8 @@ subroutine vegn_step_1 ( vegn, soil, diag, &
        qvsat,     & ! sat. specific humidity at the leaf T
        DqvsatDTv, & ! derivative of qvsat w.r.t. leaf T
        rho,       & ! density of canopy air
-       gaps,      & ! fraction of gaps in the canopy, used to calculate cover
-       layer_gaps,& ! fraction of gaps in the canopy in a single layer, accumulator value
        phot_co2     ! co2 mixing ratio for photosynthesis, mol CO2/mol dry air
   real, dimension(vegn%n_cohorts) :: &
-       con_v_h, & ! aerodyn. conductance between canopy and CAS, for heat and vapor
        soil_beta, & ! relative water availability
        soil_water_supply, & ! max rate of water supply to the roots, kg/(indiv s)
        evap_demand, & ! plant evaporative demand, kg/(indiv s)
@@ -1700,15 +1688,12 @@ subroutine vegn_step_1 ( vegn, soil, diag, &
   integer :: i, current_layer, band, N
   real :: indiv2area ! conversion factor from X per indiv. to X per unit cohort area
   real :: area2indiv ! reciprocal of the indiv2area conversion factor
-  real :: r_evap, r_sens ! surface resistance to water vapor and heat fluxes, respectively, s/m
-  real :: u_sfc      ! near-surface wind speed, m/s
-  real :: ustar_sfc  ! near-surface friction speed, m/s
 
   cc => vegn%cohorts(1:vegn%n_cohorts) ! note that the size of cc is always N
 
   if(is_watch_point()) then
      write(*,*)'#### vegn_step_1 input ####'
-     __DEBUG3__(p_surf, ustar, drag_q)
+     __DEBUG2__(p_surf, drag_q)
      do band = 1,NBANDS
         __DEBUG1__(SWdn(:,band))
      enddo
@@ -1716,7 +1701,6 @@ subroutine vegn_step_1 ( vegn, soil, diag, &
         __DEBUG1__(RSv(:,band))
      enddo
      __DEBUG2__(precip_l, precip_s)
-     __DEBUG4__(land_d, land_z0s, land_z0m, grnd_z0s)
      __DEBUG3__(cana_T, cana_q, cana_co2_mol)
      write(*,*)'#### end of vegn_step_1 input ####'
      __DEBUG1__(cc%layer)
@@ -1737,44 +1721,13 @@ subroutine vegn_step_1 ( vegn, soil, diag, &
   endif
   ! TODO: check array sizes
 
-  ! TODO: verify cover calculations
-
-  gaps = 1.0 ; current_layer = cc(1)%layer ; layer_gaps = 1.0
-  ! check the range of input temperature
   call check_temp_range(cc(1:vegn%n_cohorts)%Tv, 'vegn_step_1','Tv of cohort')
   do i = 1,vegn%n_cohorts
      ! calculate the fractions of intercepted precipitation
      vegn_ifrac(i) = cc(i)%cover
      ! get the lai
      vegn_lai(i)   = cc(i)%lai
-
-     ! calculate total cover
-     if (cc(i)%layer/=current_layer) then
-        gaps = gaps*layer_gaps; layer_gaps = 1.0; current_layer = cc(i)%layer
-     endif
-     layer_gaps = layer_gaps-cc(i)%layerfrac*cc(i)%cover
   enddo
-  gaps = gaps*layer_gaps ! take the last layer into account
-
-  ! calculate aerodynamic conductance coefficients
-  call cana_turbulence(ustar, 1-gaps, &
-     cc(:)%layerfrac, cc(:)%height, cc(:)%zbot, cc(:)%lai, cc(:)%sai, cc(:)%leaf_size, &
-     land_d, land_z0m, land_z0s, grnd_z0s, &
-     ! output:
-     con_v_h, con_v_v, con_g_h, con_g_v, u_sfc, ustar_sfc)
-  ! calculate surface resistances to evaporation and sensible heat
-  call surface_resistances(soil, vegn, diag, grnd_T, u_sfc, ustar_sfc, land_d, p_surf, snow_active, &
-     ! output:
-       r_evap, r_sens)
-  con_g_v = con_g_v/(1.0+r_evap*con_g_v)
-  con_g_h = con_g_h/(1.0+r_sens*con_g_h)
-
-  if(is_watch_point()) then
-     __DEBUG1__(con_v_h)
-     __DEBUG1__(con_v_v)
-     __DEBUG1__(con_g_h)
-     __DEBUG1__(con_g_v)
-  endif
 
   call soil_data_beta ( soil, vegn, soil_beta, soil_water_supply, soil_uptake_T )
   if(is_watch_point()) then

@@ -54,7 +54,7 @@ character(len=*), parameter :: module_name = 'glacier'
 
 !---- namelist ---------------------------------------------------------------
 logical :: lm2                   = .true.  ! *** CODE WORKS ONLY FOR .TRUE. !!! ****
-logical :: conserve_glacier_mass = .true.
+logical, public, protected :: conserve_glacier_mass = .true.
 character(len=16):: albedo_to_use = ''  ! or 'brdf-params'
 real    :: init_temp            = 260.       ! cold-start glac T
 real    :: init_w               = 150.       ! cold-start w(l)/dz(l)

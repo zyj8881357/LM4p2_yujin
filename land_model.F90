@@ -68,7 +68,7 @@ use river_mod, only : river_init, river_end, update_river, river_stock_pe, &
      river_tracer_names, get_river_water
 use topo_rough_mod, only : topo_rough_init, topo_rough_end, update_topo_rough
 use soil_tile_mod, only : soil_tile_stock_pe, soil_tile_heat, soil_roughness
-use vegn_cohort_mod, only : plant_C
+use vegn_cohort_mod, only : vegn_cohort_type, plant_C
 use vegn_tile_mod, only : vegn_cover_cold_start, &
                           vegn_tile_stock_pe, vegn_tile_heat, vegn_tile_carbon
 use lake_tile_mod, only : lake_cover_cold_start, lake_tile_stock_pe, &
@@ -1384,7 +1384,7 @@ subroutine update_land_model_fast_0d ( tile, l,itile, N, land2cplr, &
        ISa_dn_dir(NBANDS), & ! downward direct sw radiation at the top of the canopy
        ISa_dn_dif(NBANDS), & ! downward diffuse sw radiation at the top of the canopy
        ILa_dn,             & ! downward lw radiation at the top of the canopy
-       ustar,              & ! friction velocity, m/s
+       ustar,              & ! friction velocity above canopy, m/s
        p_surf,             & ! surface pressure, Pa
        drag_q,             & ! product of atmos_wind*CD_q, m/s
        phot_co2_data         ! data input for the CO2 for photosynthesis
@@ -1451,7 +1451,7 @@ subroutine update_land_model_fast_0d ( tile, l,itile, N, land2cplr, &
        vegn_fco2, & ! co2 flux from the vegetation, kg CO2/(m2 s)
        hlv_Tv(N), hlv_Tu(N), & ! latent heat of vaporization at vegn and uptake temperatures, respectively
        hls_Tv(N), &         ! latent heat of sublimation at vegn temperature
-       con_v_v(N), con_st_v(N), & ! aerodynamic and stomatal conductance, respectively
+       con_v_h(N), con_v_v(N), con_st_v(N), & ! aerodynamic and stomatal conductance, respectively
        grnd_T, gT, & ! ground temperature and its value used for sensible heat advection
        grnd_q,         & ! specific humidity at ground surface
        grnd_rh,        & ! explicit relative humidity at ground surface
@@ -1614,6 +1614,8 @@ subroutine update_land_model_fast_0d ( tile, l,itile, N, land2cplr, &
   cana_q   = tile%cana%tr(isphum)
   cana_co2 = tile%cana%tr(ico2)
 
+  call cana_resistances(tile, p_surf, ustar, grnd_T, snow_active, &
+        con_v_h, con_v_v, con_g_h, con_g_v)
   if (associated(tile%vegn)) then
      ! calculate net short-wave radiation input to the vegetation
      do k = 1,N
@@ -1627,14 +1629,12 @@ subroutine update_land_model_fast_0d ( tile, l,itile, N, land2cplr, &
      if (phot_co2_overridden) cana_co2_mol = phot_co2_data
 
      call vegn_step_1 ( tile%vegn, tile%soil, tile%diag, &
-        p_surf, ustar, drag_q, &
+        p_surf, drag_q, &
         swdn, swnet, precip_l, precip_s, &
-        tile%land_d, tile%land_z0s, tile%land_z0m, tile%grnd_z0s, grnd_T, &
         cana_T, cana_q, cana_co2_mol, &
-        snow_active, &
+        con_v_h, con_v_v, &
         ! output
-        con_g_h, con_g_v, &
-        con_v_v, con_st_v, & ! aerodyn. and stomatal conductances
+        con_st_v, & ! stomatal conductances
         vegn_T, vegn_Wl, vegn_Ws, & ! temperature, water and snow mass on the canopy
         vegn_ifrac, vegn_lai, &
         vegn_drip_l, vegn_drip_s, &
@@ -1654,10 +1654,7 @@ subroutine update_land_model_fast_0d ( tile, l,itile, N, land2cplr, &
      prveg = precip_l + precip_s - vegn_lprec - vegn_fprec
   else ! i.e., no vegetation
      swnet    = 0
-     con_g_h = con_fac_large ; con_g_v = con_fac_large
-     con_v_v = 0.0; con_st_v = 0.0 ! does it matter?
-     if(associated(tile%glac).and.conserve_glacier_mass.and..not.snow_active) &
-          con_g_v = con_fac_small
+      con_st_v = 0.0 ! does it matter?
      vegn_T  = cana_T ; vegn_Wl = 0 ; vegn_Ws = 0
      vegn_ifrac  = 0 ; vegn_lai    = 0
      vegn_drip_l = 0 ; vegn_drip_s = 0
@@ -2572,6 +2569,83 @@ subroutine update_land_model_fast_0d ( tile, l,itile, N, land2cplr, &
   if (id_nbp>0) call send_tile_data(id_nbp, -vegn_fco2*mol_C/mol_CO2-DOC_to_atmos, tile%diag)
 end subroutine update_land_model_fast_0d
 
+! ============================================================================
+! givean a tile, calculate resisrances between canopy air and each cohort, and
+! between canopy air and underlying surafce
+subroutine cana_resistances(tile, &
+     p_surf, & ! surface pressure, N/m2
+     ustar, & ! friction velocity above canopy, m/s
+     grnd_T, & ! surface temperature, degK
+     snow_active, &
+     ! output:
+     con_v_h, con_v_v, con_g_h, con_g_v )
+
+  use canopy_air_mod, only: cana_turbulence, surface_resistances
+  use glacier_mod, only : conserve_glacier_mass
+
+  type(land_tile_type), intent(inout) :: tile
+  real, intent(in) :: &
+      p_surf,      & ! surface pressure, N/m2
+      ustar,       & ! friction velocity above canopy, m/s
+      grnd_T         ! surface temperature, degK
+  logical, intent(in) :: snow_active
+
+
+  real, intent(out) :: &
+       con_v_h(:), con_v_v(:), & ! one-sided foliage-CAS conductance per unit ground area
+       con_g_h   , con_g_v       ! ground-CAS turbulent conductance per unit ground area
+
+  type(vegn_cohort_type), pointer :: cc(:)
+  integer :: current_layer, i
+  real :: &
+       gaps,      &  ! fraction of gaps in the canopy, used to calculate cover
+       layer_gaps, & ! fraction of gaps in the canopy in a single layer, accumulator value
+       u_sfc, & ! near-surface wind speed, m/s
+       ustar_sfc, & ! near-surface friction velocity, m/s
+       r_evap, & ! surface resistance for evaporation, s/m
+       r_sens    ! surface resistance for sensible heat, s/m
+
+  if(associated(tile%vegn)) then
+     cc => tile%vegn%cohorts(1:tile%vegn%n_cohorts) ! note that the size of cc is always N
+     gaps = 1.0 ; current_layer = cc(1)%layer ; layer_gaps = 1.0
+     ! check the range of input temperature
+     do i = 1,tile%vegn%n_cohorts
+        ! calculate total cover
+        if (cc(i)%layer/=current_layer) then
+           gaps = gaps*layer_gaps; layer_gaps = 1.0; current_layer = cc(i)%layer
+        endif
+        layer_gaps = layer_gaps-cc(i)%layerfrac*cc(i)%cover
+     enddo
+     gaps = gaps*layer_gaps ! take the last layer into account
+
+     ! calculate aerodynamic conductance coefficients
+     call cana_turbulence(ustar, 1-gaps, &
+        cc(:)%layerfrac, cc(:)%height, cc(:)%zbot, cc(:)%lai, cc(:)%sai, cc(:)%leaf_size, &
+        tile%land_d, tile%land_z0m, tile%land_z0s, tile%grnd_z0s, &
+        ! output:
+        con_v_h, con_v_v, con_g_h, con_g_v, u_sfc, ustar_sfc)
+     ! calculate surface resistances to evaporation and sensible heat
+     call surface_resistances(tile%soil, tile%vegn, tile%diag, &
+        grnd_T, u_sfc, ustar_sfc, tile%land_d, p_surf, snow_active, &
+        ! output:
+        r_evap, r_sens)
+     con_g_v = con_g_v/(1.0+r_evap*con_g_v)
+     con_g_h = con_g_h/(1.0+r_sens*con_g_h)
+
+     if(is_watch_point()) then
+        __DEBUG4__(tile%land_d, tile%land_z0s, tile%land_z0m, tile%grnd_z0s)
+        __DEBUG1__(con_v_h)
+        __DEBUG1__(con_v_v)
+        __DEBUG1__(con_g_h)
+        __DEBUG1__(con_g_v)
+     endif
+  else
+     con_g_h = con_fac_large ; con_g_v = con_fac_large
+     con_v_h = 0.0           ; con_v_v = 0.0;
+     if(associated(tile%glac).and.conserve_glacier_mass.and..not.snow_active) &
+          con_g_v = con_fac_small
+  endif
+end subroutine cana_resistances
 
 ! ============================================================================
 subroutine update_land_model_slow ( cplr2land, land2cplr )
