@@ -481,7 +481,12 @@ subroutine land_model_init &
      ! initialize map of tiles -- construct it by combining tiles
      ! from component models
      call error_mesg('land_model_init','cold-starting land cover map',NOTE)
-     call land_cover_cold_start()
+     if (predefined_tiles) then
+        call land_cover_cold_start_predefined()
+     else
+        call land_cover_cold_start()
+     endif
+  endif
   endif
   call free_land_restart(restart)
 
