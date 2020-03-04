@@ -89,9 +89,7 @@ real :: d_visc_max        = 0.1 ! when positive, max thickness of viscous sublay
                                 ! negative or zero turn off limitation
 real :: k_over_B          = 2.0 !
 ! fog-related namelist variables
-logical, protected, public :: do_fog_vegn   = .FALSE.  ! if true, water vapore in canopy air can form condensate
-logical, protected, public :: do_fog_glac   = .FALSE.
-logical, protected, public :: do_fog_lake   = .FALSE.
+logical, protected, public :: do_fog   = .FALSE.  ! if true, water vapore in canopy air can form condensate
 real,    protected, public :: fog_form_rate = 1.0
 real,    protected, public :: fog_diss_time = 0.0   ! e-folding time of fog evaporation in dry environment, s
                                                     ! 0 or below means instant dissipation
@@ -105,7 +103,7 @@ namelist /cana_nml/ &
   d_visc_max, &
   rav_lit_0, rav_lit_vi, rav_lit_fsc, rav_lit_ssc, rav_lit_deadmic, rav_lit_bwood, &
   ! fog-related namelists
-  do_fog_vegn, do_fog_glac, do_fog_lake, fog_form_rate, fog_diss_time
+  do_fog, fog_form_rate, fog_diss_time
 
 !---- end of namelist --------------------------------------------------------
 
@@ -568,6 +566,7 @@ subroutine surface_resistances(tile, T_sfc, u_sfc, ustar_sfc, p, snow_active, &
      write(*,*) '#### end of surface resistance input ####'
   endif
 
+  theta_sfc = 1.0 ! to avoid sending undefined values to diagnotics
   select case(soil_resistance_option)
   case(RESIST_NONE)
       r_sv_evap = 0

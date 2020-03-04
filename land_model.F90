@@ -62,7 +62,7 @@ use vegn_fire_mod, only : update_fire_fast, fire_transitions, save_fire_restart
 use cana_tile_mod, only : canopy_air_mass, canopy_air_mass_for_tracers, cana_tile_heat, cana_tile_carbon
 use canopy_air_mod, only : read_cana_namelist, cana_init, cana_end, save_cana_restart, &
      cana_roughness, cana_turbulence, surface_resistances, &
-     do_fog_glac, do_fog_lake, do_fog_vegn, fog_form_rate, fog_diss_time
+     do_fog, fog_form_rate, fog_diss_time
 use river_mod, only : river_init, river_end, update_river, river_stock_pe, &
      save_river_restart, river_tracers_init, num_river_tracers, river_tracer_index, &
      river_tracer_names, get_river_water
@@ -1504,7 +1504,7 @@ subroutine update_land_model_fast_0d ( tile, l,itile, N, land2cplr, &
   integer :: i, j, ii, jj ! indices for debug output
   integer :: ierr
   integer :: tr ! tracer index
-  logical :: snow_active, redo_leaf_water, redo_cana_q
+  logical :: snow_active, redo_leaf_water
   integer :: canopy_water_step, lw_step, fog_step
   real :: lmass0, fmass0, heat0, cmass0, nmass0, nflux0, v0
   real :: lmass1, fmass1, heat1, cmass1, nmass1, nflux1
@@ -2102,9 +2102,7 @@ subroutine update_land_model_fast_0d ( tile, l,itile, N, land2cplr, &
            endif
 
            fog_step = fog_step + 1
-           if (associated(tile%lake).and..not.do_fog_lake)    exit ! from fog_step loop
-           if (associated(tile%glac).and..not.do_fog_glac)    exit ! from fog_step loop
-           if (associated(tile%vegn).and..not.do_fog_vegn)    exit ! from fog_step loop
+           if (.not.do_fog)                                   exit ! from fog_step loop
            if (fog_step>max_fog_steps)                        exit ! from fog_step loop
            if (cana_q+delta_qc < cana_qsat+DqsatDTc*delta_Tc) exit ! from fog_step loop
            ! specific humidity at the end of the time step exceeds saturation
@@ -2132,7 +2130,7 @@ subroutine update_land_model_fast_0d ( tile, l,itile, N, land2cplr, &
              endif
            enddo
         endif
-        if (.not.(redo_leaf_water.or.redo_cana_q)) exit ! from loop
+        if (.not.redo_leaf_water) exit ! from loop
      enddo ! canopy_water_step
      ! call check_var_range(delta_Tv,  -HUGE(1.0), lw_delta_T_thresh, 'for LW derivative improvement', 'delta_Tv', WARNING)
      ! call check_var_range(delta_Tg,  -HUGE(1.0), lw_delta_T_thresh, 'for LW derivative improvement', 'delta_Tg', WARNING)
