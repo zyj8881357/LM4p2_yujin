@@ -725,7 +725,11 @@ real function soil_evap_bl_resistance(soil, theta_sfc, T_sfc, p, d_bl) result(r_
         __DEBUG4__(f_diff,r_pores,diff_h2o,r_bl)
      endif
   else ! theta_sfc <= 0
-     r_bl = HUGE(r_bl)
+     ! returning HUGE value is not incorrect, but it causes overflow in the follow-up
+     ! calculations of combined resistances/conductances. Therefore we just return an
+     ! arbitrary big value.
+     ! r_bl = HUGE(r_bl)
+     r_bl = 1e10
      if (is_watch_point()) then
         __DEBUG1__(r_bl)
      endif
