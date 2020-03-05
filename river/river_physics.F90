@@ -253,7 +253,11 @@ contains
             ! FIRST COMPUTE LAKE MASS BALANCE (FROM INFLOC AND INFLOW TO LAKE_OUTFLOW)
             tot_area = lake_sfc_A(i,j)
             lake_area = (1.-Afrac_rsv(i,j))*lake_sfc_A(i,j)
-            if(Afrac_rsv(i,j)<1.) V2A_l=(1.-Vfrac_rsv(i,j))/(1.-Afrac_rsv(i,j))
+            if(Afrac_rsv(i,j)<1.)then
+              V2A_l = (1.-Vfrac_rsv(i,j))/(1.-Afrac_rsv(i,j))
+            else
+              V2A_l = 0.
+            endif
             influx   =(River%inflow  (i,j)  +River%infloc  (i,j))  *DENS_H2O*River%dt_slow ! m3/s * kg/m3 * s =kg
             influx_c =(River%inflow_c(i,j,:)+River%infloc_c(i,j,:))*DENS_H2O*River%dt_slow ! J m3/kg /s * kg/m3 * s = J
 
@@ -276,7 +280,6 @@ contains
                 lake_ws(i,j,1) = lake_ws(i,j,1) +         influx_c(1) /tot_area
                 lake_T (i,j,1) = tfreeze + &
                    (h+influx_c(2)/tot_area)/(clw*lake_wl(i,j,1)+csw*lake_ws(i,j,1)) !(J/m2)/(J/(kgK)*(kg/m2))= (J/m2)/(J/(Km2)) = K
-                is_terminal = .True.
                 if (is_watch_cell()) then    
                          write(*,*) 'before lake_abstraction'            
                          write(*,*) 'tot_area:', tot_area
@@ -296,6 +299,7 @@ contains
                          write(*,*) 'Vfrac_rsv(i,j):', Vfrac_rsv(i,j)
                          write(*,*) 'rsv_depth(i,j):', rsv_depth(i,j)
                 endif
+                is_terminal = .True.                
                 call lake_abstraction( use_reservoir, is_terminal, &
                                        irr_demand(i,j), Afrac_rsv(i,j), Vfrac_rsv(i,j), &
                                        influx, influx_c(1:2), &
@@ -363,7 +367,8 @@ contains
                          write(*,*) 'Afrac_rsv(i,j):', Afrac_rsv(i,j)
                          write(*,*) 'Vfrac_rsv(i,j):', Vfrac_rsv(i,j)
                          write(*,*) 'rsv_depth(i,j):', rsv_depth(i,j)
-                     endif                                      
+                     endif  
+                     is_terminal = .False.                                    
                      call lake_abstraction( use_reservoir, is_terminal, &
                                             irr_demand(i,j), Afrac_rsv(i,j), Vfrac_rsv(i,j), &
                                             influx, influx_c(1:2), &
