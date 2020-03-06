@@ -135,6 +135,7 @@ character(len=*), parameter :: module_name = 'river_mod'
   character(len=128) :: river_src_file   = 'INPUT/river_data.nc'
   character(len=128) :: river_Omean_file = 'INPUT/river_Omean.nc'
   character(len=128) :: river_threshold_file = 'INPUT/threshold.nc'
+  character(len=128) :: env_flow_file = 'INPUT/env_flow.nc'  
 !---------------------------------------------------------------------
   logical :: module_is_initialized = .FALSE.
   integer :: isc, iec, jsc, jec                         ! compute domain decomposition
@@ -1265,6 +1266,7 @@ end subroutine groundwater_abstraction
     deallocate(River%vf_ref,River%t_ref,River%q10,River%kinv)
     deallocate(River%d_coef,River%o_coef,River%w_coef)
     deallocate(River%threshold)
+    deallocate(River%env_flow)    
     deallocate(River%abst)
     deallocate(River%abstflow_c)    
     deallocate(River%lake_abst)
@@ -1325,7 +1327,7 @@ end subroutine groundwater_abstraction
     integer                           :: ni, nj, i, j, siz(4), ntiles
     real, dimension(:,:), allocatable :: xt, yt, frac, glon, glat, lake_frac
     integer :: nerrors ! number of errors detected during initialization
-    real, dimension(lnd%ls:lnd%le) :: threshold
+    real, dimension(lnd%ls:lnd%le) :: threshold, env_flow
 
     ntiles = mpp_get_ntile_count(domain)
 
@@ -1394,6 +1396,7 @@ end subroutine groundwater_abstraction
     allocate(River%t_ref(num_phys+1:num_species),River%vf_ref(num_phys+1:num_species))
     allocate(River%q10  (num_phys+1:num_species),River%kinv  (num_phys+1:num_species))   
     allocate(River%threshold  (isc:iec, jsc:jec) )   
+    allocate(River%env_flow  (isc:iec, jsc:jec) )       
     allocate(River%abst  (isc:iec, jsc:jec) )        
     allocate(River%abstflow_c (isc:iec, jsc:jec, num_species) )   
     allocate(River%lake_abst (isc:iec, jsc:jec) )
@@ -1430,6 +1433,7 @@ end subroutine groundwater_abstraction
     River%inflow    = 0.
     River%inflow_c  = 0. 
     River%threshold = 0.   
+    River%env_flow  = 0.       
     River%abst      = 0.  
     River%abstflow_c= 0.
     River%lake_abst = 0.  
@@ -1500,10 +1504,20 @@ end subroutine groundwater_abstraction
     if(file_exist(river_threshold_file))then
       call read_field(river_threshold_file, 'Threshold', threshold) !kg/m2
       threshold = threshold*lnd%ug_cellarea/DENS_H2O !kg/m2 * m2 / kg/m3 = m3
+      where (threshold<0.) threshold = 0. 
       call mpp_pass_UG_to_SG(lnd%ug_domain,threshold,River%threshold) 
     else
       River%threshold = 0.
     endif   
+
+    if(file_exist(env_flow_file))then
+      call read_field(env_flow_file, 'Env_flow', env_flow) !kg/(m2 s)
+      env_flow = env_flow*lnd%ug_cellarea/DENS_H2O !kg/(m2 s) * m2 / kg/m3 = m3/s
+      where (env_flow<0.) env_flow = 0.       
+      call mpp_pass_UG_to_SG(lnd%ug_domain,env_flow,River%env_flow) 
+    else
+      River%env_flow = 0.
+    endif    
 
     deallocate(lake_frac)
 

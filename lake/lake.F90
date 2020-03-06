@@ -1028,7 +1028,7 @@ end subroutine lake_step_2
 subroutine lake_abstraction (use_reservoir, is_terminal, &
                              irr_demand, Afrac_rsv, Vfrac_rsv, &
                              influx, influx_c, &
-                             tot_area, lake_depth_sill, rsv_depth, &
+                             tot_area, lake_depth_sill, rsv_depth, env_flow, &
                              lake_T, lake_wl, lake_ws, lake_dz, &
                              lake_abst, lake_habst, &
                              rsv_out, rsv_out_s, rsv_out_h, vr1)
@@ -1040,6 +1040,7 @@ subroutine lake_abstraction (use_reservoir, is_terminal, &
   real, intent(in) :: influx_c(2) !kg, J
   real, intent(in)    :: tot_area !m2 lake_area
   real, intent(in)    :: lake_depth_sill, rsv_depth !m
+  real, intent(in)    :: env_flow !m3
   real, dimension(num_l), intent(inout) ::  lake_T, lake_wl, lake_ws, lake_dz
   real, intent(out)   :: lake_abst !m3
   real, intent(out)   :: lake_habst !J
@@ -1113,6 +1114,8 @@ subroutine lake_abstraction (use_reservoir, is_terminal, &
    else
      rsv_out = vr0 + influx/DENS_H2O - lake_abst - ResMax*res_capacity !m3
    endif
+   rsv_out = max(env_flow, rsv_out) !m3
+   rsv_out = min(vr0 + influx/DENS_H2O - lake_abst - ResMin*res_capacity, rsv_out) !m3
    !if here is river terminal point, and all area is reservoir, then no rsv_out allowed.
    if(is_terminal.and.Afrac_rsv>=1.) rsv_out = 0. !m3
    vr1 = vr0 + influx/DENS_H2O - lake_abst - rsv_out !m3

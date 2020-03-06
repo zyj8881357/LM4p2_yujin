@@ -303,7 +303,7 @@ contains
                 call lake_abstraction( use_reservoir, is_terminal, &
                                        irr_demand(i,j), Afrac_rsv(i,j), Vfrac_rsv(i,j), &
                                        influx, influx_c(1:2), &
-                                       tot_area, lake_depth_sill(i,j), rsv_depth(i,j), &
+                                       tot_area, lake_depth_sill(i,j), rsv_depth(i,j), River%env_flow(i,j)*River%dt_slow, &
                                        lake_T(i,j,:), lake_wl(i,j,:), lake_ws(i,j,:),lake_dz(i,j,:), &
                                        River%lake_abst(i,j), River%lake_habst(i,j), &
                                        rsv_outflow(i,j), rsv_outflow_s, rsv_outflow_h, vr1)                                                 
@@ -372,7 +372,7 @@ contains
                      call lake_abstraction( use_reservoir, is_terminal, &
                                             irr_demand(i,j), Afrac_rsv(i,j), Vfrac_rsv(i,j), &
                                             influx, influx_c(1:2), &
-                                            tot_area, lake_depth_sill(i,j), rsv_depth(i,j), &
+                                            tot_area, lake_depth_sill(i,j), rsv_depth(i,j), River%env_flow(i,j)*River%dt_slow, &
                                             lake_T(i,j,:), lake_wl(i,j,:), lake_ws(i,j,:),lake_dz(i,j,:), &
                                             River%lake_abst(i,j), River%lake_habst(i,j), &
                                             rsv_outflow(i,j), rsv_outflow_s, rsv_outflow_h, vr1)  
