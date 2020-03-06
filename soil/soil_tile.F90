@@ -48,9 +48,12 @@ public :: soil_data_psi_for_rh
 public :: soil_data_gw_hydraulics
 public :: soil_data_gw_hydraulics_ar5
 public :: soil_data_vwc_for_init_only
+
 public :: soil_data_init_derive_subsurf_pars
 public :: soil_data_init_derive_subsurf_pars_ar5
 public :: soil_data_init_derive_subsurf_pars_tiled
+public :: finalize_soil_data_init
+
 public :: soil_ave_temp  ! calculate average soil temeperature
 public :: soil_ave_theta0! calculate average soil moisture, pcm based on available water, zeta input
 public :: soil_ave_theta1! calculate average soil moisture, ens based on all water
@@ -128,7 +131,6 @@ type :: soil_pars_type
   real vwc_wilt
   real vwc_fc
   real vwc_sat
-  real vlc_min
   real awc_lm2
   real k_sat_ref
   real psi_sat_ref
@@ -355,6 +357,9 @@ real    :: log_rho_max           = 2.0
 real    :: z_ref                 = 0.0       ! depth where [psi/k]_sat = [psi/k]_sat_ref
 real    :: geothermal_heat_flux_constant = 0.0  ! true continental average is ~0.065 W/m2
 real    :: Dpsi_min_const        = -1.e16
+logical :: w_fc_bug              = .FALSE.   ! w_wc and w_wilt were initialized before
+   ! proper alpha was set. Setting w_fc_bug to true reverts to this behavior, to allow
+   ! to reproduce old answers.
 
 real, dimension(n_dim_soil_types) :: &
   dat_w_sat=&
@@ -462,7 +467,7 @@ namelist /soil_data_nml/ psi_wilt, &
      dat_refl_dry_dif,            dat_refl_sat_dif,              &
      dat_emis_dry,              dat_emis_sat,                &
      dat_z0_momentum,           dat_tf_depr,      clay,           &
-     peat_soil_e_depth,         peat_kx0
+     peat_soil_e_depth,         peat_kx0,        w_fc_bug
 !---- end of namelist --------------------------------------------------------
 
 real    :: gw_hillslope_length   = 1000.
@@ -809,23 +814,6 @@ subroutine soil_data_init_0d(soil)
   end select
 
   ! ---- derived constant soil parameters
-  ! w_fc (field capacity) set to w at which hydraulic conductivity equals
-  ! a nominal drainage rate "rate_fc"
-  ! w_wilt set to w at which psi is psi_wilt
-  if (use_lm2_awc) then
-     soil%w_wilt(:) = 0.15
-     soil%w_fc  (:) = 0.15 + soil%pars%awc_lm2
-  else
-     soil%w_wilt(:) = soil%pars%vwc_sat &
-          *(soil%pars%psi_sat_ref/(psi_wilt*soil%alpha(:)))**(1/soil%pars%chb)
-     soil%w_fc  (:) = soil%pars%vwc_sat &
-          *(rate_fc/(soil%pars%k_sat_ref*soil%alpha(:)**2))**(1/(3+2*soil%pars%chb))
-  endif
-
-  soil%pars%vwc_wilt = soil%w_wilt(1)
-  soil%pars%vwc_fc   = soil%w_fc  (1)
-
-  soil%pars%vlc_min = soil%pars%vwc_sat*K_rel_min**(1/(3+2*soil%pars%chb))
 
   soil%z0_scalar = soil%pars%z0_momentum * exp(-k_over_B)
 
@@ -849,6 +837,33 @@ subroutine soil_data_init_0d(soil)
       soil%pars%Qmax = max(0.0,10**(.4833*log10(clay(k))+2.3282)*(1.0-dat_w_sat(k))*2650*1e-6)
   endif
 end subroutine soil_data_init_0d
+
+subroutine finalize_soil_data_init ( soil )
+  type(soil_tile_type), intent(inout) :: soil
+
+  integer :: l
+  real    :: alpha
+
+  ! w_fc (field capacity) set to w at which hydraulic conductivity equals
+  ! a nominal drainage rate "rate_fc"
+  ! w_wilt set to w at which psi is psi_wilt
+  if (use_lm2_awc) then
+     soil%w_wilt(:) = 0.15
+     soil%w_fc  (:) = 0.15 + soil%pars%awc_lm2
+  else
+     do l = 1,num_l
+        alpha = soil%alpha(l)
+        if (w_fc_bug) alpha = 1.0
+        soil%w_wilt(l) = soil%pars%vwc_sat &
+             *(soil%pars%psi_sat_ref/(psi_wilt*alpha))**(1/soil%pars%chb)
+         soil%w_fc(l)  = soil%pars%vwc_sat &
+             *(rate_fc/(soil%pars%k_sat_ref*alpha**2))**(1/(3+2*soil%pars%chb))
+     enddo
+  endif
+
+  soil%pars%vwc_wilt = soil%w_wilt(1)
+  soil%pars%vwc_fc   = soil%w_fc  (1)
+end subroutine finalize_soil_data_init
 
 ! ============================================================================
 subroutine soil_data_init_derive_subsurf_pars ( soil )
