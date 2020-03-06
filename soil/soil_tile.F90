@@ -128,8 +128,6 @@ character(16), parameter, public :: &
 
 ! ==== types =================================================================
 type :: soil_pars_type
-  real vwc_wilt
-  real vwc_fc
   real vwc_sat
   real awc_lm2
   real k_sat_ref
@@ -838,6 +836,9 @@ subroutine soil_data_init_0d(soil)
   endif
 end subroutine soil_data_init_0d
 
+! ============================================================================
+! finalize calculations of soil parameters. This is called after all other,
+! case-specific initialization calculations are done
 subroutine finalize_soil_data_init ( soil )
   type(soil_tile_type), intent(inout) :: soil
 
@@ -856,13 +857,10 @@ subroutine finalize_soil_data_init ( soil )
         if (w_fc_bug) alpha = 1.0
         soil%w_wilt(l) = soil%pars%vwc_sat &
              *(soil%pars%psi_sat_ref/(psi_wilt*alpha))**(1/soil%pars%chb)
-         soil%w_fc(l)  = soil%pars%vwc_sat &
+        soil%w_fc(l)  = soil%pars%vwc_sat &
              *(rate_fc/(soil%pars%k_sat_ref*alpha**2))**(1/(3+2*soil%pars%chb))
      enddo
   endif
-
-  soil%pars%vwc_wilt = soil%w_wilt(1)
-  soil%pars%vwc_fc   = soil%w_fc  (1)
 end subroutine finalize_soil_data_init
 
 ! ============================================================================
