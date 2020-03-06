@@ -747,6 +747,8 @@ subroutine lake_transitions_init()
         endif
         !if no restart sets Vfrac_rsv, let Vfrac_rsv be Afrac_rsv at the begining.
         if(tile%lake%Vfrac_rsv == -1.) tile%lake%Vfrac_rsv = tile%lake%Afrac_rsv 
+        ! three special cases which can override default or restart Vfrac_rsv values. 
+        if(sum(tile%lake%wl+tile%lake%ws)<=0.) tile%lake%Vfrac_rsv = 0.        
         if(tile%lake%Afrac_rsv <= 0.) tile%lake%Vfrac_rsv = 0.        
         if(tile%lake%Afrac_rsv >= 1.) tile%lake%Vfrac_rsv = 1.
       enddo
@@ -1493,6 +1495,61 @@ subroutine land_transitions_0d(d_list,d_kinds,a_kinds,area)
 
 end subroutine land_transitions_0d
 
+! =============================================================================
+subroutine lake_transitions (time)
+  type(time_type), intent(in) :: time  
+
+  ! ---- local vars.
+  integer :: i,k,k1,k2,k3,i1,i2,l,m, m1,m2, n
+  real    :: frac(lnd%ls:lnd%le)
+  type(tran_type), pointer :: transitions(:,:)
+  integer :: second, minute, hour, day0, day1, month0, month1, year0, year1
+  real    :: w
+  real    :: diag(lnd%ls:lnd%le)
+  logical :: used
+  real :: tran1 (M_LU_TYPES, M_LU_TYPES) ! output array of transitions
+  real :: tran0 (N_LU_TYPES, N_LU_TYPES) ! output array of transitions
+  real :: fi1(lnd%ls:lnd%le)    
+  real :: area0 (lnd%ls:lnd%le, M_LU_TYPES) ! fraction of each land use type before transitions
+  real :: temp_area (lnd%ls:lnd%le, M_LU_TYPES) ! fraction of each landuse type before transitions
+  real :: atot (lnd%ls:lnd%le)
+  real :: check_area  
+  type(land_tile_enum_type) :: ce
+  type(land_tile_type), pointer :: tile  
+  integer :: land_flag = 1
+  integer :: ntime
+
+  if(.not.do_lake_change) return
+
+  call get_date(time,             year0,month0,day0,hour,minute,second)
+  call get_date(time-lnd%dt_slow, year1,month1,day1,hour,minute,second)
+  if(year0 == year1) &
+!!$  if(day0 == day1) &
+       return ! do nothing during a year
+
+  if (mpp_pe()==mpp_root_pe()) &
+       call log_date('lake_transitions: applying lake area transitions on ', time)   
+       
+  transitions => NULL()
+  do k1 = 1,N_LU_TYPES
+  do k2 = 1,N_LU_TYPES
+     ! get transition rate for this specific transition
+     frac(:) = 0.0
+     if (timel0==set_date(0001,01,01).and.state_ncid_lake>0) then
+        ! read initial transition from state file
+        call time_interp(time, state_time_in_lake, w, i1,i2)
+        call get_varset_data(state_ncid_lake,input_state_lake(k1,k2),i1,frac)
+     else
+        if (any(input_tran_lake(k1,k2)%id(:)>0)) then
+           call integral_transition(timel0,time,input_tran_lake(k1,k2),frac)
+        endif
+     endif
+     call add_to_transitions(frac,time0,time,k1,k2,transitions,land_flag)
+  enddo
+  enddo             
+
+
+end subroutine lake_transitions
 ! =============================================================================
 ! check that the requested area of transitions is not larger than available area
 ! in tiles
