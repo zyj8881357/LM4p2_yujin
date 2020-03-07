@@ -973,8 +973,9 @@ end subroutine lake_step_2
 
   end subroutine lake_relayer_converge
 ! ============================================================================
-  subroutine remove_negative_water(lake_wl, lake_ws, lake_T, lake_dz)
+  subroutine remove_negative_water(lake_wl, lake_ws, lake_T, lake_dz, rsv_zmin)
     real, dimension(num_l), intent(inout) ::  lake_wl, lake_ws, lake_T, lake_dz
+    real, intent(in) :: rsv_zmin  !m
     
     integer :: n
     integer :: n_max = 100000 
@@ -982,10 +983,15 @@ end subroutine lake_step_2
     call melt_negative(lake_wl, lake_ws, lake_T, lake_dz)
     n = 0
     do while(lake_ws(1)<0.or.lake_wl(1)<0.)
+      !if(sum(lake_dz) <= rsv_zmin)then
+      !  call error_mesg('remove_negative_water', 'water in tile is too small', NOTE)
+      !  exit
+      !endif           
       call lake_relayer2 (lake_wl, lake_ws, lake_T, lake_dz)
       call melt_negative(lake_wl, lake_ws, lake_T, lake_dz)
       n = n+1
-      if(n>=n_max) call error_mesg('remove_negative_water', 'relayer too many times', FATAL)      
+      if(n>=n_max) & 
+        call error_mesg('remove_negative_water', 'relayer too many times', FATAL) 
     enddo     
 
   end subroutine remove_negative_water
@@ -1061,6 +1067,13 @@ subroutine lake_abstraction (use_reservoir, is_terminal, &
   lake_abst = 0. !m3
   lake_habst = 0. !J
 
+  !if we use reservoir, all water must be extracted from reservoir, otherwise, all water must be extracted from lake  
+  if(use_reservoir.and.Afrac_rsv<=0.)then
+    rsv_out = 0. ;  vr1 = 0.
+    rsv_out_s = 0. ; rsv_out_h = 0.  
+    return  
+  endif
+
   if(use_reservoir)then !We extract water from reservoir only, if there is no reservoir, we don't extract water.
     res_capacity = (Afrac_rsv*tot_area) * rsv_depth  !m3 
     frac_abst = Vfrac_rsv 
@@ -1068,16 +1081,36 @@ subroutine lake_abstraction (use_reservoir, is_terminal, &
     res_capacity = tot_area * lake_depth_sill !m3
     frac_abst = 1.
   endif
+  
+
   v0 = (sum(lake_wl+lake_ws)*tot_area - influx)/DENS_H2O !m3 
-  vr0 = frac_abst*v0 !m3  
+  vr0 = frac_abst*v0 !m3   if v0<0, we must have vr0==0
+
+  if(sum(lake_wl+lake_ws)*tot_area/DENS_H2O <= ResMin*res_capacity)then !m3
+   rsv_out = 0. ;  vr1 = 0.
+   rsv_out_s = 0. ; rsv_out_h = 0.  
+   if(use_reservoir) vr1 = vr0 + influx/DENS_H2O !m3
+   return      
+  endif
+
+  if(use_reservoir.or.do_lake_abstraction)then 
+    call remove_negative_water(lake_wl, lake_ws, lake_T, lake_dz, ResMin*res_capacity/tot_area)
+    !if(sum(lake_dz)<=ResMin*res_capacity/tot_area)then !m
+    !  rsv_out = 0. ;  vr1 = 0.
+    !  rsv_out_s = 0. ; rsv_out_h = 0.  
+    !  if(use_reservoir) vr1 = vr0 + influx/DENS_H2O
+    !  return      
+    !endif  
+  endif
+
   v0_liq = (sum(lake_wl)*tot_area - (influx-influx_c(1)))/DENS_H2O !m3
   vr0_liq = frac_abst*v0_liq !m3 
   lake_avail = min(vr0_liq + (influx-influx_c(1))/DENS_H2O, & !all liquid water in reservoir
                    vr0 + influx/DENS_H2O - ResMin*res_capacity)   !m3 
-  !if we use reservoir, all water must be extracted from reservoir, otherwise, all water must be extracted from lake  
-  if(use_reservoir.and.Afrac_rsv<=0.) lake_avail = 0. 
+  lake_avail = min(sum(lake_wl)*tot_area/DENS_H2O, lake_avail) !m3
+  lake_avail = min(sum(lake_wl+lake_ws)*tot_area/DENS_H2O-ResMin*res_capacity, lake_avail) !m3
+  lake_avail = max(0., lake_avail)
 
-  if(use_reservoir.or.do_lake_abstraction) call remove_negative_water(lake_wl, lake_ws, lake_T, lake_dz)
 
   IF (do_lake_abstraction.and.&
       (lake_ws(1) < lake_ws_thres).and.&
@@ -1105,6 +1138,10 @@ subroutine lake_abstraction (use_reservoir, is_terminal, &
      irr_demand = max(0., irr_demand - lake_collected/DENS_H2O) !kg / kg/m3 = m3
      lake_abst = lake_collected/DENS_H2O !kg / kg/m3 = m3
 
+     if(sum(lake_wl+lake_ws)*tot_area/DENS_H2O < (ResMin-0.01)*res_capacity) &
+       call error_mesg('lake_abstraction', 'water in tile is less than ResMin*res_capacity', FATAL)
+     if(vr0 + influx/DENS_H2O - lake_abst < (ResMin-0.01)*res_capacity) &
+       call error_mesg('lake_abstraction', 'water in reservoir is less than ResMin*res_capacity', FATAL)       
   ENDIF !  if (do_lake_abstraction) then
 
  !calculate reservoir outflow
@@ -1116,19 +1153,21 @@ subroutine lake_abstraction (use_reservoir, is_terminal, &
    endif
    rsv_out = max(env_flow, rsv_out) !m3
    rsv_out = min(vr0 + influx/DENS_H2O - lake_abst - ResMin*res_capacity, rsv_out) !m3
+   rsv_out = max(0., rsv_out) !m3
    !if here is river terminal point, and all area is reservoir, then no rsv_out allowed.
    if(is_terminal.and.Afrac_rsv>=1.) rsv_out = 0. !m3
    vr1 = vr0 + influx/DENS_H2O - lake_abst - rsv_out !m3
+   if(vr1<0.) &
+     call error_mesg('lake_abstraction', 'vr1 could not be less than 0', FATAL)
    rsv_out = rsv_out*DENS_H2O !m3 * kg/m3 = kg
    rsv_out_s = 0. ; rsv_out_h = 0.
-   if(Afrac_rsv<=0.)then
-    rsv_out = 0.; vr1 = 0.
-   endif
    if(rsv_out>0..and.Afrac_rsv>=1) then !special case: no lake, only reservoir
      call rsv_outflow_c(lake_wl,lake_ws,lake_T,lake_dz,&
                         tot_area,rsv_out,&
                         rsv_out_s,rsv_out_h) !we need to know rsv_out_s,rsv_out_h only when there is no lake
-     vr1 = vr0 + influx/DENS_H2O - lake_abst - rsv_out !m3     
+     vr1 = vr0 + influx/DENS_H2O - lake_abst - rsv_out/DENS_H2O !m3
+     if(vr1<0.) &
+       call error_mesg('lake_abstraction', 'vr1 could not be less than 0', FATAL)   
    endif
  else
    rsv_out = 0. ;  vr1 = 0.

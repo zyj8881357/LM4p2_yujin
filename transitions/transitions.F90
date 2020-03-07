@@ -747,6 +747,8 @@ subroutine lake_transitions_init()
         endif
         !if no restart sets Vfrac_rsv, let Vfrac_rsv be Afrac_rsv at the begining.
         if(tile%lake%Vfrac_rsv == -1.) tile%lake%Vfrac_rsv = tile%lake%Afrac_rsv 
+        ! three special cases which can override default or restart Vfrac_rsv values. 
+        if(sum(tile%lake%wl+tile%lake%ws)<=0.) tile%lake%Vfrac_rsv = 0.
         if(tile%lake%Afrac_rsv <= 0.) tile%lake%Vfrac_rsv = 0.        
         if(tile%lake%Afrac_rsv >= 1.) tile%lake%Vfrac_rsv = 1.
       enddo
