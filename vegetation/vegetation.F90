@@ -2352,13 +2352,14 @@ subroutine update_derived_vegn_data(vegn, soil)
   integer :: sp ! shorthand for the vegetation species
   integer :: n_layers ! number of layers in cohort
   real, allocatable :: layer_area(:) ! total area of crowns in the layer
+  real, allocatable :: scale(:)      ! scaling factor for area of crowns in the layer
   integer :: current_layer
   real :: zbot ! height of the bottom of the canopy, m (=top of the lower layer)
   real :: VRL(num_l) ! vertical distribution of volumetric root length, m/m3
 
   ! determine layer boundaries in the array of cohorts
   n_layers = maxval(vegn%cohorts(:)%layer)
-  allocate (layer_area(n_layers))
+  allocate (layer_area(n_layers), scale(n_layers))
 
   ! calculate total area of canopies per layer (per unit tile area)
   layer_area(:) = 0
@@ -2368,19 +2369,22 @@ subroutine update_derived_vegn_data(vegn, soil)
   enddo
 
   ! limit layer area so that it only squeezes the cohorts if the total area of
-  ! the canopies is higher than tile area
-  if (allow_external_gaps) then
-     do k = 1,n_layers
-        layer_area(k) = max(layer_area(k),1.0)
-     enddo
-  endif
-
-  ! protect from zero layer area situation: this can happen if all cohorts die
-  ! due to mortality or starvation. In this case n_layers is 1, of course.
+  ! the canopies is higher than the tile area
   do k = 1,n_layers
+     ! protect from zero layer area situation: this can happen if all cohorts die
+     ! due to mortality or starvation. In this case n_layers is 1, of course.
      if (layer_area(k)<=0) layer_area(k) = 1.0
-  enddo
 
+     if (layer_area(k)<=1) then
+        if (allow_external_gaps) then
+           scale(k) = 1
+        else
+           scale(k) = layer_area(k)
+        endif
+     else
+        scale(k) = layer_area(k)
+     endif
+  enddo
 
   if (is_watch_point()) then
      write(*,*)'#### update_derived_vegn_data ####'
@@ -2405,13 +2409,13 @@ subroutine update_derived_vegn_data(vegn, soil)
        ! calculate area fraction that the cohort occupies in its layer
 !       if (layer_area(cc%layer)<=0) call error_mesg('update_derived_vegn_data', &
 !          'total area of canopy layer '//string(cc%layer)//' is zero', FATAL)
-       cc%layerfrac = cc%crownarea*cc%nindivs*(1-spdata(sp)%internal_gap_frac)/layer_area(cc%layer)
+       cc%layerfrac = cc%crownarea*cc%nindivs*(1-spdata(sp)%internal_gap_frac)/scale(cc%layer)
        ! calculate the leaf area index based on the biomass of leaves
        ! leaf_area_from_biomass returns the total area of leaves per individual;
        ! convert it to leaf area per m2, and re-normalize to take into account
        ! stretching of canopies
        cc%leafarea = leaf_area_from_biomass(cc%bl, sp, cc%layer, cc%firstlayer)
-       cc%lai = cc%leafarea/(cc%crownarea*(1-spdata(sp)%internal_gap_frac))*layer_area(cc%layer)
+       cc%lai = cc%leafarea/(cc%crownarea*(1-spdata(sp)%internal_gap_frac))*scale(cc%layer)
        if(cc%lai<min_lai) then
           cc%leafarea = 0.0
           cc%lai      = 0.0
@@ -2490,7 +2494,7 @@ subroutine update_derived_vegn_data(vegn, soil)
      vegn%root_distance(1:num_l) = 1.0 ! the value does not matter since uptake is 0 anyway
   end where
 
-  deallocate(layer_area)
+  deallocate(layer_area,scale)
 end subroutine update_derived_vegn_data
 
 
