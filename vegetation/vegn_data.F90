@@ -88,9 +88,13 @@ integer, public, parameter :: &
  SNOW_MASKING_MCM    = 3, &
  SNOW_MASKING_HEIGHT = 4
 
-integer, public, parameter ::&
+integer, public, parameter :: &
  PHEN_THETA_FC       = 1, &
  PHEN_THETA_POROSITY = 2
+
+integer, public, parameter :: &
+ TREE_GRASS_PPA      = 1, & ! standard PPA
+ TREE_GRASS_SQUEEZE  = 2    ! sapling canopies squeeze grass canopies
 
 integer, public, parameter :: & ! land use types
  N_LU_TYPES = 6, & ! number of different land use types
@@ -159,6 +163,7 @@ public :: &
     DBH_mort, A_mort, B_mort, cold_mort, treeline_mort, nsc_starv_frac, &
     DBH_merge_rel, DBH_merge_abs, NSC_merge_rel, do_bl_max_merge, &
     nsc_target_option, permafrost_depth_thresh, permafrost_freq_thresh, &
+    tree_grass_option, &
 
     mycorrhizal_turnover_time, &
     myc_scav_C_efficiency, myc_mine_C_efficiency, &
@@ -173,6 +178,7 @@ logical, public, protected :: nat_mortality_splits_tiles = .FALSE. ! if true, na
 integer, protected :: nsc_target_option = -1
 integer, protected :: snow_masking_option = -1
 integer, protected :: phen_theta_option = -1
+integer, protected :: tree_grass_option = -1
 
 ! ---- public subroutine
 public :: read_vegn_data_namelist
@@ -558,6 +564,11 @@ real, protected :: permafrost_depth_thresh = 1.0e36 ! soil depth [m] above which
 real, protected :: permafrost_freq_thresh  = 0.9    ! frequency of frozen water above which soil is
            ! considered permafrost for the root vertical profile calculations
 
+character(32) :: tree_grass_competition = 'pure-ppa' ! or 'trees-squeeze-grass'
+           ! in pure PPA treatment, grass can shade small trees according to usual PPA rules
+           ! in trees-squeeze-grass case, saplings and grasses are in the same layer, and
+           ! sapling canopies can squeeze grass canopies, so the saplings are always in the
+           ! light
 
 namelist /vegn_data_nml/ &
   vegn_to_use,  input_cover_types, &
@@ -585,6 +596,7 @@ namelist /vegn_data_nml/ &
   do_bl_max_merge, &
   DBH_merge_rel, DBH_merge_abs, NSC_merge_rel, &
   permafrost_depth_thresh, permafrost_freq_thresh, &
+  tree_grass_competition, &
 
   ! N-related namelist values
   mycorrhizal_turnover_time, &
@@ -666,6 +678,16 @@ subroutine read_vegn_data_namelist()
   else
      call error_mesg('read_vegn_namleist', 'option phen_theta_to_use="'// &
           trim(phen_theta_to_use)//'" is invalid, use "relative-to-field-capacity" or "relative-to-porosity"', FATAL)
+  endif
+
+  ! parse tree-grass competition option
+  if (trim(lowercase(tree_grass_competition))=='pure-ppa') then
+     tree_grass_option = TREE_GRASS_PPA
+  else if (trim(lowercase(tree_grass_competition))=='trees-squeeze-grass') then
+     tree_grass_option = TREE_GRASS_SQUEEZE
+  else
+     call error_mesg('read_vegn_namleist', 'option tree_grass_competition="'// &
+          trim(tree_grass_competition)//'" is invalid, use "pure-ppa" or "trees-squeeze-grass"', FATAL)
   endif
 
   if(.not.fm_dump_list('/land_mod/species', recursive=.TRUE.)) &
