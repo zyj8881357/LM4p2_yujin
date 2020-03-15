@@ -226,7 +226,7 @@ integer :: seed_transport_option = -1 ! type of requested seed transport algorit
 ! diagnostic field ids
 integer :: id_vegn_type, id_height, id_height_ave, &
    id_temp, id_wl, id_ws, &
-   id_lai, id_lai_var, id_lai_std, id_sai, id_leafarea, id_leaf_size, id_laii, &
+   id_lai, id_sai, id_leafarea, id_leaf_size, id_laii, &
    id_root_density, id_root_zeta, id_rs_min, id_leaf_refl, id_leaf_tran, &
    id_leaf_emis, id_snow_crit, id_stomatal, &
    id_an_op, id_an_cl,&
@@ -906,12 +906,6 @@ subroutine vegn_diag_init ( id_ug, id_band, time )
 
   id_lai    = register_cohort_diag_field ( module_name, 'lai',  &
        (/id_ug/), time, 'leaf area index', 'm2/m2', missing_value=-1.0)
-  id_lai_var = register_cohort_diag_field ( module_name, 'lai_var',  &
-       (/id_ug/), time, 'variance of leaf area index across tiles in grid cell', 'm4/m4', &
-       missing_value=-1.0 , opt='variance')
-  id_lai_std = register_cohort_diag_field ( module_name, 'lai_std',  &
-       (/id_ug/), time, 'standard deviation of leaf area index across tiles in grid cell', 'm2/m2', &
-       missing_value=-1.0, opt='stdev')
   id_sai    = register_cohort_diag_field ( module_name, 'sai',  &
        (/id_ug/), time, 'stem area index', 'm2/m2', missing_value=-1.0)
   id_leafarea = register_cohort_diag_field ( module_name, 'leafarea',  &
@@ -2159,12 +2153,7 @@ subroutine vegn_step_2 ( vegn, diag, &
   ! rearranged only once a year, that may not be true for part of the year
   call send_cohort_data(id_lai,     diag, c(1:N), c(1:N)%lai, weight=c(1:N)%layerfrac, op=OP_SUM)
   call send_cohort_data(id_laii,    diag, c(1:N), c(1:N)%lai, weight=c(1:N)%nindivs,   op=OP_AVERAGE)
-  call send_cohort_data(id_lai_var, diag, c(1:N), c(1:N)%lai, weight=c(1:N)%layerfrac, op=OP_SUM)
-  ! these are LAI variance and standard deviation among *tiles*, not cohorts. So the same data is sent
-  ! as for average LAI, but they are aggregated differently by the diagnostics
-  call send_cohort_data(id_lai_std, diag, c(1:N), c(1:N)%lai, weight=c(1:N)%layerfrac, op=OP_SUM)
   call send_cohort_data(id_sai,     diag, c(1:N), c(1:N)%sai, weight=c(1:N)%layerfrac, op=OP_SUM)
-!  call send_cohort_data(id_leafarea,  diag, c(1:N), c(1:N)%leafarea, weight=c(1:N)%nindivs, op=OP_SUM) -- same as LAI (checked)
   call send_cohort_data(id_leafarea, diag, c(1:N), c(1:N)%leafarea, weight=c(1:N)%nindivs, op=OP_AVERAGE)
 
   ! leaf size averaging weight is the number of leaves in cohort
