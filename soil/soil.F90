@@ -25,7 +25,7 @@ use soil_tile_mod, only : num_l, dz, zfull, zhalf, &
      soil_tile_type, read_soil_data_namelist, &
      soil_data_radiation, soil_data_thermodynamics, &
      soil_data_hydraulic_properties, soil_data_psi_for_rh, &
-     soil_data_gw_hydraulics, soil_data_gw_hydraulics_ar5, &
+     soil_data_gw_hydraulics, soil_data_gw_hydraulics_ar5, finalize_soil_data_init, &
      soil_data_vwc_for_init_only, &
      soil_data_init_derive_subsurf_pars, &
      soil_data_init_derive_subsurf_pars_ar5, &
@@ -546,6 +546,13 @@ subroutine soil_init ( id_ug, id_band, id_zfull )
           FATAL)
   endif
 
+  ce = first_elmt(land_tile_map)
+  do while(loop_over_tiles(ce,tile))
+      if (.not.associated(tile%soil)) cycle
+      call finalize_soil_data_init(tile%soil)
+  end do
+
+  ! -------- initialize soil state --------
   ! Call calculate_wt_init outside tile loop so that it is done once per hillslope
   if (init_wtdep .gt. 0. .and. gw_option == GW_TILED) then
      call calculate_wt_init(init_wtdep)
@@ -557,7 +564,6 @@ subroutine soil_init ( id_ug, id_band, id_zfull )
      call read_field( coldstart_datafile, 'WETMASK', wetmask, interp='bilinear' )
   end if
 
-  ! -------- initialize soil state --------
   ce = first_elmt(land_tile_map, ls=lnd%ls) ! Use global indices here because element indices
                                             ! needed.
   do while(loop_over_tiles(ce,tile,k=k,l=ll))
@@ -1755,6 +1761,10 @@ subroutine soil_step_1 ( soil, vegn, diag, &
      __DEBUG1__(soil%pars%psi_sat_ref)
      __DEBUG1__(soil%pars%chb)
      __DEBUG1__(soil%pars%vwc_sat)
+     do l = 1,num_l
+        write(*,'(i2.2,x)',advance='NO') l
+        __DEBUG3__(soil%w_wilt(l),soil%w_fc(l), soil%alpha(l))
+     enddo
 !     do l = 1,N_LITTER_POOLS
 !        call debug_pool(soil%litter(l), trim(l_shortname(l))//'_litter')
 !     enddo
