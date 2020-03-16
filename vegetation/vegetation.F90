@@ -54,7 +54,7 @@ use vegn_data_mod, only : read_vegn_data_namelist, FORM_WOODY, FORM_GRASS, &
      SEED_TRANSPORT_NONE, SEED_TRANSPORT_SPREAD, SEED_TRANSPORT_DIFFUSE, &
      c2n_N_fixer, C2N_SEED, &
      snow_masking_option, SNOW_MASKING_HEIGHT, &
-     tree_grass_option, TREE_GRASS_SQUEEZE, &
+     tree_grass_option, TREE_GRASS_SQUEEZE, reserved_grass_frac, &
      phen_theta_option, PHEN_THETA_FC, PHEN_THETA_POROSITY, MAX_TILE_AGE
 use vegn_cohort_mod, only : vegn_cohort_type, &
      init_cohort_allometry_ppa, init_cohort_hydraulics, &
@@ -2358,7 +2358,6 @@ subroutine update_derived_vegn_data(vegn, soil)
   integer :: current_layer
   real :: zbot ! height of the bottom of the canopy, m (=top of the lower layer)
   real :: VRL(num_l) ! vertical distribution of volumetric root length, m/m3
-  real, parameter :: eps = 1e-4
   real :: scale
 
   if (is_watch_point()) then
@@ -2398,11 +2397,16 @@ subroutine update_derived_vegn_data(vegn, soil)
         endif
      else
         ! layer_area > 1 : squeeze canopies so that the total becomes one
-        scale_g(k) = layer_area(k) ; scale_t(k) = layer_area(k)
         if (tree_grass_option == TREE_GRASS_SQUEEZE) then
            ! squeeze grasses more than trees
-           if (area_g(k)>0) scale_g(k) = area_g(k)/max(1-area_t(k), min(eps,area_g(k)))
-           if (area_t(k)>0) scale_t(k) = area_t(k)/(1-area_g(k)/scale_g(k))
+           scale_g(k) = 1.0; scale_t(k) = 1.0
+           if (area_g(k)>epsilon(1.0)) scale_g(k) = max(1.0-area_t(k),reserved_grass_frac)/area_g(k)
+           if (area_t(k)>epsilon(1.0)) scale_t(k) = (1-area_g(k)*scale_g(k))/area_t(k)
+           ! calculate reciprocals to match scaling factors in other cases. This is to
+           ! preserve original answers.
+           scale_g(k) = 1.0/scale_g(k) ; scale_t(k) = 1.0/scale_t(k)
+        else
+           scale_g(k) = layer_area(k) ; scale_t(k) = layer_area(k)
         endif
      endif
   enddo
@@ -2490,6 +2494,8 @@ subroutine update_derived_vegn_data(vegn, soil)
   if (is_watch_point()) then
      call dpri('sum(layerfrac)',sum(vegn%cohorts(1:vegn%n_cohorts)%layerfrac)); write(*,*)
   endif
+
+  call check_var_range(vegn%cohorts(1:vegn%n_cohorts)%layerfrac, 0.0, 1.0, 'update_derived_vegn_data', 'layerfrac', FATAL)
 
   ! Calculate height of the canopy bottom: equals to the top of the lower layer.
   ! this code assumes that cohorts are arranged in descending order

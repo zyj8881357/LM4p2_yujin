@@ -163,7 +163,7 @@ public :: &
     DBH_mort, A_mort, B_mort, cold_mort, treeline_mort, nsc_starv_frac, &
     DBH_merge_rel, DBH_merge_abs, NSC_merge_rel, do_bl_max_merge, &
     nsc_target_option, permafrost_depth_thresh, permafrost_freq_thresh, &
-    tree_grass_option, &
+    tree_grass_option, reserved_grass_frac, &
 
     mycorrhizal_turnover_time, &
     myc_scav_C_efficiency, myc_mine_C_efficiency, &
@@ -569,7 +569,8 @@ character(32) :: tree_grass_competition = 'pure-ppa' ! or 'trees-squeeze-grass'
            ! in trees-squeeze-grass case, saplings and grasses are in the same layer, and
            ! sapling canopies can squeeze grass canopies, so the saplings are always in the
            ! light
-
+real, protected :: reserved_grass_frac = 1e-2 ! for "trees-squeeze-grass" option, lower
+           ! limit of area fraction that that grasses may be squeezed to
 namelist /vegn_data_nml/ &
   vegn_to_use,  input_cover_types, &
   mcv_min, mcv_lai, &
@@ -596,7 +597,7 @@ namelist /vegn_data_nml/ &
   do_bl_max_merge, &
   DBH_merge_rel, DBH_merge_abs, NSC_merge_rel, &
   permafrost_depth_thresh, permafrost_freq_thresh, &
-  tree_grass_competition, &
+  tree_grass_competition, reserved_grass_frac, &
 
   ! N-related namelist values
   mycorrhizal_turnover_time, &
