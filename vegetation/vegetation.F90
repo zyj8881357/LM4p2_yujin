@@ -1267,7 +1267,7 @@ subroutine vegn_diag_init ( id_ug, id_band, time )
        time, 'Carbon Mass Flux into Atmosphere due to CO2 Emission from Fire', 'kg m-2 s-1', missing_value=-1.0, &
        standard_name='surface_upward_mass_flux_of_carbon_dioxide_expressed_as_carbon_due_to_emission_from_fires_excluding_anthropogenic_land_use_change', &
        fill_missing=.TRUE.)
-  ! we currently don't have deforestation fires, so fFire and cToFireLut are the same.
+  ! we currently do not have deforestation fires, so fFire and cToFireLut are the same.
   call add_tiled_diag_field_alias(id_fFire, cmor_name, 'cToFireLut', (/id_ug/), &
        time, 'Total carbon loss from natural and managed fire on land use tile, including deforestation fires', 'kg m-2 s-1', &
        missing_value=-1.0, standard_name='surface_upward_mass_flux_of_carbon_dioxide_expressed_as_carbon_due_to_emission_from_fires', &
@@ -3080,7 +3080,7 @@ subroutine vegn_seed_transport_lm3(seed_transport_option)
   call mpp_sum(total_seed_supply, pelist=lnd%pelist)
   call mpp_sum(total_seed_N_demand, pelist=lnd%pelist)
   call mpp_sum(total_seed_N_supply, pelist=lnd%pelist)
-  ! if either demand or supply are zeros we don't need (or can't) transport anything
+  ! if either demand or supply are zeros we do not need (or cannot) transport anything
   if (total_seed_demand==0.or.total_seed_supply==0)then
      return
   end if
@@ -3182,32 +3182,22 @@ function cohort_area_frac(vegn,test) result(frac); real :: frac
   integer :: n_layers ! number of layers in vegetation
   real, allocatable :: &
         layer_area(:), & ! area of _all_ cohorts in the layer
-        c_area(:),     & ! area of _all suitable_ cohorts in the layer
-        norm_area(:)     ! normalisation layer area
+        c_area(:)        ! area of _all suitable_ cohorts in the layer
   real :: visible  ! fraction of layer visible from top
   integer :: k, l
 
   n_layers = maxval(vegn%cohorts(:)%layer)
-  allocate(layer_area(n_layers),c_area(n_layers),norm_area(n_layers))
+  allocate(layer_area(n_layers),c_area(n_layers))
 
-  layer_area(:) = 0; c_area(:) = 0.0
-  associate(cc=>vegn%cohorts)
+  layer_area(:) = 0.0; c_area(:) = 0.0
   do k = 1, vegn%n_cohorts
-     l = cc(k)%layer
-     layer_area(l) = layer_area(l) + cc(k)%crownarea*cc(k)%nindivs
-     if (test(cc(k))) &
-         c_area(l) = c_area(l)     + cc(k)%crownarea*cc(k)%nindivs
+     associate(cc=>vegn%cohorts(k), sp=>spdata(vegn%cohorts(k)%species))
+     l = cc%layer
+     layer_area(l) = layer_area(l) + cc%layerfrac/(1-sp%internal_gap_frac)
+     if (test(cc)) &
+         c_area(l) = c_area(l)     + cc%layerfrac/(1-sp%internal_gap_frac)
+     end associate
   enddo
-  end associate
-
-  if (allow_external_gaps) then
-     norm_area(:) = max(1.0,layer_area(:))
-  else
-     ! if external gaps are not allowed, we stretch cohorts so that the entire layer area
-     ! is occupied by the vegetation canopies
-     norm_area(:) = layer_area(:)
-     layer_area(:) = 1.0 ! to disallow gaps
-  endif
 
   ! protect from zero layer area situation: this can happen if all cohorts die
   ! due to mortality or starvation. In this case n_layers is 1, of course.
@@ -3217,11 +3207,11 @@ function cohort_area_frac(vegn,test) result(frac); real :: frac
 
   visible = 1.0; frac = 0.0
   do k = 1,n_layers
-     frac = frac + visible*c_area(k)/norm_area(k)
+     frac = frac + visible*c_area(k)
      visible = visible*max(1.0-layer_area(k), 0.0)
   enddo
 
-  deallocate(layer_area,c_area,norm_area)
+  deallocate(layer_area,c_area)
 end function cohort_area_frac
 
 ! ============================================================================
