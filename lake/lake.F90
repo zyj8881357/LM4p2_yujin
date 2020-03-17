@@ -54,6 +54,7 @@ public :: lake_step_2
 public :: large_dyn_small_stat
 
 public :: lake_abstraction
+public :: lake_area_diag
 ! =====end of public interfaces ==============================================
 
 
@@ -114,7 +115,9 @@ real            :: max_rat
 integer :: id_lwc, id_swc, id_temp
 integer :: id_evap, id_dz, id_wl, id_ws, id_K_z, id_silld, id_sillw, id_backw
 integer :: id_Afrac_rsv, id_Vfrac_rsv, id_rsv_depth
+integer :: id_sub_lmass, id_sub_fmass, id_sub_heat, id_sub_cmass
 integer :: id_back1
+integer :: id_lake_area, id_lake_frac 
 ! ==== end of module variables ===============================================
 
 contains
@@ -292,6 +295,10 @@ subroutine lake_init ( id_ug )
      endif
      tile%lake%T             = init_temp
      tile%lake%Vfrac_rsv     = -1.
+     tile%lake%sub_lmass     = 0.
+     tile%lake%sub_fmass     = 0.
+     tile%lake%sub_heat      = 0.
+     tile%lake%sub_cmass     = 0.
   enddo
 
   do l = lnd%ls,lnd%le
@@ -313,6 +320,14 @@ subroutine lake_init ( id_ug )
      call get_tile_data(restart, 'ws',   'zfull', lake_ws_ptr)
      if (field_exists(restart,'Vfrac_rsv')) &
         call get_tile_data(restart, 'Vfrac_rsv', lake_Vfrac_rsv_ptr) 
+     if (filed_exists(restart,'sub_lmass')) &
+        call get_tile_data(restart, 'sub_lmass', lake_sub_lmass_ptr)  
+     if (filed_exists(restart,'sub_fmass')) &
+        call get_tile_data(restart, 'sub_fmass', lake_sub_fmass_ptr)
+     if (filed_exists(restart,'sub_heat')) &
+        call get_tile_data(restart, 'sub_heat',  lake_sub_heat_ptr)
+     if (filed_exists(restart,'sub_cmass')) &
+        call get_tile_data(restart, 'sub_cmass', lake_sub_cmass_ptr)        
   else
      call error_mesg('lake_init', 'cold-starting lake', NOTE)
   endif
@@ -358,6 +373,10 @@ subroutine save_lake_restart (tile_dim_length, timestamp)
   call add_tile_data(restart,'wl',   'zfull', lake_wl_ptr,   'liquid water content','kg/m2')
   call add_tile_data(restart,'ws',   'zfull', lake_ws_ptr,   'solid water content','kg/m2')
   call add_tile_data(restart,'Vfrac_rsv', lake_Vfrac_rsv_ptr, 'volume fraction of reservoir to the lake tile', 'unitless')  
+  call add_tile_data(restart,'sub_lmass', lake_sub_lmass_ptr, 'buried liquid water under lake due to reservoir building', 'kg/m2')
+  call add_tile_data(restart,'sub_fmass', lake_sub_fmass_ptr, 'buried frozen water under lake due to reservoir building', 'kg/m2') 
+  call add_tile_data(restart,'sub_heat',  lake_sub_heat_ptr,  'buried heat under lake due to reservoir building', 'J/m2') 
+  call add_tile_data(restart,'sub_cmass',  ake_sub_cmass_ptr, 'buried carbon under lake due to reservoir building', 'kg C/m2') 
 
   ! save performs io domain aggregation through mpp_io as with regular domain data
   call save_land_restart(restart)
@@ -804,10 +823,14 @@ end subroutine lake_step_1
   call send_tile_data (id_swc,  lake%ws(1:num_l)/lake%dz(1:num_l), diag )
   call send_tile_data (id_K_z,  lake%K_z(1:num_l),        diag )
   call send_tile_data (id_evap, lake_levap+lake_fevap, diag )
-
+  
   call send_tile_data (id_Afrac_rsv, lake%Afrac_rsv, diag)
   call send_tile_data (id_Vfrac_rsv, lake%Vfrac_rsv, diag)
   call send_tile_data (id_rsv_depth, lake%rsv_depth, diag)
+  call send_tile_data (id_sub_lmass, lake%sub_lmass, diag)
+  call send_tile_data (id_sub_fmass, lake%sub_fmass, diag)  
+  call send_tile_data (id_sub_heat,  lake%sub_heat,  diag)
+  call send_tile_data (id_sub_cmass, lake%sub_cmass, diag)   
 
 end subroutine lake_step_2
 
@@ -1175,6 +1198,25 @@ subroutine lake_abstraction (use_reservoir, is_terminal, &
  endif
 
 end subroutine lake_abstraction 
+! ============================================================================
+
+subroutine lake_area_diag()
+
+ type(land_tile_enum_type)     :: ce  ! current tile list elements
+ type(land_tile_type), pointer :: tile ! pointer to current tile
+ type(soil_tile_type), pointer :: lake
+ integer :: l
+
+ do l=lnd%ls, lnd%le  
+     ce = first_elmt(land_tile_map(l))
+     do while(loop_over_tiles(ce,tile,k=k))
+       if(.not.associated(tile%lake)) cycle
+       call send_tile_data(id_lake_area, lnd%ug_area(l), tile%diag)  
+       call send_tile_data(id_lake_frac, 1., tile%diag)     
+     enddo
+ enddo
+
+end subroutine lake_area_diag
 
 ! ============================================================================
 
@@ -1276,8 +1318,19 @@ subroutine lake_diag_init(id_ug)
   id_rsv_depth  = register_tiled_diag_field ( module_name, 'rsv_depth',  axes(1:1),  &
        lnd%time, 'reservoir construction depth',            'm',  missing_value=-100.0 )  
 
+  id_sub_lmass = register_tiled_diag_field ( module_name, 'sub_lmass',  axes(1:1),  &
+       lnd%time, 'buried liquid water under lake due to reservoir building', 'kg/m2',  missing_value=-100.0 )
+  id_sub_fmass = register_tiled_diag_field ( module_name, 'sub_fmass',  axes(1:1),  &
+       lnd%time, 'buried frozen water under lake due to reservoir building', 'kg/m2',  missing_value=-100.0 )
+  id_sub_heat  = register_tiled_diag_field ( module_name, 'sub_heat',   axes(1:1),  &
+       lnd%time, 'buried heat under lake due to reservoir building', 'J/m2',  missing_value=-100.0 )
+  id_sub_cmass = register_tiled_diag_field ( module_name, 'sub_cmass',  axes(1:1),  &
+       lnd%time, 'buried carbon under lake due to reservoir building', 'kgC/m2',  missing_value=-100.0 )
 
-
+  id_lake_area = register_tiled_diag_field ( module_name, 'lake_area', axes(1:1), &
+       lnd%time, 'lake area', 'm2',  missing_value=-100.0 )  
+  id_lake_frac = register_tiled_diag_field ( module_name, 'lake_frac', axes(1:1), &
+       lnd%time, 'lake frac', '-',  missing_value=-100.0 )  
 
   call add_tiled_static_field_alias (id_silld, module_name, 'sill_depth', &
        axes(1:1), 'obsolete, pls use lake_depth (static)','m', &
@@ -1403,6 +1456,43 @@ subroutine lake_Vfrac_rsv_ptr(tile, ptr)
       if(associated(tile%lake)) ptr=>tile%lake%Vfrac_rsv
    endif
 end subroutine lake_Vfrac_rsv_ptr
+
+subroutine lake_sub_lmass_ptr(tile, ptr)
+   type(land_tile_type), pointer :: tile
+   real                , pointer :: ptr
+   ptr=>NULL()
+   if(associated(tile)) then
+      if(associated(tile%lake)) ptr=>tile%lake%sub_lmass
+   endif
+end subroutine lake_sub_lmass_ptr
+
+subroutine lake_sub_fmass_ptr(tile, ptr)
+   type(land_tile_type), pointer :: tile
+   real                , pointer :: ptr
+   ptr=>NULL()
+   if(associated(tile)) then
+      if(associated(tile%lake)) ptr=>tile%lake%sub_fmass
+   endif
+end subroutine lake_sub_fmass_ptr
+
+subroutine lake_sub_heat_ptr(tile, ptr)
+   type(land_tile_type), pointer :: tile
+   real                , pointer :: ptr
+   ptr=>NULL()
+   if(associated(tile)) then
+      if(associated(tile%lake)) ptr=>tile%lake%sub_heat
+   endif
+end subroutine lake_sub_heat_ptr
+
+subroutine lake_sub_cmass_ptr(tile, ptr)
+   type(land_tile_type), pointer :: tile
+   real                , pointer :: ptr
+   ptr=>NULL()
+   if(associated(tile)) then
+      if(associated(tile%lake)) ptr=>tile%lake%sub_cmass
+   endif
+end subroutine lake_sub_cmass_ptr
+
 
 end module lake_mod
 

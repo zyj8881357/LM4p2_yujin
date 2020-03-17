@@ -119,10 +119,10 @@ type :: lake_tile_type
    real :: Afrac_rsv = 0.    
    real :: Vfrac_rsv = 0. !this must be added to restart file
    real :: rsv_depth = 0.   
-   real :: sub_lmass = 0. !kg
-   real :: sub_fmass = 0. !kg   
-   real :: sub_heat = 0. !J
-   real :: sub_cmass = 0. !kgC
+   real :: sub_lmass = 0. !kg/m2
+   real :: sub_fmass = 0. !kg/m2  
+   real :: sub_heat = 0. !J/m2
+   real :: sub_cmass = 0. !kgC/m2
 end type lake_tile_type
 
 ! ==== module data ===========================================================

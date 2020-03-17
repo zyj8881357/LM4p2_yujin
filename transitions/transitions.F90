@@ -34,10 +34,10 @@ use vegn_data_mod, only : &
      landuse_name, landuse_longname, &
      M_LU_TYPES, LU_IRRIG
 
-use cana_tile_mod, only : cana_tile_heat
-use snow_tile_mod, only : snow_tile_heat
-use vegn_tile_mod, only : vegn_tile_heat, vegn_tile_type, vegn_tile_bwood
-use soil_tile_mod, only : soil_tile_heat
+use cana_tile_mod, only : cana_tile_heat, cana_tile_stock_pe, cana_tile_carbon, new_cana_tile, merge_cana_tiles
+use snow_tile_mod, only : snow_tile_heat, snow_tile_stock_pe
+use vegn_tile_mod, only : vegn_tile_heat, vegn_tile_stock_pe, vegn_tile_carbon, vegn_tile_type, vegn_tile_bwood
+use soil_tile_mod, only : soil_tile_heat, soil_tile_stock_pe, soil_tile_carbon
 use lake_tile_mod, only : lake_tile_type
 
 use land_tile_mod, only : land_tile_map, &
@@ -46,7 +46,7 @@ use land_tile_mod, only : land_tile_map, &
      land_tile_list_init, land_tile_list_end, nitems, elmt_at_index, &
      erase, remove, insert, merge_land_tile_into_list, &
      get_tile_water, land_tile_carbon, land_tile_heat, &
-     empty, get_tile_water_sv
+     empty
 use land_tile_io_mod, only : print_netcdf_error
 use land_tile_diag_mod, only : cmor_name
 
@@ -65,8 +65,13 @@ public :: land_transitions_init
 public :: land_transitions_end
 public :: save_land_transitions_restart
 
+public :: lake_transitions_init
+public :: lake_transitions_end
+public :: save_lake_transitions_restart
+
 public :: land_transitions
 public :: land_irrigatedareas_init
+public :: lake_transitions
 ! ==== end of public interface ==============================================
 
 ! ==== module constants =====================================================
@@ -179,6 +184,7 @@ real :: cost(M_LU_TYPES, M_LU_TYPES)=reshape((/0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 2.0
                                                0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 2.0, &
                                                2.0, 2.0, 2.0, 2.0, 2.0, 2.0, 0.0 /), (/M_LU_TYPES,M_LU_TYPES/), order =(/ 2, 1 /))     
 ! variables for reservoir
+logical :: module_is_initialized_lake = .FALSE.
 integer :: tran_ncid_lake  = -1 ! netcdf id of the input file
 integer :: state_ncid_lake = -1 ! netcdf id of the input file, if any
 type(time_type), allocatable :: time_in_lake(:) ! time axis in input data
@@ -219,7 +225,7 @@ logical :: irrigation_on = .TRUE.
 character(len=1024) :: input_file_lake  = '' ! input data set of lake transition dates
 character(len=1024) :: state_file_lake  = '' ! input data set of LU states (for initial transition only)
 character(len=1024) :: static_file_lake = '' ! static data file, for input land fraction
-logical :: do_lake_change = .FALSE.
+logical, protected, public :: do_lake_change = .FALSE.
 
 namelist/landuse_nml/do_landuse_change, input_file, state_file, static_file, data_type, &
      rangeland_is_pasture, distribute_transitions, &
@@ -374,8 +380,6 @@ subroutine land_transitions_init(id_ug, id_cellarea)
         if (tile%vegn%landuse == LU_RANGE) tile%vegn%landuse = LU_PAST
      enddo
   endif
-
-  call lake_transitions_init()
 
   if (.not.do_landuse_change) return ! do nothing more if no land use requested
 
@@ -562,7 +566,8 @@ l1:do k1 = 1,size(input_tran,1)
 end subroutine land_transitions_init
 
 !===========================================================================
-subroutine lake_transitions_init()
+subroutine lake_transitions_init(id_ug)
+  integer, intent(in) :: id_ug !<Unstructured axis id.  
 
   ! ---- local vars
   integer        :: unit, ierr, io, ncid1, ncid1_lake, used_id
@@ -581,6 +586,9 @@ subroutine lake_transitions_init()
   type(land_tile_type), pointer :: tile  ! pointer to current tile  
   real :: frac2land, whole_lake_area
 
+  if(module_is_initialized_lake) return
+  module_is_initialized_lake = .TRUE.
+
   if (file_exist('INPUT/laketran.res')) then
      call error_mesg('land_transitions_init','reading restart "INPUT/laketran.res"',&
           NOTE)
@@ -593,8 +601,6 @@ subroutine lake_transitions_init()
           NOTE)
      timel0 = set_date(0001,01,01)
   endif
-
-  !if((.not.file_exist(state_file_lake)).and.(.not.do_lake_change)) return
 
   if (file_exist(state_file_lake).or.(timel0==set_date(0001,01,01).and.do_lake_change)) then
       ! open state file
@@ -744,7 +750,7 @@ subroutine lake_transitions_init()
         call adjust_rsv_frac(tile%lake, tile%frac, lnd%ug_area(l))
       enddo
     enddo
-  else !if there is no Afrac_rsv file, no reservoir is represented
+  else 
     do l=lnd%ls, lnd%le
       ce = first_elmt(land_tile_map(l))
       do while(loop_over_tiles(ce,tile))
@@ -957,6 +963,15 @@ subroutine land_transitions_end()
 end subroutine land_transitions_end
 
 ! ============================================================================
+subroutine lake_transitions_end()
+
+  module_is_initialized_lake=.FALSE.
+  if (do_lake_change.or.file_exist(state_file_lake)) call horiz_interp_del(interp_lake)
+  if(allocated(time_in_lake)) deallocate(time_in_lake)
+
+end subroutine lake_transitions_end
+
+! ============================================================================
 subroutine add_var_to_varset(varset,ncid,filename,varname)
    type(var_set_type), intent(inout) :: varset
    integer     , intent(in) :: ncid     ! id of netcdf file
@@ -1083,6 +1098,21 @@ subroutine save_land_transitions_restart(timestamp)
 
 end subroutine save_land_transitions_restart
 
+! ============================================================================
+subroutine save_lake_transitions_restart(timestamp)
+  character(*), intent(in) :: timestamp ! timestamp to add to the file name
+
+  integer :: unit,year,month,day,hour,min,sec
+
+  call mpp_open( unit, 'RESTART/'//trim(timestamp)//'laketran.res', nohdrs=.TRUE. )
+  if (mpp_pe() == mpp_root_pe()) then
+     call get_date(timel0, year,month,day,hour,min,sec)
+     write(unit,'(6i6,8x,a)') year,month,day,hour,min,sec, &
+          'Time of previous lake transition calculation'
+  endif
+  call mpp_close(unit)
+
+end subroutine save_lake_transitions_restart
 
 ! =============================================================================
 subroutine land_transitions (time)
@@ -1108,7 +1138,6 @@ subroutine land_transitions (time)
   real :: check_area  
   type(land_tile_enum_type) :: ce
   type(land_tile_type), pointer :: tile  
-  integer :: land_flag = 1
   integer :: ntime
 
 
@@ -1520,19 +1549,12 @@ subroutine lake_transitions (time)
   real    :: frac(lnd%ls:lnd%le)
   type(tran_type), pointer :: transitions(:,:)
   integer :: second, minute, hour, day0, day1, month0, month1, year0, year1
-  real    :: w
-  real    :: diag(lnd%ls:lnd%le)
-  logical :: used
-  real :: fi1(lnd%ls:lnd%le)    
-  real :: area0 (lnd%ls:lnd%le, M_LU_TYPES) ! fraction of each land use type before transitions
-  real :: temp_area (lnd%ls:lnd%le, M_LU_TYPES) ! fraction of each landuse type before transitions
-  real :: atot (lnd%ls:lnd%le)
-  real :: check_area  
+  real    :: w   
+  real :: area0 (lnd%ls:lnd%le, M_LU_TYPES) ! fraction of each land use type before transitions  
   type(land_tile_enum_type) :: ce
   type(land_tile_type), pointer :: tile  
-  integer :: land_flag = 1
-  integer :: ntime
-  real, dimension(lnd%ls:lnd%le) :: atots, atotl
+  real, dimension(lnd%ls:lnd%le) :: atots, atotl, rsv_depth
+  logical :: is_laketran = .True.
 
   if(.not.do_lake_change) return
 
@@ -1545,18 +1567,19 @@ subroutine lake_transitions (time)
   if (mpp_pe()==mpp_root_pe()) &
        call log_date('lake_transitions: applying lake area transitions on ', time)   
 
-  atots = 0. ; atotl = 0.
+  atots = 0. ; atotl = 0.; rsv_depth = 0.
   do l = lnd%ls,lnd%le
     ce = first_elmt(land_tile_map(l))
     do while (loop_over_tiles(ce,tile))
-       if (associated(tile%soil)) atots(l) = atots(l) + tile%frac
-       if (associated(tile%lake)) atotl(l) = atotl(l) + tile%frac    
+       if (associated(tile%soil)) atots(l) = atots(l) + tile%frac !soil frac
+       if (associated(tile%lake)) atotl(l) = atotl(l) + tile%frac !lake frac
+       if (associated(tile%lake)) rsv_depth(l) = tile%lake%rsv_depth
     enddo
   enddo
 
        
   transitions => NULL()
-  do k1 = 1,2
+  do k1 = 1,2 ! 1 is lake, and 2 is soil
   do k2 = 1,2
      ! get transition rate for this specific transition
      frac(:) = 0.0
@@ -1578,13 +1601,15 @@ subroutine lake_transitions (time)
        endif
        if(k1==2.and.k2==1)then !from soil to lake
          frac(l) = min(atots(l), frac(l))
-         if(atotl(l)==0.) frac(l)=0. !Currently we do not build reservoir if there is no original lake in the gridcell.
+         if(atotl(l)<=0.) frac(l)=0. !Currently we do not build reservoir if there is no original lake in the gridcell.
+         if(rsv_depth(l)<=0.) frac(l)=0. 
        else !from lake to soil
          frac(l) = min(atotl(l), frac(l))
+         if(atots(l)==0.) frac(l)=0. 
        endif
      enddo
 
-     call add_to_transitions(frac,time0,time,k1,k2,transitions,land_flag)
+     call add_to_transitions(frac,time0,time,k1,k2,transitions, is_laketran)
   enddo
   enddo 
 
@@ -1596,7 +1621,7 @@ subroutine lake_transitions (time)
      call lake_transitions_0d(land_tile_map(l), &
           transitions(l,1)%donor, &
           transitions(l,1)%acceptor,&
-          transitions(l,1)%frac, lnd%ug_area(l))
+          transitions(l,1)%frac)
   enddo            
 
   ! deallocate array of transitions
@@ -1608,90 +1633,209 @@ subroutine lake_transitions (time)
 end subroutine lake_transitions
 ! =============================================================================
 ! performs tile transitions in a given grid cell
-subroutine lake_transitions_0d(d_list,d_kinds,a_kinds,area,land_area)
+subroutine lake_transitions_0d(d_list,d_kinds,a_kinds,area)
   type(land_tile_list_type), intent(inout) :: d_list ! list of tiles
   integer, intent(in) :: d_kinds ! array of donor tile kinds
   integer, intent(in) :: a_kinds ! array of acceptor tile kinds
   real   , intent(in) :: area    ! array of areas changing from donor tiles to acceptor tiles
-  real   , intent(in) :: land_area
 
   ! ---- local vars
   integer :: i, k
   type(land_tile_type), pointer :: ptr
   type(land_tile_list_type) :: a_list
   type(land_tile_enum_type) :: ts, te
-  real :: atots, atot, a0
+  real :: atots, atotl, atot, frac0
   real :: htot ! total fraction heat, for debugging only
   ! variable used for conservation check:
-  real :: lmass0, fmass0, cmass0, heat0, & !lmass fmass:kg/m2, cmass:kg C/m2, heat:J/m2
+  real :: lmass0, fmass0, cmass0, heat0, & !lmass fmass:kg/m2, cmass:kgC/m2, heat:J/m2, ! pre-transition values
        soil_heat0, vegn_heat0, cana_heat0, snow_heat0, &
-       sv_lmass0, sv_fmass0, sv_cmass0 ! pre-transition values
+       soil_lmass0, vegn_lmass0, cana_lmass0, snow_lmass0, &
+       soil_fmass0, vegn_fmass0, cana_fmass0, snow_fmass0, &
+       soil_cmass0, vegn_cmass0, cana_cmass0
+  real :: cana_lmass0_soil, cana_fmass0_soil, cana_heat0_soil, cana_cmass0_soil, &
+          snow_lmass0_soil, snow_fmass0_soil, snow_heat0_soil
+  real :: cana_lmass0_lake, cana_fmass0_lake, cana_heat0_lake, cana_cmass0_lake, &
+          snow_lmass0_lake, snow_fmass0_lake, snow_heat0_lake
   real :: lmass1, fmass1, cmass1, heat1, &
        soil_heat1, vegn_heat1, cana_heat1, snow_heat1 ! post-transition values
-  real :: lm, fm, sv_lm, sv_fm ! buffers for transition calculations
+  real :: lm, fm, diff ! buffers for transition calculations
   real :: thres = 1.e-8
+  type(cana_tile_type), pointer :: cana_soil
+  real :: lwup_soil, e_res_1_soil; e_res_2_soil
+  real :: frac_ac
 
 
   if(area<=0.) return  !do nothing if no area change
   ! conservation check code, part 1: calculate the pre-transition grid
   ! cell totals
   lmass0 = 0 ; fmass0 = 0 ; cmass0 = 0 ; heat0 = 0
-  sv_lmass0 = 0;  sv_fmass0 = 0; sv_cmass0 = 0
-  soil_heat0 = 0 ;  vegn_heat0 = 0 ; cana_heat0 = 0 ; snow_heat0 = 0
+  soil_heat0  = 0 ;  vegn_heat0  = 0 ; cana_heat0  = 0 ; snow_heat0  = 0
+  soil_lmass0 = 0 ;  vegn_lmass0 = 0 ; cana_lmass0 = 0 ; snow_lmass0 = 0
+  soil_fmass0 = 0 ;  vegn_fmass0 = 0 ; cana_fmass0 = 0 ; snow_fmass0 = 0
+  soil_cmass0 = 0 ;  vegn_cmass0 = 0 ; cana_cmass0 = 0 
+
+  cana_lmass0_soil=0; cana_fmass0_soil=0; cana_heat0_soil=0; cana_cmass0_soil=0
+  snow_lmass0_soil=0; snow_fmass0_soil=0; snow_heat0_soil=0
+  cana_lmass0_lake=0; cana_fmass0_lake=0; cana_heat0_lake=0; cana_cmass0_lake=0
+  snow_lmass0_lake=0; snow_fmass0_lake=0; snow_heat0_lake=0
+
   ts = first_elmt(d_list)
   do while (loop_over_tiles(ts, ptr))
      call get_tile_water(ptr,lm,fm)
      lmass0 = lmass0 + lm*ptr%frac ; fmass0 = fmass0 + fm*ptr%frac
+     if(associated(ptr%lake))then
+       lmass0 = lmass0 + ptr%lake%sub_lmass*ptr%frac
+       fmass0 = fmass0 + ptr%lake%sub_fmass*ptr%frac
+     endif
 
-     call get_tile_water_sv(ptr,sv_lm,sv_fm)
-     sv_lmass0 = sv_lmass0 + sv_lm*ptr%frac
-     sv_fmass0 = sv_fmass0 + sv_fm*ptr%frac
+     if (associated(ptr%soil))then
+       call soil_tile_stock_pe(ptr%soil, lm, fm)
+       soil_lmass0 = soil_lmass0 + lm*ptr%frac ; soil_fmass0 = soil_fmass0 + fm*ptr%frac 
+     endif    
+     if (associated(ptr%vegn))then
+       call vegn_tile_stock_pe(ptr%vegn, lm, fm)
+       vegn_lmass0 = vegn_lmass0 + lm*ptr%frac ; vegn_fmass0 = vegn_fmass0 + fm*ptr%frac 
+     endif         
+     if (associated(ptr%snow))then
+       call snow_tile_stock_pe(ptr%snow, lm, fm)
+       snow_lmass0 = snow_lmass0 + lm*ptr%frac ; snow_fmass0 = snow_fmass0 + fm*ptr%frac
+     endif          
+     if (associated(ptr%cana))then 
+       call cana_tile_stock_pe(ptr%cana, lm, fm)     
+       cana_lmass0 = cana_lmass0 + lm*ptr%frac ; cana_fmass0 = cans_fmass0 + fm*ptr%frac
+     endif   
+
+     if (associated(ptr%snow).and.associated(ptr%soil))then
+       call snow_tile_stock_pe(ptr%snow, lm, fm)
+       snow_lmass0_soil = snow_lmass0_soil + lm*ptr%frac ; snow_fmass0_soil = snow_fmass0_soil + fm*ptr%frac
+     endif          
+     if (associated(ptr%cana).and.associated(ptr%soil))then 
+       call cana_tile_stock_pe(ptr%cana, lm, fm)     
+       cana_lmass0_soil = cana_lmass0_soil + lm*ptr%frac ; cana_fmass0_soil = cans_fmass0_soil + fm*ptr%frac
+     endif  
+
+     if (associated(ptr%snow).and.associated(ptr%lake))then
+       call snow_tile_stock_pe(ptr%snow, lm, fm)
+       snow_lmass0_lake = snow_lmass0_lake + lm*ptr%frac ; snow_fmass0_lake = snow_fmass0_lake + fm*ptr%frac
+     endif          
+     if (associated(ptr%cana).and.associated(ptr%lake))then 
+       call cana_tile_stock_pe(ptr%cana, lm, fm)     
+       cana_lmass0_lake = cana_lmass0_lake + lm*ptr%frac ; cana_fmass0_lake = cans_fmass0_lake + fm*ptr%frac
+     endif     
+
 
      heat0  = heat0  + land_tile_heat  (ptr)*ptr%frac
-     cmass0 = cmass0 + land_tile_carbon(ptr)*ptr%frac
-
-     if(associated(ptr%soil)) sv_cmass0 = sv_cmass0 + (vegn_tile_carbon(ptr%soil)+soil_tile_carbon(ptr%soil))*ptr%frac
+     if(associated(ptr%lake)) heat0 = heat0 + ptr%lake%sub_heat*ptr%frac
 
      if(associated(ptr%soil)) soil_heat0 = soil_heat0 + soil_tile_heat(ptr%soil)*ptr%frac
      if(associated(ptr%vegn)) vegn_heat0 = vegn_heat0 + vegn_tile_heat(ptr%vegn)*ptr%frac
      if(associated(ptr%cana)) cana_heat0 = cana_heat0 + cana_tile_heat(ptr%cana)*ptr%frac
      if(associated(ptr%snow)) snow_heat0 = snow_heat0 + snow_tile_heat(ptr%snow)*ptr%frac
+
+     if(associated(ptr%cana).and.associated(ptr%soil)) cana_heat0_soil = cana_heat0_soil + cana_tile_heat(ptr%cana)*ptr%frac
+     if(associated(ptr%snow).and.associated(ptr%soil)) snow_heat0_soil = snow_heat0_soil + snow_tile_heat(ptr%snow)*ptr%frac     
+
+     if(associated(ptr%cana).and.associated(ptr%lake)) cana_heat0_lake = cana_heat0_lake + cana_tile_heat(ptr%cana)*ptr%frac
+     if(associated(ptr%snow).and.associated(ptr%lake)) snow_heat0_lake = snow_heat0_lake + snow_tile_heat(ptr%snow)*ptr%frac   
+
+     cmass0 = cmass0 + land_tile_carbon(ptr)*ptr%frac
+     if(associated(ptr%lake)) cmass0 = cmass0 + ptr%lake%sub_cmass*ptr%frac
+
+     if(associated(ptr%soil)) soil_cmass0 = soil_cmass0 + soil_tile_carbon(ptr%soil)*ptr%frac
+     if(associated(ptr%vegn)) vegn_cmass0 = vegn_cmass0 + vegn_tile_carbon(ptr%vegn)*ptr%frac
+     if(associated(ptr%cana)) cana_cmass0 = cana_cmass0 + cana_tile_carbon(ptr%cana)*ptr%frac 
+
+     if(associated(ptr%cana).and.associated(ptr%soil)) cana_cmass0_soil = cana_cmass0_soil + cana_tile_carbon(ptr%cana)*ptr%frac 
+     if(associated(ptr%cana).and.associated(ptr%lake)) cana_cmass0_lake = cana_cmass0_lake + cana_tile_carbon(ptr%cana)*ptr%frac 
   enddo
 
-  if(d_kinds==2.and.a_kinds==1)then   !from soil to lake
+  atots = 0.; atotl = 0.
+  ts = first_elmt(d_list)
+  do while (loop_over_tiles(ts,ptr))
+    if (associated(ptr%soil)) atots = atots + ptr%frac
+    if (associated(ptr%lake)) atotl = atotl + ptr%frac      
+  enddo
 
-    atots = 0.
+  if(d_kinds==2.and.a_kinds==1)then  !from soil to lake
+    
+    !before lake transition, we get the cana and other trivials on soil tile first.
+    cana_soil => NULL()
+    lwup_soil=0.; e_res_1_soil=0.; e_res_2_soil=0.
+    frac_ac = 0.    
+    ts = first_elmt(d_list)
+    do while (loop_over_tiles(ts,ptr)) 
+      if(associated(ptr%soil))then !We assume that all soil tiles have cana here
+        if(.not.associated(ptr%cana)) &
+          call error_mesg('lake_transitions_0d','soil tile must have cana', FATAL) 
+        if(.not.associated(cana_soil))then
+          cana_soil => new_cana_tile(ptr%cana)
+          lwup_soil = ptr%lwup
+          e_res_1_soil = ptr%e_res_1
+          e_res_2_soil = ptr%e_res_2
+          frac_ac = ptr%frac
+        else
+          call merge_cana_tiles(ptr%cana, ptr%frac, cana_soil, frac_ac)
+          lwup_soil = lwup_soil*frac_ac + ptr%lwup*ptr%frac
+          e_res_1_soil = e_res_1_soil*frac_ac + ptr%e_res_1*ptr%frac
+          e_res_2_soil = e_res_2_soil*frac_ac + ptr%e_res_2*ptr%frac
+          frac_ac = frac_ac + ptr%frac
+        endif
+      endif   
+    enddo  
+
+    !conduct the transition
     ts = first_elmt(d_list)
     do while (loop_over_tiles(ts,ptr))
-      if (associated(ptr%soil)) atots = atots + ptr%frac
-    enddo
+
+      if(associated(ptr%lake))then
+        frac0 = ptr%frac
+        ptr%frac = ptr%frac + area
+        if(ptr%frac>1.+thres) &
+          call error_mesg('lake_transitions_0d','lake fraction could not be greater than 1.', FATAL)
+        if(ptr%lake%Afrac_rsv<1.) ptr%lake%Afrac_rsv = (ptr%lake%Afrac_rsv*frac0 + area)/ptr%frac
+
+        ptr%lake%wl = ptr%lake%wl*frac0/ptr%frac
+        ptr%lake%ws = ptr%lake%ws*frac0/ptr%frac
+        ptr%lake%dz = ptr%lake%dz*frac0/ptr%frac 
+        ptr%lake%sub_lmass = ptr%lake%sub_lmass*frac0/ptr%frac
+        ptr%lake%sub_fmass = ptr%lake%sub_fmass*frac0/ptr%frac
+        ptr%lake%sub_heat  = ptr%lake%sub_heat *frac0/ptr%frac
+        ptr%lake%sub_cmass = ptr%lake%sub_cmass*frac0/ptr%frac
+
+        if(associated(ptr%snow))then
+          ptr%snow%wl = ptr%snow%wl*frac0/ptr%frac
+          ptr%snow%ws = ptr%snow%ws*frac0/ptr%frac          
+        endif
+
+        if(associated(ptr%cana).and.associated(cana_soil))then
+          call merge_cana_tiles(cana_soil, area, ptr%cana, frac0) 
+          call delete_cana_tile(cana_soil)
+        endif
+
+        ptr%lwup = ptr%lwup*frac0 + lwup_soil*area
+        ptr%e_res_1 = ptr%e_res_1*frac0 + e_res_1_soil*area
+        ptr%e_res_2 = ptr%e_res_2*frac0 + e_res_2_soil*area        
+
+        ptr%lake%sub_lmass = ptr%lake%sub_lmass + (soil_lmass0+vegn_lmass0+snow_lmass0_soil)*(area/atots)/ptr%frac !kg/m2
+        ptr%lake%sub_fmass = ptr%lake%sub_fmass + (soil_fmass0+vegn_fmass0+snow_fmass0_soil)*(area/atots)/ptr%frac !kg/m2    
+        ptr%lake%sub_heat  = ptr%lake%sub_heat  +   (soil_heat0+cana_heat0+snow_heat0_soil )*(area/atots)/ptr%frac !J/m2
+        ptr%lake%sub_cmass = ptr%lake%sub_cmass + (soil_cmass0+vegn_cmass0+snow_cmass0_soil)*(area/atots)/ptr%frac !kg/m2 
+      endif
+
+      if(associated(ptr%soil))then
+        ptr%frac = ptr%frac*(1.-area/atots)
+      endif
+
+    enddo  
 
     call land_tile_list_init(a_list)
+    ! move all tiles from the donor list to the acceptor list -- this will ensure
+    ! that all the tiles that can be merged at this time will be
     te = tail_elmt(d_list)
     do
       ts=first_elmt(d_list)
       if(ts==te) exit ! reached the end of the list
       ptr=>current_tile(ts)
-
-      if(associated(ptr%lake))then
-        a0 = ptr%frac
-        ptr%frac = ptr%frac + area
-        if(ptr%frac>1.+thres) &
-          call error_mesg('lake_transitions_0d','lake fraction could not be greater than 1.', FATAL)
-        if(ptr%lake%Afrac_rsv<1.) ptr%lake%Afrac_rsv = (ptr%lake%Afrac_rsv*a0 + area)/(a0 + area)
-        call adjust_rsv_frac(ptr%lake,ptr%frac,land_area)
-        ptr%lake%sub_lmass = ptr%lake%sub_lmass + sv_lmass0*(atots*land_area)*(area/atots)
-        ptr%lake%sub_fmass = ptr%lake%sub_fmass + sv_fmass0*(atots*land_area)*(area/atots)        
-        ptr%lake%sub_heat = ptr%lake%sub_heat + (soil_heat0+cana_heat0)*(atots*land_area)*(area/atots)
-        ptr%lake%sub_cmass = ptr%lake%sub_cmass + sv_cmass0*(atots*land_area)*(area/atots)
-
-        
-      endif
-
-      if(associated(ptr%soil))then
-        ptr%frac = ptr%frac - area*(ptr%frac/atots)
-      endif
-
       if(ptr%frac <= 0.0) then
         call erase(ts) ! if area of the tile is zero, free it
       else
@@ -1699,8 +1843,8 @@ subroutine lake_transitions_0d(d_list,d_kinds,a_kinds,area,land_area)
         call remove(ts)
         call insert(ptr,a_list)
       endif
-
-    enddo    
+    enddo
+    ! d_list is empty at this point
 
     ! merge all generated tiles into the source (donor) list
     te = tail_elmt(a_list)
@@ -1709,10 +1853,11 @@ subroutine lake_transitions_0d(d_list,d_kinds,a_kinds,area,land_area)
       if(ts==te) exit ! break out of loop
       ptr=>current_tile(ts)
       call remove(ts)
-      call land_tile_merge(ptr,d_list)
+      call merge_land_tile_into_list(ptr,d_list)
     enddo
     ! a_list is empty at this point
-    call land_tile_list_end(a_list)    
+    call land_tile_list_end(a_list)
+
 
   else
     call error_mesg('lake_transitions_0d','transitions from lake to soil are not supported at this moment', FATAL)
@@ -1734,9 +1879,16 @@ subroutine lake_transitions_0d(d_list,d_kinds,a_kinds,area,land_area)
   do while (loop_over_tiles(ts,ptr))
      call get_tile_water(ptr,lm,fm)
      lmass1 = lmass1 + lm*ptr%frac ; fmass1 = fmass1 + fm*ptr%frac
+     if(associated(ptr%lake))then
+       lmass1 = lmass1 + ptr%lake%sub_lmass*ptr%frac
+       fmass1 = fmass1 + ptr%lake%sub_fmass*ptr%frac
+     endif     
 
      heat1  = heat1  + land_tile_heat  (ptr)*ptr%frac
+     if(associated(ptr%lake)) heat1 = heat1 + ptr%lake%sub_heat*ptr%frac
+
      cmass1 = cmass1 + land_tile_carbon(ptr)*ptr%frac
+     if(associated(ptr%lake)) cmass1 = cmass1 + ptr%lake%sub_cmass*ptr%frac     
 
      if(associated(ptr%soil)) soil_heat1 = soil_heat1 + soil_tile_heat(ptr%soil)*ptr%frac
      if(associated(ptr%vegn)) vegn_heat1 = vegn_heat1 + vegn_tile_heat(ptr%vegn)*ptr%frac
@@ -1746,11 +1898,11 @@ subroutine lake_transitions_0d(d_list,d_kinds,a_kinds,area,land_area)
   call check_conservation ('liquid water', lmass0, lmass1, 1e-6)
   call check_conservation ('frozen water', fmass0, fmass1, 1e-6)
   call check_conservation ('carbon'      , cmass0, cmass1, 1e-6)
-  call check_conservation ('canopy air heat content', cana_heat0 , cana_heat1 , 1e-6)
+!  call check_conservation ('canopy air heat content', cana_heat0 , cana_heat1 , 1e-6)
 ! heat content of vegetation may not conserve because of the cohort merging issues
-!  call check_conservation ('vegetation heat content', vegn_heat0 , vegn_heat1 , 1e-6)
-  call check_conservation ('snow heat content',       snow_heat0 , snow_heat1 , 1e-6)
-  call check_conservation ('soil heat content',       soil_heat0 , soil_heat1 , 1e-4)
+  call check_conservation ('vegetation heat content', vegn_heat0*(1.-area/atots), vegn_heat1 , 1e-6)
+!  call check_conservation ('snow heat content',       snow_heat0 , snow_heat1 , 1e-6)
+  call check_conservation ('soil heat content',       soil_heat0*(1.-area/atots), soil_heat1 , 1e-4)
   call check_conservation ('heat content', heat0 , heat1 , 1e-4)  
 
 end subroutine lake_transitions_0d
@@ -2047,7 +2199,7 @@ end function vegn_tran_priority
 
 ! ============================================================================
 
-subroutine add_to_transitions(frac, time0,time1,k1,k2,tran)
+subroutine add_to_transitions(frac, time0,time1,k1,k2,tran, is_laketran)
   real, intent(in) :: frac(lnd%ls:lnd%le)
   type(time_type), intent(in) :: time0       ! time of previous calculation of
     ! transitions (the integral transitions will be calculated between time0
@@ -2055,6 +2207,7 @@ subroutine add_to_transitions(frac, time0,time1,k1,k2,tran)
   type(time_type), intent(in) :: time1       ! current time
   integer, intent(in) :: k1,k2               ! kinds of tiles
   type(tran_type), pointer :: tran(:,:)    ! transition info
+  logical, intent(in), optional :: is_laketran
 
   ! ---- local vars
   integer :: k,sec,days,l
@@ -2088,7 +2241,7 @@ subroutine add_to_transitions(frac, time0,time1,k1,k2,tran)
   enddo
 
   ! send transition data to diagnostics
-  if(diag_ids(k1,k2)>0) then
+  if(.not.is_laketran.and.diag_ids(k1,k2)>0) then
      call get_time(time1-time0, sec,days)
      part_of_year = (days+sec/86400.0)/days_in_year(time0)
      used = send_data(diag_ids(k1,k2), frac/part_of_year, time1)

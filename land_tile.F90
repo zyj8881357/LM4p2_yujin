@@ -51,7 +51,7 @@ public :: max_n_tiles
 public :: new_land_tile, delete_land_tile
 public :: land_tiles_can_be_merged, merge_land_tiles, merge_land_tile_into_list
 
-public :: get_tile_water, get_tile_water_sv ! returns liquid and frozen water masses
+public :: get_tile_water ! returns liquid and frozen water masses
 public :: land_tile_carbon ! returns total carbon in the tile
 public :: land_tile_nitrogen ! returns total nitrogen in the tile
 public :: land_tile_heat ! returns tile heat content
@@ -418,26 +418,6 @@ subroutine get_tile_water(tile, lmass, fmass)
   endif
 
 end subroutine get_tile_water
-
-! ============================================================================
-subroutine get_tile_water_sv(tile, lmass, fmass)
-  type(land_tile_type), intent(in) :: tile
-  real, intent(out) :: lmass, fmass ! liquid and solid water masses, kg/m2
-
-  ! ---- local vars
-  real :: lm, fm
-
-  lmass = 0; fmass = 0
-  if (associated(tile%soil)) then
-     call soil_tile_stock_pe(tile%soil, lm, fm)
-     lmass = lmass+lm ; fmass = fmass + fm
-  endif
-  if (associated(tile%vegn)) then
-     call vegn_tile_stock_pe(tile%vegn, lm, fm)
-     lmass = lmass+lm ; fmass = fmass + fm
-  endif
-
-end subroutine get_tile_water_sv
 
 ! ============================================================================
 ! returns total tile carbon, kg C/m2

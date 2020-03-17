@@ -79,6 +79,7 @@ module river_mod
   use tracer_manager_mod, only : NO_TRACER
   use table_printer_mod
   use soil_tile_mod,      only : soil_tile_type, num_soil=>num_l, dz_soil=>dz
+  use land_transitions_mod, only: do_lake_change
 
   implicit none
   private
@@ -884,7 +885,11 @@ end subroutine print_river_tracer_data
          Afrac_rsv_ug(l)       = tile%lake%Afrac_rsv
          Vfrac_rsv_ug(l)       = tile%lake%Vfrac_rsv
          !this is still an approximation, because we didn't consider reservoir area in other gridcells with the same lake 
-         lake_whole_area_ug(l) = max(0., tile%lake%pars%whole_area-Afrac_rsv_ug(l)*tile%frac*lnd%ug_area(l)) 
+         if(.not.do_lake_change)then
+           lake_whole_area_ug(l) = max(0., tile%lake%pars%whole_area-Afrac_rsv_ug(l)*tile%frac*lnd%ug_area(l)) 
+         else
+           lake_whole_area_ug(l) = tile%lake%pars%whole_area 
+         endif
          if(Afrac_rsv_ug(l)<1.)then
            lake_sfc_bot_ug(l) = (1.-Vfrac_rsv_ug(l))*lake_sfc_A_ug(l)*(sum(tile%lake%wl(:)+tile%lake%ws(:))-tile%lake%wl(1)-tile%lake%ws(1))/DENS_H2O & !m2 * kg/m2 / (kg/m3) = m3
                                /((1.-Afrac_rsv_ug(l))*lake_sfc_A_ug(l)) !m2 

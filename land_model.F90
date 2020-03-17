@@ -41,12 +41,13 @@ use land_tracer_driver_mod, only: land_tracer_driver_init, land_tracer_driver_en
 use glacier_mod, only : read_glac_namelist, glac_init, glac_end, glac_get_sfc_temp, &
      glac_radiation, glac_step_1, glac_step_2, save_glac_restart
 use lake_mod, only : read_lake_namelist, lake_init, lake_end, lake_get_sfc_temp, &
-     lake_radiation, lake_step_1, lake_step_2, save_lake_restart
+     lake_radiation, lake_step_1, lake_step_2, save_lake_restart, &
+     lake_area_diag
 use soil_mod, only : read_soil_namelist, soil_init, soil_end, soil_get_sfc_temp, &
      soil_radiation, soil_step_1, soil_step_2, soil_step_3, save_soil_restart, &
      ! moved here to eliminate circular dependencies with hillslope mods:
      soil_cover_cold_start, retrieve_soil_tags, &
-     irrigation_deficit, irrigation_deficit_evap
+     irrigation_deficit, irrigation_deficit_evap, soil_area_diag
 use soil_carbon_mod, only : read_soil_carbon_namelist, N_C_TYPES, soil_carbon_option, &
     SOILC_CORPSE_N
 use snow_mod, only : read_snow_namelist, snow_init, snow_end, snow_get_sfc_temp, &
@@ -109,7 +110,9 @@ use static_vegn_mod, only : write_static_vegn
 use land_transitions_mod, only : &
      land_transitions_init, land_transitions_end, land_transitions, &
      save_land_transitions_restart, &
-     land_irrigatedareas_init
+     land_irrigatedareas_init, &
+     lake_transitions_init, lake_transitions_end, lake_transitions, &
+     save_lake_transitions_restart
 use stock_constants_mod, only: ISTOCK_WATER, ISTOCK_HEAT, ISTOCK_SALT
 use nitrogen_sources_mod, only : nitrogen_sources_init, nitrogen_sources_end, &
      update_nitrogen_sources, nitrogen_sources
@@ -493,6 +496,7 @@ subroutine land_model_init &
 
   call land_transitions_init (id_ug, id_cellarea)
   call land_irrigatedareas_init (id_ug) 
+  call lake_transitions_init (id_ug)  
   ! [8] initialize boundary data
   ! [8.1] allocate storage for the boundary data
   call hlsp_config_check () ! Needs to be done after land_transitions_init and vegn_init
@@ -638,6 +642,7 @@ subroutine land_model_end (cplr2land, land2cplr)
   ! restart anyway
   call land_tracer_driver_end()
   call land_transitions_end()
+  call lake_transitions_end()
   call glac_end ()
   call lake_end ()
   call soil_end ()
@@ -724,6 +729,7 @@ subroutine land_model_restart(timestamp)
 
   ! [6] save component model restarts
   call save_land_transitions_restart(timestamp_)
+  call save_lake_transitions_restart(timestamp_)
   call save_glac_restart(tile_dim_length,timestamp_)
   call save_lake_restart(tile_dim_length,timestamp_)
   call save_soil_restart(tile_dim_length,timestamp_)
@@ -1191,9 +1197,6 @@ subroutine update_land_model_fast ( cplr2land, land2cplr )
   call hlsp_hydrology_1(n_c_types)
   ! ZMS: Eventually pass these args into river or main tile loop.
 
-  ! Calculate demand of irrigation rate for each gridcell
-  call irrigation_deficit()
-
   ! main tile loop
 !$OMP parallel do default(none) shared(lnd,land_tile_map,cplr2land,land2cplr,phot_co2_overridden, &
 !$OMP                                  phot_co2_data,runoff,runoff_c,snc,id_area,id_z0m,id_z0s,       &
@@ -1253,6 +1256,12 @@ subroutine update_land_model_fast ( cplr2land, land2cplr )
         endif
      enddo
   enddo
+
+  ! output soil and lake area for diagnostic
+  call soil_area_diag()
+  call lake_area_diag()
+  ! Calculate demand of irrigation rate for each gridcell
+  call irrigation_deficit()
 
   !--- pass runoff from unstructured grid to structured grid.
   runoff_sg = 0 ; runoff_c_sg = 0
@@ -2579,6 +2588,7 @@ subroutine update_land_model_slow ( cplr2land, land2cplr )
   call vegn_nat_mortality_ppa( )
   call fire_transitions(lnd%time)
   call land_transitions(lnd%time)
+  call lake_transitions(lnd%time)
 
   ! try to minimize the number of tiles by merging similar ones
   if (year0/=year1) then

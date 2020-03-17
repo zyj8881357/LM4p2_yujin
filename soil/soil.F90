@@ -114,6 +114,7 @@ public :: redistribute_peat_carbon
 
 public :: irrigation_deficit_evap
 public :: irrigation_deficit
+public :: soil_area_diag
 
 ! helper functions that may be better moved elsewhere:
 public :: register_litter_soilc_diag_fields
@@ -297,7 +298,8 @@ integer :: id_mrlsl, id_mrsfl, id_mrsll, id_mrsol, id_mrso, id_mrsos, id_mrlso, 
     id_nSoil, id_nLitter, id_nLitterCwd, id_nMineral, id_nMineralNH4, id_nMineralNO3
 
 ! diag of irrigation-ralted variables
-integer :: id_irr_demand, id_irr_area_input, id_irr_area_real    
+integer :: id_irr_demand, id_irr_area_input, id_irr_area_real
+integer :: id_soil_area, id_soil_frac
 
 ! variables for CMOR/CMIP diagnostic calculations
 real, allocatable :: mrsos_weight(:) ! weights for mrsos averaging
@@ -1244,6 +1246,11 @@ subroutine soil_diag_init(id_ug,id_band,id_zfull)
        lnd%time, 'irrigated area from input data', 'm2',  missing_value=-100.0 ) 
   id_irr_area_real = register_tiled_diag_field ( module_name, 'irr_area_real', axes(1:1), &
        lnd%time, 'real irrigated area', 'm2',  missing_value=-100.0 ) 
+
+  id_soil_area = register_tiled_diag_field ( module_name, 'soil_area', axes(1:1), &
+       lnd%time, 'soil area', 'm2',  missing_value=-100.0 )  
+  id_soil_frac = register_tiled_diag_field ( module_name, 'soil_frac', axes(1:1), &
+       lnd%time, 'soil frac', '-',  missing_value=-100.0 )                
 
   id_type = register_tiled_static_field ( module_name, 'soil_type',  &
        axes(1:1), 'soil type', missing_value=-1.0 )
@@ -4955,5 +4962,23 @@ subroutine irrigation_deficit()
 
  end subroutine irrigation_deficit
 
+! ============================================================================
+subroutine soil_area_diag()
+
+ type(land_tile_enum_type)     :: ce  ! current tile list elements
+ type(land_tile_type), pointer :: tile ! pointer to current tile
+ type(soil_tile_type), pointer :: soil
+ integer :: l
+
+ do l=lnd%ls, lnd%le  
+     ce = first_elmt(land_tile_map(l))
+     do while(loop_over_tiles(ce,tile,k=k))
+       if(.not.associated(tile%soil)) cycle
+       call send_tile_data(id_soil_area, lnd%ug_area(l), tile%diag)  
+       call send_tile_data(id_soil_frac, 1., tile%diag)     
+     enddo
+ enddo
+
+end subroutine soil_area_diag
 ! ============================================================================
 end module soil_mod
