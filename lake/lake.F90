@@ -320,13 +320,13 @@ subroutine lake_init ( id_ug )
      call get_tile_data(restart, 'ws',   'zfull', lake_ws_ptr)
      if (field_exists(restart,'Vfrac_rsv')) &
         call get_tile_data(restart, 'Vfrac_rsv', lake_Vfrac_rsv_ptr) 
-     if (filed_exists(restart,'sub_lmass')) &
+     if (field_exists(restart,'sub_lmass')) &
         call get_tile_data(restart, 'sub_lmass', lake_sub_lmass_ptr)  
-     if (filed_exists(restart,'sub_fmass')) &
+     if (field_exists(restart,'sub_fmass')) &
         call get_tile_data(restart, 'sub_fmass', lake_sub_fmass_ptr)
-     if (filed_exists(restart,'sub_heat')) &
+     if (field_exists(restart,'sub_heat')) &
         call get_tile_data(restart, 'sub_heat',  lake_sub_heat_ptr)
-     if (filed_exists(restart,'sub_cmass')) &
+     if (field_exists(restart,'sub_cmass')) &
         call get_tile_data(restart, 'sub_cmass', lake_sub_cmass_ptr)        
   else
      call error_mesg('lake_init', 'cold-starting lake', NOTE)
@@ -376,7 +376,7 @@ subroutine save_lake_restart (tile_dim_length, timestamp)
   call add_tile_data(restart,'sub_lmass', lake_sub_lmass_ptr, 'buried liquid water under lake due to reservoir building', 'kg/m2')
   call add_tile_data(restart,'sub_fmass', lake_sub_fmass_ptr, 'buried frozen water under lake due to reservoir building', 'kg/m2') 
   call add_tile_data(restart,'sub_heat',  lake_sub_heat_ptr,  'buried heat under lake due to reservoir building', 'J/m2') 
-  call add_tile_data(restart,'sub_cmass',  ake_sub_cmass_ptr, 'buried carbon under lake due to reservoir building', 'kg C/m2') 
+  call add_tile_data(restart,'sub_cmass', lake_sub_cmass_ptr, 'buried carbon under lake due to reservoir building', 'kg C/m2') 
 
   ! save performs io domain aggregation through mpp_io as with regular domain data
   call save_land_restart(restart)
@@ -1204,12 +1204,12 @@ subroutine lake_area_diag()
 
  type(land_tile_enum_type)     :: ce  ! current tile list elements
  type(land_tile_type), pointer :: tile ! pointer to current tile
- type(soil_tile_type), pointer :: lake
+ type(lake_tile_type), pointer :: lake
  integer :: l
 
  do l=lnd%ls, lnd%le  
      ce = first_elmt(land_tile_map(l))
-     do while(loop_over_tiles(ce,tile,k=k))
+     do while(loop_over_tiles(ce,tile))
        if(.not.associated(tile%lake)) cycle
        call send_tile_data(id_lake_area, lnd%ug_area(l), tile%diag)  
        call send_tile_data(id_lake_frac, 1., tile%diag)     

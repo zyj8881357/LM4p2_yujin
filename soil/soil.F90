@@ -4972,7 +4972,7 @@ subroutine soil_area_diag()
 
  do l=lnd%ls, lnd%le  
      ce = first_elmt(land_tile_map(l))
-     do while(loop_over_tiles(ce,tile,k=k))
+     do while(loop_over_tiles(ce,tile))
        if(.not.associated(tile%soil)) cycle
        call send_tile_data(id_soil_area, lnd%ug_area(l), tile%diag)  
        call send_tile_data(id_soil_frac, 1., tile%diag)     
