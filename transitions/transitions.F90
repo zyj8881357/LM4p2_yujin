@@ -38,7 +38,8 @@ use cana_tile_mod, only : cana_tile_heat, cana_tile_stock_pe, cana_tile_carbon, 
 use snow_tile_mod, only : snow_tile_heat, snow_tile_stock_pe
 use vegn_tile_mod, only : vegn_tile_heat, vegn_tile_stock_pe, vegn_tile_carbon, vegn_tile_type, vegn_tile_bwood
 use soil_tile_mod, only : soil_tile_heat, soil_tile_stock_pe, soil_tile_carbon
-use lake_tile_mod, only : lake_tile_type
+use lake_tile_mod, only : lake_tile_heat, lake_tile_type
+use glac_tile_mod, only : glac_tile_heat
 
 use land_tile_mod, only : land_tile_map, &
      land_tile_type, land_tile_list_type, land_tile_enum_type, new_land_tile, delete_land_tile, &
@@ -1648,7 +1649,7 @@ subroutine lake_transitions_0d(d_list,d_kinds,a_kinds,area)
   real :: htot ! total fraction heat, for debugging only
   ! variable used for conservation check:
   real :: lmass0, fmass0, cmass0, heat0, & !lmass fmass:kg/m2, cmass:kgC/m2, heat:J/m2, ! pre-transition values
-       soil_heat0, vegn_heat0, cana_heat0, snow_heat0, &
+       soil_heat0, vegn_heat0, cana_heat0, snow_heat0, lake_heat0, glac_heat0, e_res_heat0, &
        soil_lmass0, vegn_lmass0, cana_lmass0, snow_lmass0, &
        soil_fmass0, vegn_fmass0, cana_fmass0, snow_fmass0, &
        soil_cmass0, vegn_cmass0, cana_cmass0
@@ -1657,12 +1658,14 @@ subroutine lake_transitions_0d(d_list,d_kinds,a_kinds,area)
   real :: cana_lmass0_lake, cana_fmass0_lake, cana_heat0_lake, cana_cmass0_lake, &
           snow_lmass0_lake, snow_fmass0_lake, snow_heat0_lake
   real :: lmass1, fmass1, cmass1, heat1, &
-       soil_heat1, vegn_heat1, cana_heat1, snow_heat1 ! post-transition values
+       soil_heat1, vegn_heat1, cana_heat1, snow_heat1, lake_heat1, glac_heat1, e_res_heat1 ! post-transition values
+  real :: lwup0, lwup1
   real :: lm, fm, diff ! buffers for transition calculations
   real :: thres = 1.e-8
   type(cana_tile_type), pointer :: cana_soil
   real :: lwup_soil, e_res_1_soil, e_res_2_soil
   real :: frac_ac
+  real :: fict_heat_dif = 0.
 
 
   if(area<=0.) return  !do nothing if no area change
@@ -1670,6 +1673,7 @@ subroutine lake_transitions_0d(d_list,d_kinds,a_kinds,area)
   ! cell totals
   lmass0 = 0 ; fmass0 = 0 ; cmass0 = 0 ; heat0 = 0
   soil_heat0  = 0 ;  vegn_heat0  = 0 ; cana_heat0  = 0 ; snow_heat0  = 0
+  lake_heat0  = 0 ;  glac_heat0  = 0 ; e_res_heat0 = 0
   soil_lmass0 = 0 ;  vegn_lmass0 = 0 ; cana_lmass0 = 0 ; snow_lmass0 = 0
   soil_fmass0 = 0 ;  vegn_fmass0 = 0 ; cana_fmass0 = 0 ; snow_fmass0 = 0
   soil_cmass0 = 0 ;  vegn_cmass0 = 0 ; cana_cmass0 = 0 
@@ -1678,6 +1682,8 @@ subroutine lake_transitions_0d(d_list,d_kinds,a_kinds,area)
   snow_lmass0_soil=0; snow_fmass0_soil=0; snow_heat0_soil=0
   cana_lmass0_lake=0; cana_fmass0_lake=0; cana_heat0_lake=0; cana_cmass0_lake=0
   snow_lmass0_lake=0; snow_fmass0_lake=0; snow_heat0_lake=0
+
+  lwup0 = 0
 
   ts = first_elmt(d_list)
   do while (loop_over_tiles(ts, ptr))
@@ -1731,6 +1737,9 @@ subroutine lake_transitions_0d(d_list,d_kinds,a_kinds,area)
      if(associated(ptr%vegn)) vegn_heat0 = vegn_heat0 + vegn_tile_heat(ptr%vegn)*ptr%frac
      if(associated(ptr%cana)) cana_heat0 = cana_heat0 + cana_tile_heat(ptr%cana)*ptr%frac
      if(associated(ptr%snow)) snow_heat0 = snow_heat0 + snow_tile_heat(ptr%snow)*ptr%frac
+     if(associated(ptr%lake)) lake_heat0 = lake_heat0 + lake_tile_heat(ptr%lake)*ptr%frac
+     if(associated(ptr%glac)) glac_heat0 = glac_heat0 + glac_tile_heat(ptr%glac)*ptr%frac 
+     e_res_heat0 = e_res_heat0 + (ptr%e_res_1+ptr%e_res_2)*ptr%frac 
 
      if(associated(ptr%cana).and.associated(ptr%soil)) cana_heat0_soil = cana_heat0_soil + cana_tile_heat(ptr%cana)*ptr%frac
      if(associated(ptr%snow).and.associated(ptr%soil)) snow_heat0_soil = snow_heat0_soil + snow_tile_heat(ptr%snow)*ptr%frac     
@@ -1747,6 +1756,8 @@ subroutine lake_transitions_0d(d_list,d_kinds,a_kinds,area)
 
      if(associated(ptr%cana).and.associated(ptr%soil)) cana_cmass0_soil = cana_cmass0_soil + cana_tile_carbon(ptr%cana)*ptr%frac 
      if(associated(ptr%cana).and.associated(ptr%lake)) cana_cmass0_lake = cana_cmass0_lake + cana_tile_carbon(ptr%cana)*ptr%frac 
+
+     lwup0 = lwup0 + ptr%lwup*ptr%frac
   enddo
 
   atots = 0.; atotl = 0.
@@ -1769,17 +1780,14 @@ subroutine lake_transitions_0d(d_list,d_kinds,a_kinds,area)
           call error_mesg('lake_transitions_0d','soil tile must have cana', FATAL) 
         if(.not.associated(cana_soil))then
           cana_soil => new_cana_tile(ptr%cana)
-          lwup_soil = ptr%lwup
-          e_res_1_soil = ptr%e_res_1
-          e_res_2_soil = ptr%e_res_2
           frac_ac = ptr%frac
         else
           call merge_cana_tiles(ptr%cana, ptr%frac, cana_soil, frac_ac)
-          lwup_soil = lwup_soil*frac_ac + ptr%lwup*ptr%frac
-          e_res_1_soil = e_res_1_soil*frac_ac + ptr%e_res_1*ptr%frac
-          e_res_2_soil = e_res_2_soil*frac_ac + ptr%e_res_2*ptr%frac
           frac_ac = frac_ac + ptr%frac
         endif
+        e_res_1_soil = e_res_1_soil + ptr%e_res_1*ptr%frac
+        e_res_2_soil = e_res_2_soil + ptr%e_res_2*ptr%frac
+        lwup_soil = lwup_soil + ptr%lwup*ptr%frac
       endif   
     enddo  
 
@@ -1802,24 +1810,28 @@ subroutine lake_transitions_0d(d_list,d_kinds,a_kinds,area)
         ptr%lake%sub_heat  = ptr%lake%sub_heat *frac0/ptr%frac
         ptr%lake%sub_cmass = ptr%lake%sub_cmass*frac0/ptr%frac
 
+        ptr%e_res_1 = ptr%e_res_1*frac0/ptr%frac
+        ptr%e_res_2 = ptr%e_res_2*frac0/ptr%frac
+        ptr%lwup = (ptr%lwup*frac0+lwup_soil*(area/atots))/ptr%frac
+
         if(associated(ptr%snow))then
           ptr%snow%wl = ptr%snow%wl*frac0/ptr%frac
-          ptr%snow%ws = ptr%snow%ws*frac0/ptr%frac          
+          ptr%snow%ws = ptr%snow%ws*frac0/ptr%frac     
+          fict_heat_dif = snow_tile_heat(ptr%snow)*ptr%frac - snow_heat0_lake
+          ptr%lake%sub_heat  = ptr%lake%sub_heat - fict_heat_dif/ptr%frac              
         endif
 
         if(associated(ptr%cana).and.associated(cana_soil))then
           call merge_cana_tiles(cana_soil, area, ptr%cana, frac0) 
           call delete_cana_tile(cana_soil)
-        endif
-
-        ptr%lwup = ptr%lwup*frac0 + lwup_soil*area
-        ptr%e_res_1 = ptr%e_res_1*frac0 + e_res_1_soil*area
-        ptr%e_res_2 = ptr%e_res_2*frac0 + e_res_2_soil*area        
+        endif  
 
         ptr%lake%sub_lmass = ptr%lake%sub_lmass + (soil_lmass0+vegn_lmass0+snow_lmass0_soil)*(area/atots)/ptr%frac !kg/m2
         ptr%lake%sub_fmass = ptr%lake%sub_fmass + (soil_fmass0+vegn_fmass0+snow_fmass0_soil)*(area/atots)/ptr%frac !kg/m2    
-        ptr%lake%sub_heat  = ptr%lake%sub_heat  +   (soil_heat0+cana_heat0+snow_heat0_soil )*(area/atots)/ptr%frac !J/m2
         ptr%lake%sub_cmass = ptr%lake%sub_cmass + (soil_cmass0+vegn_cmass0)*(area/atots)/ptr%frac !kg/m2 
+
+        ptr%lake%sub_heat  = ptr%lake%sub_heat  + (soil_heat0+vegn_heat0+snow_heat0_soil )*(area/atots)/ptr%frac !J/m2
+        ptr%lake%sub_heat  = ptr%lake%sub_heat  + (e_res_1_soil+e_res_2_soil)*(area/atots)/ptr%frac !J/m2
       endif
 
       if(associated(ptr%soil))then
@@ -1875,6 +1887,8 @@ subroutine lake_transitions_0d(d_list,d_kinds,a_kinds,area)
   ! compare them with pre-transition totals
   lmass1 = 0 ; fmass1 = 0 ; cmass1 = 0 ; heat1 = 0
   soil_heat1 = 0 ;  vegn_heat1 = 0 ; cana_heat1 = 0 ; snow_heat1 = 0
+  lake_heat1 = 0 ;  glac_heat1 = 0 ; e_res_heat1 = 0  
+  lwup1 = 0
   ts = first_elmt(d_list)
   do while (loop_over_tiles(ts,ptr))
      call get_tile_water(ptr,lm,fm)
@@ -1894,16 +1908,25 @@ subroutine lake_transitions_0d(d_list,d_kinds,a_kinds,area)
      if(associated(ptr%vegn)) vegn_heat1 = vegn_heat1 + vegn_tile_heat(ptr%vegn)*ptr%frac
      if(associated(ptr%cana)) cana_heat1 = cana_heat1 + cana_tile_heat(ptr%cana)*ptr%frac
      if(associated(ptr%snow)) snow_heat1 = snow_heat1 + snow_tile_heat(ptr%snow)*ptr%frac
+     if(associated(ptr%lake)) lake_heat1 = lake_heat1 + lake_tile_heat(ptr%lake)*ptr%frac
+     if(associated(ptr%glac)) glac_heat1 = glac_heat1 + glac_tile_heat(ptr%glac)*ptr%frac 
+     e_res_heat1 = e_res_heat1 + (ptr%e_res_1+ptr%e_res_2)*ptr%frac 
+
+     lwup1 = lwup1 + ptr%lwup*ptr%frac
   enddo
   call check_conservation ('liquid water', lmass0, lmass1, 1e-6)
   call check_conservation ('frozen water', fmass0, fmass1, 1e-6)
   call check_conservation ('carbon'      , cmass0, cmass1, 1e-6)
-!  call check_conservation ('canopy air heat content', cana_heat0 , cana_heat1 , 1e-6)
+  call check_conservation ('canopy air heat content', cana_heat0, cana_heat1, 1e-6)
 ! heat content of vegetation may not conserve because of the cohort merging issues
   call check_conservation ('vegetation heat content', vegn_heat0*(1.-area/atots), vegn_heat1 , 1e-6)
-!  call check_conservation ('snow heat content',       snow_heat0 , snow_heat1 , 1e-6)
+  call check_conservation ('snow heat content',       snow_heat0-snow_heat0_soil*area/atots+fict_heat_dif, snow_heat1, 1e-6)
   call check_conservation ('soil heat content',       soil_heat0*(1.-area/atots), soil_heat1 , 1e-4)
+  call check_conservation ('lake heat content',       lake_heat0, lake_heat1, 1e-6)
+  call check_conservation ('glac heat content',       glac_heat0, glac_heat1, 1e-6)  
+  call check_conservation ('e_res heat content',      e_res_heat0-(e_res_1_soil+e_res_2_soil)*area/atots, e_res_heat1, 1e-6)    
   call check_conservation ('heat content', heat0 , heat1 , 1e-4)  
+  call check_conservation ('upward longwave', lwup0, lwup1, 1e-4)
 
 end subroutine lake_transitions_0d
 ! =============================================================================
@@ -2199,7 +2222,7 @@ end function vegn_tran_priority
 
 ! ============================================================================
 
-subroutine add_to_transitions(frac, time0,time1,k1,k2,tran, is_laketran)
+subroutine add_to_transitions(frac, time0,time1,k1,k2,tran,is_laketran)
   real, intent(in) :: frac(lnd%ls:lnd%le)
   type(time_type), intent(in) :: time0       ! time of previous calculation of
     ! transitions (the integral transitions will be calculated between time0
@@ -2207,7 +2230,7 @@ subroutine add_to_transitions(frac, time0,time1,k1,k2,tran, is_laketran)
   type(time_type), intent(in) :: time1       ! current time
   integer, intent(in) :: k1,k2               ! kinds of tiles
   type(tran_type), pointer :: tran(:,:)    ! transition info
-  logical, intent(in) :: is_laketran
+  logical, intent(in), optional :: is_laketran
 
   ! ---- local vars
   integer :: k,sec,days,l
@@ -2240,11 +2263,15 @@ subroutine add_to_transitions(frac, time0,time1,k1,k2,tran, is_laketran)
      tran(l,k) = tran_type(k1,k2,frac(l))
   enddo
 
+  if(present(is_laketran))then
+    if(is_laketran) return
+  endif
+
   ! send transition data to diagnostics
-  if(.not.is_laketran.and.diag_ids(k1,k2)>0) then
-     call get_time(time1-time0, sec,days)
-     part_of_year = (days+sec/86400.0)/days_in_year(time0)
-     used = send_data(diag_ids(k1,k2), frac/part_of_year, time1)
+  if(diag_ids(k1,k2)>0) then
+    call get_time(time1-time0, sec,days)
+    part_of_year = (days+sec/86400.0)/days_in_year(time0)
+    used = send_data(diag_ids(k1,k2), frac/part_of_year, time1)
   endif
 
 end subroutine add_to_transitions
