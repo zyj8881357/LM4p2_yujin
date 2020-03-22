@@ -57,6 +57,7 @@ use vegn_harvesting_mod, only : vegn_cut_forest
 use land_debug_mod, only : set_current_point, is_watch_cell, &
      get_current_point, check_var_range, log_date
 use land_numerics_mod, only : rank_descending
+use lake_mod, only : prohibit_shallow_lake 
 
 implicit none
 private
@@ -1737,7 +1738,7 @@ subroutine lake_transitions_0d(d_list,d_kinds,a_kinds,area)
      if(associated(ptr%vegn)) vegn_heat0 = vegn_heat0 + vegn_tile_heat(ptr%vegn)*ptr%frac
      if(associated(ptr%cana)) cana_heat0 = cana_heat0 + cana_tile_heat(ptr%cana)*ptr%frac
      if(associated(ptr%snow)) snow_heat0 = snow_heat0 + snow_tile_heat(ptr%snow)*ptr%frac
-     if(associated(ptr%lake)) lake_heat0 = lake_heat0 + lake_tile_heat(ptr%lake)*ptr%frac
+     if(associated(ptr%lake)) lake_heat0 = lake_heat0 + lake_tile_heat(ptr%lake)*ptr%frac + ptr%lake%sub_heat*ptr%frac
      if(associated(ptr%glac)) glac_heat0 = glac_heat0 + glac_tile_heat(ptr%glac)*ptr%frac 
      e_res_heat0 = e_res_heat0 + (ptr%e_res_1+ptr%e_res_2)*ptr%frac 
 
@@ -1832,6 +1833,8 @@ subroutine lake_transitions_0d(d_list,d_kinds,a_kinds,area)
 
         ptr%lake%sub_heat  = ptr%lake%sub_heat  + (soil_heat0+vegn_heat0+snow_heat0_soil )*(area/atots)/ptr%frac !J/m2
         ptr%lake%sub_heat  = ptr%lake%sub_heat  + (e_res_1_soil+e_res_2_soil)*(area/atots)/ptr%frac !J/m2
+
+        call prohibit_shallow_lake(ptr%lake)
       endif
 
       if(associated(ptr%soil))then
@@ -1908,7 +1911,7 @@ subroutine lake_transitions_0d(d_list,d_kinds,a_kinds,area)
      if(associated(ptr%vegn)) vegn_heat1 = vegn_heat1 + vegn_tile_heat(ptr%vegn)*ptr%frac
      if(associated(ptr%cana)) cana_heat1 = cana_heat1 + cana_tile_heat(ptr%cana)*ptr%frac
      if(associated(ptr%snow)) snow_heat1 = snow_heat1 + snow_tile_heat(ptr%snow)*ptr%frac
-     if(associated(ptr%lake)) lake_heat1 = lake_heat1 + lake_tile_heat(ptr%lake)*ptr%frac
+     if(associated(ptr%lake)) lake_heat1 = lake_heat1 + lake_tile_heat(ptr%lake)*ptr%frac + ptr%lake%sub_heat*ptr%frac
      if(associated(ptr%glac)) glac_heat1 = glac_heat1 + glac_tile_heat(ptr%glac)*ptr%frac 
      e_res_heat1 = e_res_heat1 + (ptr%e_res_1+ptr%e_res_2)*ptr%frac 
 
@@ -1922,7 +1925,7 @@ subroutine lake_transitions_0d(d_list,d_kinds,a_kinds,area)
   call check_conservation ('vegetation heat content', vegn_heat0*(1.-area/atots), vegn_heat1 , 1e-6)
   call check_conservation ('snow heat content',       snow_heat0-snow_heat0_soil*area/atots+fict_heat_dif, snow_heat1, 1e-6)
   call check_conservation ('soil heat content',       soil_heat0*(1.-area/atots), soil_heat1 , 1e-4)
-  call check_conservation ('lake heat content',       lake_heat0, lake_heat1, 1e-6)
+  call check_conservation ('lake heat content',       lake_heat0+(soil_heat0+vegn_heat0+snow_heat0_soil+e_res_1_soil+e_res_2_soil)*area/atots-fict_heat_dif, lake_heat1, 1e-4)
   call check_conservation ('glac heat content',       glac_heat0, glac_heat1, 1e-6)  
   call check_conservation ('e_res heat content',      e_res_heat0-(e_res_1_soil+e_res_2_soil)*area/atots, e_res_heat1, 1e-6)    
   call check_conservation ('heat content', heat0 , heat1 , 1e-4)  

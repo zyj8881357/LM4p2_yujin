@@ -22,7 +22,7 @@ use lake_tile_mod, only : &
      lake_data_thermodynamics, &
      cpw,clw,csw, lake_width_inside_lake, large_lake_sill_width, &
      lake_specific_width, n_outlet, outlet_face, outlet_i, outlet_j, outlet_width, &
-     new_lake_tile, delete_lake_tile
+     new_lake_tile, delete_lake_tile, lake_tile_stock_pe, lake_tile_heat
 use land_tile_mod, only : land_tile_map, land_tile_type, land_tile_enum_type, &
      first_elmt, loop_over_tiles
 use land_tile_diag_mod, only : register_tiled_static_field, &
@@ -54,6 +54,7 @@ public :: lake_step_2
 public :: large_dyn_small_stat
 
 public :: lake_abstraction
+public :: prohibit_shallow_lake
 public :: lake_area_diag
 ! =====end of public interfaces ==============================================
 
@@ -87,6 +88,7 @@ real    :: max_plain_slope      = -1.e10
 logical :: do_lake_abstraction  = .false.
 real    :: ResMin               = 0.1
 real    :: ResMax               = 0.75
+logical :: prohibit_shallowlake = .false.
 
 namelist /lake_nml/ init_temp, init_w,       &
                     use_rh_feedback, cpw, clw, csw, &
@@ -95,7 +97,7 @@ namelist /lake_nml/ init_temp, init_w,       &
                     min_rat, do_stratify, albedo_to_use, K_z_large, &
 		    K_z_background, K_z_min, K_z_factor, &
 		    lake_depth_max, lake_depth_min, max_plain_slope, &
-        do_lake_abstraction, ResMin, ResMax
+        do_lake_abstraction, ResMin, ResMax, prohibit_shallowlake
 !---- end of namelist --------------------------------------------------------
 real    :: K_z_molec            = 1.4e-7
 real    :: tc_molec             = 0.59052 ! dens_h2o*clw*K_z_molec
@@ -1198,6 +1200,43 @@ subroutine lake_abstraction (use_reservoir, is_terminal, &
  endif
 
 end subroutine lake_abstraction 
+
+! ============================================================================
+subroutine prohibit_shallow_lake(lake)
+  type(lake_tile_type), intent(inout) :: lake
+
+  real :: fac_min = 0.1
+  real :: heat0, heat1, lm0, lm1, fm0, fm1
+  real :: liq_frac
+  real, dimension(num_l) :: dz_frac
+  real :: new_z
+  integer :: l
+
+  if(.not.prohibit_shallowlake) return
+  if(sum(lake%dz)>=fac_min*lake%pars%depth_sill) return
+
+  heat0 = lake_tile_heat(lake)
+  call lake_tile_stock_pe(lake, lm0, fm0)  
+  
+  dz_frac = lake%dz/sum(lake%dz)
+  new_z = fac_min*lake%pars%depth_sill 
+  lake%dz = dz_frac*new_z
+
+  do l = 2, num_l 
+    liq_frac = lake%wl(l)/(lake%wl(l)+lake%ws(l)) 
+    lake%wl(l)=lake%dz(l)*DENS_H2O*liq_frac
+    lake%ws(l)=lake%dz(l)*DENS_H2O*(1.-liq_frac)       
+  enddo
+
+  heat1 = lake_tile_heat(lake) !J/m2
+  call lake_tile_stock_pe(lake, lm1, fm1)  
+
+  lake%sub_lmass = lake%sub_lmass - (lm1 - lm0)
+  lake%sub_fmass = lake%sub_fmass - (fm1 - fm0)
+  lake%sub_heat  = lake%sub_heat  - (heat1 - heat0)
+
+
+end subroutine prohibit_shallow_lake
 ! ============================================================================
 
 subroutine lake_area_diag()
@@ -1206,13 +1245,22 @@ subroutine lake_area_diag()
  type(land_tile_type), pointer :: tile ! pointer to current tile
  type(lake_tile_type), pointer :: lake
  integer :: l
+ real,dimension(lnd%ls:lnd%le) :: atotl
+
+ atotl = 0.
+ do l=lnd%ls, lnd%le
+     ce = first_elmt(land_tile_map(l))
+     do while(loop_over_tiles(ce,tile))    
+       if (associated(tile%lake)) atotl(l) = atotl(l) + tile%frac        
+     enddo  
+ enddo 
 
  do l=lnd%ls, lnd%le  
      ce = first_elmt(land_tile_map(l))
      do while(loop_over_tiles(ce,tile))
        if(.not.associated(tile%lake)) cycle
-       call send_tile_data(id_lake_area, lnd%ug_area(l), tile%diag)  
-       call send_tile_data(id_lake_frac, 1., tile%diag)     
+       call send_tile_data(id_lake_area, lnd%ug_area(l) * atotl(l), tile%diag)  
+       call send_tile_data(id_lake_frac, atotl(l), tile%diag)     
      enddo
  enddo
 

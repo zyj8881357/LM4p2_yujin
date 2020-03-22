@@ -607,7 +607,7 @@ function lake_tile_heat (lake) result(heat) ; real heat
   do i = 1, num_l
      heat = heat + &
           (lake%heat_capacity_dry(i)*lake%dz(i) + clw*lake%wl(i) &
-	     + csw*lake%ws(i))*(lake%T(i)-tfreeze) + &
+	     + csw*lake%ws(i))*(lake%T(i)-tfreeze) - &
           hlf*lake%ws(i)
   enddo
 end function lake_tile_heat

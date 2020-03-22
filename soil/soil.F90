@@ -4909,9 +4909,19 @@ subroutine irrigation_deficit()
   integer :: layer
   real :: percentile = 0.95   
   integer, save :: n = 0  ! fast time step with each slow time step   
+  real,dimension(lnd%ls:lnd%le) :: atots
 !----------------------------------------------------
 
  if (.not. use_irrigation_routine) return
+
+ atots = 0.
+ do l=lnd%ls, lnd%le
+     ce = first_elmt(land_tile_map(l))
+     do while(loop_over_tiles(ce,tile))    
+       if (associated(tile%soil)) atots(l) = atots(l) + tile%frac        
+     enddo  
+ enddo
+
 
  n = n + 1
 
@@ -4953,8 +4963,8 @@ subroutine irrigation_deficit()
        ENDIF
 
        call send_tile_data(id_irr_demand, soil%irr_demand_ac/(num_fast_calls*delta_time), tile%diag) !kg/(m2 s)
-       call send_tile_data(id_irr_area_input, soil%irr_area2frac_input, tile%diag)       
-       call send_tile_data(id_irr_area_real, soil%irr_area2frac_real, tile%diag)
+       call send_tile_data(id_irr_area_input, soil%irr_area2frac_input * atots(l), tile%diag)       
+       call send_tile_data(id_irr_area_real, soil%irr_area2frac_real * atots(l), tile%diag)
      enddo
  enddo   
 
@@ -4969,13 +4979,22 @@ subroutine soil_area_diag()
  type(land_tile_type), pointer :: tile ! pointer to current tile
  type(soil_tile_type), pointer :: soil
  integer :: l
+ real,dimension(lnd%ls:lnd%le) :: atots
+
+ atots = 0.
+ do l=lnd%ls, lnd%le
+     ce = first_elmt(land_tile_map(l))
+     do while(loop_over_tiles(ce,tile))    
+       if (associated(tile%soil)) atots(l) = atots(l) + tile%frac        
+     enddo  
+ enddo
 
  do l=lnd%ls, lnd%le  
      ce = first_elmt(land_tile_map(l))
      do while(loop_over_tiles(ce,tile))
        if(.not.associated(tile%soil)) cycle
-       call send_tile_data(id_soil_area, lnd%ug_area(l), tile%diag)  
-       call send_tile_data(id_soil_frac, 1., tile%diag)     
+       call send_tile_data(id_soil_area, lnd%ug_area(l) * atots(l), tile%diag)  
+       call send_tile_data(id_soil_frac, atots(l), tile%diag)     
      enddo
  enddo
 
