@@ -1588,10 +1588,10 @@ subroutine lake_transitions (time)
      if (timel0==set_date(0001,01,01).and.state_ncid_lake>0) then
         ! read initial transition from state file
         call time_interp(time, state_time_in_lake, w, i1,i2)
-        call get_varset_data(state_ncid_lake,input_state_lake(k1,k2),i1,frac)
+        call get_varset_data_lake(state_ncid_lake,input_state_lake(k1,k2),i1,frac)
      else
         if (any(input_tran_lake(k1,k2)%id(:)>0)) then
-           call integral_transition(timel0,time,input_tran_lake(k1,k2),frac)
+           call integral_transition_lake(timel0,time,input_tran_lake(k1,k2),frac)
         endif
      endif
 
@@ -1920,14 +1920,14 @@ subroutine lake_transitions_0d(d_list,d_kinds,a_kinds,area)
   call check_conservation ('liquid water', lmass0, lmass1, 1e-6)
   call check_conservation ('frozen water', fmass0, fmass1, 1e-6)
   call check_conservation ('carbon'      , cmass0, cmass1, 1e-6)
-  call check_conservation ('canopy air heat content', cana_heat0, cana_heat1, 1e-6)
+  call check_conservation ('canopy air heat content', cana_heat0, cana_heat1, 1e-4)
 ! heat content of vegetation may not conserve because of the cohort merging issues
-  call check_conservation ('vegetation heat content', vegn_heat0*(1.-area/atots), vegn_heat1 , 1e-6)
-  call check_conservation ('snow heat content',       snow_heat0-snow_heat0_soil*area/atots+fict_heat_dif, snow_heat1, 1e-6)
+  call check_conservation ('vegetation heat content', vegn_heat0*(1.-area/atots), vegn_heat1 , 1e-4)
+  call check_conservation ('snow heat content',       snow_heat0-snow_heat0_soil*area/atots+fict_heat_dif, snow_heat1, 1e-4)
   call check_conservation ('soil heat content',       soil_heat0*(1.-area/atots), soil_heat1 , 1e-4)
   call check_conservation ('lake heat content',       lake_heat0+(soil_heat0+vegn_heat0+snow_heat0_soil+e_res_1_soil+e_res_2_soil)*area/atots-fict_heat_dif, lake_heat1, 1e-4)
-  call check_conservation ('glac heat content',       glac_heat0, glac_heat1, 1e-6)  
-  call check_conservation ('e_res heat content',      e_res_heat0-(e_res_1_soil+e_res_2_soil)*area/atots, e_res_heat1, 1e-6)    
+  call check_conservation ('glac heat content',       glac_heat0, glac_heat1, 1e-4)  
+  call check_conservation ('e_res heat content',      e_res_heat0-(e_res_1_soil+e_res_2_soil)*area/atots, e_res_heat1, 1e-4)    
   call check_conservation ('heat content', heat0 , heat1 , 1e-4)  
   call check_conservation ('upward longwave', lwup0, lwup1, 1e-4)
 
@@ -2340,6 +2340,62 @@ subroutine integral_transition(t1, t2, tran, frac, err_msg)
   enddo
 end subroutine integral_transition
 
+subroutine integral_transition_lake(t1, t2, tran, frac, err_msg)
+  type(time_type), intent(in)  :: t1,t2 ! time boundaries
+  type(var_set_type), intent(in)  :: tran ! id of the field
+  real           , intent(out) :: frac(:)
+  character(len=*),intent(out), optional :: err_msg
+
+  ! ---- local vars
+  integer :: n ! size of time axis
+  type(time_type) :: ts,te
+  integer         :: i1,i2
+  real :: w  ! time interpolation weight
+  real :: dt ! current time interval, in years
+  real :: sum(size(frac(:)))
+  integer :: i,j,l
+  character(len=256) :: msg
+
+  msg = ''
+  ! adjust the integration limits, in case they are out of range
+  n = size(time_in_lake)
+  ts = t1;
+  if (ts<time_in_lake(1)) ts = time_in_lake(1)
+  if (ts>time_in_lake(n)) ts = time_in_lake(n)
+  te = t2
+  if (te<time_in_lake(1)) te = time_in_lake(1)
+  if (te>time_in_lake(n)) te = time_in_lake(n)
+
+  call time_interp(ts, time_in_lake, w, i1,i2, err_msg=msg)
+  if(msg /= '') then
+    if(fms_error_handler('integral_transition_lake','Message from time_interp: '//trim(msg),err_msg)) return
+  endif
+  call get_varset_data_lake(tran_ncid_lake,tran,i1,frac)
+
+  dt = (time_in_lake(i2)-time_in_lake(i1))//set_time(0,days_in_year((time_in_lake(i2)+time_in_lake(i1))/2))
+  sum = -frac*w*dt
+  do while(time_in_lake(i2)<=te)
+     call get_varset_data_lake(tran_ncid_lake,tran,i1,frac)
+     dt = (time_in_lake(i2)-time_in_lake(i1))//set_time(0,days_in_year((time_in_lake(i2)+time_in_lake(i1))/2))
+     sum = sum+frac*dt
+     i2 = i2+1
+     i1 = i2-1
+     if(i2>size(time_in_lake)) exit ! from loop
+  enddo
+
+  call time_interp(te,time_in_lake,w,i1,i2, err_msg=msg)
+  if(msg /= '') then
+    if(fms_error_handler('integral_transition_lake','Message from time_interp: '//trim(msg),err_msg)) return
+  endif
+  call get_varset_data_lake(tran_ncid_lake,tran,i1,frac)
+  dt = (time_in_lake(i2)-time_in_lake(i1))//set_time(0,days_in_year((time_in_lake(i2)+time_in_lake(i1))/2))
+  frac = sum+frac*w*dt
+  ! check the transition rate validity
+  do l = 1,size(frac(:))
+     call set_current_point(l+lnd%ls-1,1)
+     call check_var_range(frac(l),0.0,HUGE(1.0),'integral_transition_lake',tran%name, FATAL)
+  enddo
+end subroutine integral_transition_lake
 !====for irrigation=============================================================
 ! read, aggregate, and interpolate set of transitions
 subroutine get_varset_data_manag(ncid,varset,rec,frac)
