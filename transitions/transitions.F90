@@ -583,7 +583,7 @@ subroutine lake_transitions_init(id_ug)
   integer        :: k1,k2,k3, id, n1,n2, id_lake, l
 
   real           :: frac(lnd%ls:lnd%le)
-  real, dimension(lnd%ls:lnd%le) :: rsv_depth = 0.
+  real, dimension(lnd%ls:lnd%le) :: rsv_depth
 
   real, allocatable :: lon_in_lake(:,:),lat_in_lake(:,:) ! horizontal grid of input data
   real, allocatable :: buffer_in_lake(:,:) ! buffers for input data reading
@@ -782,7 +782,7 @@ subroutine lake_transitions_init(id_ug)
   call rsv_set_zero()
   if (do_lake_change) return
   if (file_exist(state_file_lake).and.file_exist(depth_file_rsv)) then
-    frac(:) = 0.0
+    frac(:) = 0.0; rsv_depth(:) = 0.0
     n1 = size(state_time_in_lake)
     call get_varset_data_lake(state_ncid_lake,input_state_lake(2,1),n1,frac) 
     call get_varset_data_lake(depth_ncid_rsv,input_depth_rsv,n1,rsv_depth)
@@ -800,7 +800,7 @@ subroutine lake_transitions_init(id_ug)
         frac2land = max(0.,min(frac2land, tile%frac))  
         tile%lake%Afrac_rsv = frac2land/tile%frac
         if(tile%lake%rsv_depth <= 0.) tile%lake%Afrac_rsv = 0.  
-        lake%Vfrac_rsv = lake%Afrac_rsv      
+        tile%lake%Vfrac_rsv = tile%lake%Afrac_rsv      
       enddo
     enddo
     if(static_rsv_mod) call adjust_whole_lake_area() 
@@ -825,7 +825,7 @@ subroutine rsv_set_zero()
     enddo
   enddo
 
-end subroutine rsv_set_zero()    
+end subroutine rsv_set_zero 
 !===========================================================================
 subroutine adjust_whole_lake_area()
 
@@ -838,7 +838,7 @@ subroutine adjust_whole_lake_area()
     ce = first_elmt(land_tile_map(l))
     do while(loop_over_tiles(ce,tile))
       if (.not.associated(tile%lake)) cycle 
-      tile%lake%pars%whole_area = tile%lake%pars%whole_area - tile%lake%Afrac_rsv*frac*ug_area
+      tile%lake%pars%whole_area = tile%lake%pars%whole_area - tile%lake%Afrac_rsv*tile%frac*lnd%ug_area(l)
       if(tile%lake%pars%whole_area<0..or.(tile%lake%pars%whole_area==0..and.tile%lake%Afrac_rsv<1.))then
         write(mesg,*)'tile%lake%pars%whole_area=',tile%lake%pars%whole_area,' tile%lake%Afrac_rsv=',tile%lake%Afrac_rsv
         call error_mesg('adjust_whole_lake_area',mesg, FATAL) 
