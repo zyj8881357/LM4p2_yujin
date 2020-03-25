@@ -94,7 +94,8 @@ integer, public, parameter :: &
 
 integer, public, parameter :: &
  TREE_GRASS_PPA      = 1, & ! standard PPA
- TREE_GRASS_SQUEEZE  = 2    ! sapling canopies squeeze grass canopies
+ TREE_GRASS_SQUEEZE  = 2, & ! sapling canopies squeeze grass canopies
+ TREE_GRASS_TOP      = 3    ! saplings always overtop the grass
 
 integer, public, parameter :: & ! land use types
  N_LU_TYPES = 6, & ! number of different land use types
@@ -564,7 +565,7 @@ real, protected :: permafrost_depth_thresh = 1.0e36 ! soil depth [m] above which
 real, protected :: permafrost_freq_thresh  = 0.9    ! frequency of frozen water above which soil is
            ! considered permafrost for the root vertical profile calculations
 
-character(32) :: tree_grass_competition = 'pure-ppa' ! or 'trees-squeeze-grass'
+character(32) :: tree_grass_competition = 'pure-ppa' ! or 'trees-squeeze-grass' or 'trees-top-grass'
            ! in pure PPA treatment, grass can shade small trees according to usual PPA rules
            ! in trees-squeeze-grass case, saplings and grasses are in the same layer, and
            ! sapling canopies can squeeze grass canopies, so the saplings are always in the
@@ -686,6 +687,8 @@ subroutine read_vegn_data_namelist()
      tree_grass_option = TREE_GRASS_PPA
   else if (trim(lowercase(tree_grass_competition))=='trees-squeeze-grass') then
      tree_grass_option = TREE_GRASS_SQUEEZE
+  else if (trim(lowercase(tree_grass_competition))=='trees-top-grass') then
+     tree_grass_option = TREE_GRASS_TOP
   else
      call error_mesg('read_vegn_namleist', 'option tree_grass_competition="'// &
           trim(tree_grass_competition)//'" is invalid, use "pure-ppa" or "trees-squeeze-grass"', FATAL)

@@ -19,7 +19,7 @@ use vegn_data_mod, only : &
      BSEED, C2N_SEED, LU_NTRL, LU_PSL, LU_PST, LU_SCND, LU_PAST, LU_RANGE, N_HARV_POOLS, &
      LU_SEL_TAG, SP_SEL_TAG, NG_SEL_TAG, SCND_AGE_SEL_TAG, FORM_GRASS, &
      scnd_biomass_bins, do_ppa, N_limits_live_biomass, &
-     tree_grass_option, TREE_GRASS_SQUEEZE, &
+     tree_grass_option, TREE_GRASS_SQUEEZE, TREE_GRASS_TOP, &
      do_bl_max_merge
 
 use vegn_cohort_mod, only : vegn_cohort_type, update_biomass_pools, &
@@ -694,9 +694,10 @@ subroutine vegn_relayer_cohorts_ppa (vegn)
   do k = 1, N0
      effective_height(k) = cc(k)%height * spdata(cc(k)%species)%layer_height_factor
   enddo
+  N_tall = N0
 
   if(tree_grass_option == TREE_GRASS_SQUEEZE) then
-     ! cohorts below height H_tall are combined into a single layer
+     ! In this case, cohorts below height H_tall are combined into a single layer.
      ! find tallest grass and use its height as the top of grass/sapling layer
      H_tall = 0.0
      do k = 1,N0
@@ -715,8 +716,14 @@ subroutine vegn_relayer_cohorts_ppa (vegn)
      do k = 1,N0
         if (effective_height(k) > H_tall) N_tall = N_tall+1
      enddo
-  else
-     N_tall = N0
+  else if (tree_grass_option == TREE_GRASS_TOP) then
+     ! for this option, tree saplings always overtop grass, so we just make sure that
+     ! effective height of grasses is below that of any tree cohort, and then relayer
+     ! cohorts usual
+     do k = 1,N0
+        if (spdata(cc(k)%species)%lifeform == FORM_GRASS) &
+            effective_height(k) = effective_height(k) - 9999.9999
+     enddo
   endif
 
   call rank_descending(effective_height,idx)
