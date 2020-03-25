@@ -54,7 +54,7 @@ use vegn_data_mod, only : read_vegn_data_namelist, FORM_WOODY, FORM_GRASS, &
      SEED_TRANSPORT_NONE, SEED_TRANSPORT_SPREAD, SEED_TRANSPORT_DIFFUSE, &
      c2n_N_fixer, C2N_SEED, &
      snow_masking_option, SNOW_MASKING_HEIGHT, &
-     tree_grass_option, TREE_GRASS_SQUEEZE, reserved_grass_frac, &
+     tree_grass_option, TREES_SQUEEZE_GRASS, reserved_grass_frac, &
      phen_theta_option, PHEN_THETA_FC, PHEN_THETA_POROSITY, MAX_TILE_AGE
 use vegn_cohort_mod, only : vegn_cohort_type, &
      init_cohort_allometry_ppa, init_cohort_hydraulics, &
@@ -2387,7 +2387,7 @@ subroutine update_derived_vegn_data(vegn, soil)
         endif
      else
         ! layer_area > 1 : squeeze canopies so that the total becomes one
-        if (tree_grass_option == TREE_GRASS_SQUEEZE) then
+        if (tree_grass_option == TREES_SQUEEZE_GRASS) then
            ! squeeze grasses more than trees
            scale_g(k) = 1.0; scale_t(k) = 1.0
            if (area_g(k)>epsilon(1.0)) scale_g(k) = max(1.0-area_t(k),reserved_grass_frac)/area_g(k)

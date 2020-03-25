@@ -93,9 +93,9 @@ integer, public, parameter :: &
  PHEN_THETA_POROSITY = 2
 
 integer, public, parameter :: &
- TREE_GRASS_PPA      = 1, & ! standard PPA
- TREE_GRASS_SQUEEZE  = 2, & ! sapling canopies squeeze grass canopies
- TREE_GRASS_TOP      = 3    ! saplings always overtop the grass
+ TREE_GRASS_PPA       = 1, & ! standard PPA, competition by heigh
+ TREES_SQUEEZE_GRASS  = 2, & ! sapling canopies squeeze grass canopies
+ TREES_TOP_GRASS      = 3    ! saplings always overtop the grass
 
 integer, public, parameter :: & ! land use types
  N_LU_TYPES = 6, & ! number of different land use types
@@ -686,9 +686,9 @@ subroutine read_vegn_data_namelist()
   if (trim(lowercase(tree_grass_competition))=='pure-ppa') then
      tree_grass_option = TREE_GRASS_PPA
   else if (trim(lowercase(tree_grass_competition))=='trees-squeeze-grass') then
-     tree_grass_option = TREE_GRASS_SQUEEZE
+     tree_grass_option = TREES_SQUEEZE_GRASS
   else if (trim(lowercase(tree_grass_competition))=='trees-top-grass') then
-     tree_grass_option = TREE_GRASS_TOP
+     tree_grass_option = TREES_TOP_GRASS
   else
      call error_mesg('read_vegn_namleist', 'option tree_grass_competition="'// &
           trim(tree_grass_competition)//'" is invalid, use "pure-ppa" or "trees-squeeze-grass"', FATAL)
