@@ -79,7 +79,6 @@ module river_mod
   use tracer_manager_mod, only : NO_TRACER
   use table_printer_mod
   use soil_tile_mod,      only : soil_tile_type, num_soil=>num_l, dz_soil=>dz
-  use land_transitions_mod, only: do_lake_change
 
   implicit none
   private
@@ -122,7 +121,7 @@ character(len=*), parameter :: module_name = 'river_mod'
           ! rather than source concentration and flux files
   logical :: do_groundwater_abstraction = .false.
   logical :: do_deep_gw_abst = .false.  
-  logical :: use_reservoir = .false.
+  logical,public :: use_reservoir = .false. !public for lake transitions
 
   namelist /river_nml/ dt_slow, diag_freq, debug_river,                      &
                        Somin, outflowmean_min, ave_DHG_exp, ave_AAS_exp,     &
@@ -885,11 +884,11 @@ end subroutine print_river_tracer_data
          Afrac_rsv_ug(l)       = tile%lake%Afrac_rsv
          Vfrac_rsv_ug(l)       = tile%lake%Vfrac_rsv
          !this is still an approximation, because we didn't consider reservoir area in other gridcells with the same lake 
-         if(.not.do_lake_change)then
-           lake_whole_area_ug(l) = max(0., tile%lake%pars%whole_area-Afrac_rsv_ug(l)*tile%frac*lnd%ug_area(l)) 
-         else
-           lake_whole_area_ug(l) = tile%lake%pars%whole_area 
-         endif
+         !if((.not.do_lake_change))then
+         !  lake_whole_area_ug(l) = max(0., tile%lake%pars%whole_area-Afrac_rsv_ug(l)*tile%frac*lnd%ug_area(l)) 
+         !else
+         !  lake_whole_area_ug(l) = tile%lake%pars%whole_area 
+         !endif
          if(Afrac_rsv_ug(l)<1.)then
            lake_sfc_bot_ug(l) = (1.-Vfrac_rsv_ug(l))*lake_sfc_A_ug(l)*(sum(tile%lake%wl(:)+tile%lake%ws(:))-tile%lake%wl(1)-tile%lake%ws(1))/DENS_H2O & !m2 * kg/m2 / (kg/m3) = m3
                                /((1.-Afrac_rsv_ug(l))*lake_sfc_A_ug(l)) !m2 
@@ -900,11 +899,12 @@ end subroutine print_river_tracer_data
          rsv_depth_ug(l)       = 0.
          Afrac_rsv_ug(l)       = 0.
          Vfrac_rsv_ug(l)       = 0. 
-         lake_whole_area_ug(l) = tile%lake%pars%whole_area           
+         !lake_whole_area_ug(l) = tile%lake%pars%whole_area !+ Afrac_rsv_ug(l)*tile%frac*lnd%ug_area(l)           
          lake_sfc_bot_ug(l)    = (sum(tile%lake%wl(:)+tile%lake%ws(:)) &
                                  -tile%lake%wl(1)-tile%lake%ws(1) ) &
                                       / DENS_H2O      
        endif
+       lake_whole_area_ug(l)  = tile%lake%pars%whole_area 
        lake_depth_sill_ug(l)  = tile%lake%pars%depth_sill
        lake_width_sill_ug(l)  = tile%lake%pars%width_sill
        lake_conn_ug (l)       = tile%lake%pars%connected_to_next
@@ -1027,7 +1027,7 @@ end subroutine print_river_tracer_data
          tile%lake%ws(lev) = lake_ws_ug(l,lev)
          tile%lake%dz(lev) = lake_dz_ug(l,lev)
        enddo
-       tile%lake%Vfrac_rsv = Vfrac_rsv_ug(l)
+       if(use_reservoir) tile%lake%Vfrac_rsv = Vfrac_rsv_ug(l)
     enddo
 
     ! account for groundwater abstraction and calculate irrigaition rate for next dt_slow  

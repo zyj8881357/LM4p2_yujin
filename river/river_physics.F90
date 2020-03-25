@@ -335,7 +335,6 @@ contains
                   ! rsv_outflow(i,j) could be less than 0 here
                   rsv_outflow(i,j) = rsv_outflow(i,j) + (vr1_bak - vr1)*DENS_H2O !kg
                 endif
-                if(use_reservoir.and.Afrac_rsv(i,j)<1..and.v1 > 0.) Vfrac_rsv(i,j) = max(0., min(vr1/v1, 1.))
                 if (is_watch_cell()) then 
                          write(*,*) 'after lake_abstraction'
                          write(*,*) 'lake_wl(1):', lake_wl(i,j,1)
