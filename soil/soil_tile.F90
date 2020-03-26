@@ -355,9 +355,6 @@ real    :: log_rho_max           = 2.0
 real    :: z_ref                 = 0.0       ! depth where [psi/k]_sat = [psi/k]_sat_ref
 real    :: geothermal_heat_flux_constant = 0.0  ! true continental average is ~0.065 W/m2
 real    :: Dpsi_min_const        = -1.e16
-logical :: w_fc_bug              = .FALSE.   ! w_wc and w_wilt were initialized before
-   ! proper alpha was set. Setting w_fc_bug to true reverts to this behavior, to allow
-   ! to reproduce old answers.
 
 real, dimension(n_dim_soil_types) :: &
   dat_w_sat=&
@@ -465,7 +462,7 @@ namelist /soil_data_nml/ psi_wilt, &
      dat_refl_dry_dif,            dat_refl_sat_dif,              &
      dat_emis_dry,              dat_emis_sat,                &
      dat_z0_momentum,           dat_tf_depr,      clay,           &
-     peat_soil_e_depth,         peat_kx0,        w_fc_bug
+     peat_soil_e_depth,         peat_kx0
 !---- end of namelist --------------------------------------------------------
 
 real    :: gw_hillslope_length   = 1000.
@@ -853,8 +850,15 @@ subroutine finalize_soil_data_init ( soil )
      soil%w_fc  (:) = 0.15 + soil%pars%awc_lm2
   else
      do l = 1,num_l
-        alpha = soil%alpha(l)
-        if (w_fc_bug) alpha = 1.0
+!       w_fc and w_wilt were originally calculated before alpha was properly initialized;
+!       after discussion (pcm) suggested leaving it as is, e.g. because of conceptual issues
+!       with defining local values of field capacity w_fc.
+!       I can be fixed later by uncommenting the following two lines and defining extra
+!       namelist variable
+!
+!         alpha = soil%alpha(l)
+!         if (w_fc_bug) alpha = 1.0
+        alpha = 1.0
         soil%w_wilt(l) = soil%pars%vwc_sat &
              *(soil%pars%psi_sat_ref/(psi_wilt*alpha))**(1/soil%pars%chb)
         soil%w_fc(l)  = soil%pars%vwc_sat &

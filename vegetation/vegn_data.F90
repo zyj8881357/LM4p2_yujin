@@ -691,7 +691,7 @@ subroutine read_vegn_data_namelist()
      tree_grass_option = TREES_TOP_GRASS
   else
      call error_mesg('read_vegn_namleist', 'option tree_grass_competition="'// &
-          trim(tree_grass_competition)//'" is invalid, use "pure-ppa" or "trees-squeeze-grass"', FATAL)
+          trim(tree_grass_competition)//'" is invalid, use "pure-ppa", "trees-squeeze-grass", or "trees-top-grass"', FATAL)
   endif
 
   if(.not.fm_dump_list('/land_mod/species', recursive=.TRUE.)) &
