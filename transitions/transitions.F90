@@ -580,10 +580,9 @@ subroutine lake_transitions_init(id_ug)
   ! ---- local vars
   integer        :: unit, ierr, io, ncid1, ncid1_lake, used_id
   integer        :: year,month,day,hour,mi,sec
-  integer        :: k1,k2,k3, id, n1,n2, id_lake, l
-
+  integer        :: k1,k2,k3, id, n1,n2, i1, i2, id_lake, l
+  real           :: w
   real           :: frac(lnd%ls:lnd%le)
-  real, dimension(lnd%ls:lnd%le) :: rsv_depth
 
   real, allocatable :: lon_in_lake(:,:),lat_in_lake(:,:) ! horizontal grid of input data
   real, allocatable :: buffer_in_lake(:,:) ! buffers for input data reading
@@ -632,7 +631,9 @@ subroutine lake_transitions_init(id_ug)
       if(ierr/=NF_NOERR) call error_mesg('lake_transitions_init', 'reservoir depth file "'// &
           trim(depth_file_rsv)//'" could not be opened because '//nf_strerror(ierr), FATAL)
       call get_time_axis(depth_ncid_rsv, depth_time_in_rsv)
-      call add_var_to_varset(input_depth_rsv,depth_ncid_rsv,depth_file_rsv,'rsv_depth')   
+      call add_var_to_varset(input_depth_rsv,depth_ncid_rsv,depth_file_rsv,'rsv_depth') 
+  else
+      if(use_reservoir) call error_mesg('lake_transitions_init','use_reservoir mod requires depth_file_rsv', FATAL) 
   endif
 
   if(do_lake_change) then    
@@ -760,38 +761,57 @@ subroutine lake_transitions_init(id_ug)
   if(static_rsv_mod) & 
     call error_mesg('lake_transitions_init','static reservoir mod', NOTE) 
 
+  
   !reservoir warm start
   if(is_rsv_restart)then
     call error_mesg('lake_transitions_init','reservoir warm start', NOTE)    
-    !if we receive restart that is got from previous static_rsv run and this time it is still a static_rsv run, we need adjust whole_lake_area
-    if(timel0==set_date(0001,01,01).and.static_rsv_mod)then   
+    !if we receive restart that is got from previous static_rsv run and this time it is still a static_rsv run:
+    if(timel0==set_date(0001,01,01).and.static_rsv_mod)then
+      n1 = size(depth_time_in_rsv)
+      call read_rsv_depth(n1)
       call adjust_whole_lake_area()
-    !if we receive restart that is got from previous static_rsv run and this time it is a lake tran run, set value to zero for lake tran
-    else if(timel0==set_date(0001,01,01).and.do_lake_change)then
-      call rsv_set_zero()
+      return
+    !if we receive restart that is got from previous static_rsv run and this time it is not a static_rsv run:
+    else if(timel0==set_date(0001,01,01).and.(.not.static_rsv_mod))then
+      if(do_lake_change)then; call rsv_set_zero(); return; endif
+      !.not. use_reservoir
+      if(file_exist(depth_file_rsv))then
+        n1 = size(depth_time_in_rsv)
+        call read_rsv_depth(n1)
+      else
+        call rsv_set_zero()
+      endif       
+      return
+    !if we receive restart that is got from previous laketran run, we read rsv_depth based on the timel0
+    else
+      if(file_exist(depth_file_rsv))then
+        call time_interp(timel0, depth_time_in_rsv, w, i1,i2)
+        call read_rsv_depth(i1)
+      else
+        call rsv_set_zero()
+      endif
+      return      
     endif
-    !if we receive restart that is got from previous laketran run and don't use rsv this time, set rsv to zero
-    !else if((.not.timel0==set_date(0001,01,01)).and.(.not.use_reservoir))then
-    !  call rsv_set_zero()
-    !endif
-    return
   endif
 
   !reservoir cold start
-  call error_mesg('lake_transitions_init','reservoir cold start', NOTE)   
+  call error_mesg('lake_transitions_init','reservoir cold start', NOTE)
+
   call rsv_set_zero()
+
   if (do_lake_change) return
+
+  !static_rsv_mod  or  .not.use_reservoir&.not.do_lake_change
   if (file_exist(state_file_lake).and.file_exist(depth_file_rsv)) then
-    frac(:) = 0.0; rsv_depth(:) = 0.0
+    n1 = size(depth_time_in_rsv)
+    call read_rsv_depth(n1)    
+    frac(:) = 0.0
     n1 = size(state_time_in_lake)
     call get_varset_data_lake(state_ncid_lake,input_state_lake(2,1),n1,frac) 
-    call get_varset_data_lake(depth_ncid_rsv,input_depth_rsv,n1,rsv_depth)
     do l=lnd%ls, lnd%le
       ce = first_elmt(land_tile_map(l))
       do while(loop_over_tiles(ce,tile))
-        if (.not.associated(tile%lake)) cycle   
-        tile%lake%rsv_depth = rsv_depth(l)
-        if(tile%lake%rsv_depth > 0.) tile%lake%rsv_depth = max(rsv_depth_min,tile%lake%rsv_depth)         
+        if (.not.associated(tile%lake)) cycle          
         if(lnd%ug_area(l)>0.)then
           frac2land = frac(l)*(lnd%ug_cellarea(l)/lnd%ug_area(l))
         else
@@ -803,7 +823,10 @@ subroutine lake_transitions_init(id_ug)
         tile%lake%Vfrac_rsv = tile%lake%Afrac_rsv      
       enddo
     enddo
-    if(static_rsv_mod) call adjust_whole_lake_area() 
+    if(use_reservoir) call adjust_whole_lake_area() !this must be static_rsv_mod here
+  else
+    if(use_reservoir) call error_mesg('lake_transitions_init', &
+                           'reservoir cold start requires both state_file_lake and depth_file_rsv', FATAL)     
   endif
 
 
@@ -827,6 +850,27 @@ subroutine rsv_set_zero()
 
 end subroutine rsv_set_zero 
 !===========================================================================
+subroutine read_rsv_depth(n1)
+  integer, intent(in) :: n1
+
+  type(land_tile_enum_type)     :: ce    ! land tile enumerator
+  type(land_tile_type), pointer :: tile  ! pointer to current tile  
+  integer :: l
+  real, dimension(lnd%ls:lnd%le) :: rsv_depth  
+
+    rsv_depth(:) = 0.0
+    call get_varset_data_lake(depth_ncid_rsv,input_depth_rsv,n1,rsv_depth)    
+    do l=lnd%ls, lnd%le
+      ce = first_elmt(land_tile_map(l))
+      do while(loop_over_tiles(ce,tile))
+        if (.not.associated(tile%lake)) cycle   
+        tile%lake%rsv_depth = rsv_depth(l)
+        if(tile%lake%rsv_depth > 0.) tile%lake%rsv_depth = max(rsv_depth_min,tile%lake%rsv_depth) 
+      enddo
+    enddo        
+
+end subroutine read_rsv_depth
+!===========================================================================
 subroutine adjust_whole_lake_area()
 
   type(land_tile_enum_type)     :: ce    ! land tile enumerator
@@ -839,9 +883,13 @@ subroutine adjust_whole_lake_area()
     do while(loop_over_tiles(ce,tile))
       if (.not.associated(tile%lake)) cycle 
       tile%lake%pars%whole_area = tile%lake%pars%whole_area - tile%lake%Afrac_rsv*tile%frac*lnd%ug_area(l)
-      if(tile%lake%pars%whole_area<0..or.(tile%lake%pars%whole_area==0..and.tile%lake%Afrac_rsv<1.))then
+      if(tile%lake%pars%whole_area<=0.)then
         write(mesg,*)'tile%lake%pars%whole_area=',tile%lake%pars%whole_area,' tile%lake%Afrac_rsv=',tile%lake%Afrac_rsv
-        call error_mesg('adjust_whole_lake_area',mesg, FATAL) 
+        call error_mesg('adjust_whole_lake_area',mesg, NOTE)
+        if(tile%lake%Afrac_rsv<1.)then
+          call error_mesg('tile%lake%Afrac_rsv','lake_whole_area<0..and.Afrac_rsv<1.',FATAL)
+        endif
+        tile%lake%pars%whole_area = 0. 
       endif  
     enddo
   enddo
@@ -1605,7 +1653,7 @@ subroutine lake_transitions (time)
 
   ! ---- local vars.
   integer :: i,k,k1,k2,k3,i1,i2,l,m, m1,m2, n
-  real, dimension(lnd%ls:lnd%le) :: frac, rsv_depth
+  real, dimension(lnd%ls:lnd%le) :: frac
   type(tran_type), pointer :: transitions(:,:)
   integer :: second, minute, hour, day0, day1, month0, month1, year0, year1
   real    :: w   
@@ -1627,20 +1675,15 @@ subroutine lake_transitions (time)
        call log_date('lake_transitions: applying lake area transitions on ', time)   
 
   !update rsv depth
-  rsv_depth = 0.
   call time_interp(time, depth_time_in_rsv, w, i1,i2)
-  call get_varset_data_lake(depth_ncid_rsv,input_depth_rsv,i1,rsv_depth)       
+  call read_rsv_depth(i1)      
 
   atots = 0. ; atotl = 0. !; rsv_depth = 0.
   do l = lnd%ls,lnd%le
     ce = first_elmt(land_tile_map(l))
     do while (loop_over_tiles(ce,tile))
        if (associated(tile%soil)) atots(l) = atots(l) + tile%frac !soil frac
-       if (associated(tile%lake))then
-          atotl(l) = atotl(l) + tile%frac !lake frac
-          tile%lake%rsv_depth = rsv_depth(l)
-          if(tile%lake%rsv_depth > 0.) tile%lake%rsv_depth = max(rsv_depth_min,tile%lake%rsv_depth)           
-       endif
+       if (associated(tile%lake)) atotl(l) = atotl(l) + tile%frac !lake frac         
     enddo
   enddo
        
@@ -1667,8 +1710,7 @@ subroutine lake_transitions (time)
        endif
        if(k1==2.and.k2==1)then !from soil to lake
          frac(l) = min(atots(l), frac(l))
-         if(atotl(l)<=0.) frac(l)=0. !Currently we do not build reservoir if there is no original lake in the gridcell.
-         if(rsv_depth(l)<=0.) frac(l)=0. 
+         if(atotl(l)<=0.) frac(l)=0. !Currently we do not build reservoir if there is no original lake in the gridcell. 
        else !from lake to soil
          frac(l) = min(atotl(l), frac(l))
          if(atots(l)==0.) frac(l)=0. 

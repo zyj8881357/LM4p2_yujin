@@ -194,8 +194,6 @@ subroutine lake_init ( id_ug )
   integer :: i, g, l
   logical :: river_data_exist
   character(*), parameter :: restart_file_name = 'INPUT/lake.res.nc'
-  !character(len=128) :: rsv_depth_static_file = 'INPUT/rsv_depth_static.nc'
-  !real, dimension(lnd%ls:lnd%le) :: rsv_depth_static
 
   module_is_initialized = .TRUE.
   delta_time = time_type_to_real(lnd%dt_fast)
@@ -275,13 +273,7 @@ subroutine lake_init ( id_ug )
      call put_to_tiles_r0d_fptr(buffer, land_tile_map, lake_width_sill_ptr)
   ENDIF
 
-  deallocate (buffer, bufferc, buffert)
-
-  !if(file_exist(rsv_depth_static_file))then
-  !  call read_field(rsv_depth_static_file, 'rsv_depth', rsv_depth_static) !kg/m2
-  !else !if there is no rsv_depth file, rsv_depth is set to 0, and no reservoir is represented
-  !  rsv_depth_static = 0.
-  !endif 
+  deallocate (buffer, bufferc, buffert) 
 
   ! -------- initialize lake state --------
   ce = first_elmt(land_tile_map)
@@ -307,14 +299,6 @@ subroutine lake_init ( id_ug )
      tile%lake%rsv_depth     = 0.     
   enddo
 
-  !do l = lnd%ls,lnd%le
-  !   ce = first_elmt(land_tile_map(l))
-  !   do while(loop_over_tiles(ce,tile))
-  !     if (.not.associated(tile%lake)) cycle
-  !       tile%lake%rsv_depth = rsv_depth_static(l)
-  !   enddo
-  !enddo
-
   call open_land_restart(restart,restart_file_name,restart_exists)
   if (restart_exists) then
      call error_mesg('lake_init', 'reading NetCDF restart "'//trim(restart_file_name)//'"', NOTE)
@@ -326,9 +310,7 @@ subroutine lake_init ( id_ug )
      if (field_exists(restart,'Afrac_rsv')) &
         call get_tile_data(restart, 'Afrac_rsv', lake_Afrac_rsv_ptr)      
      if (field_exists(restart,'Vfrac_rsv')) &
-        call get_tile_data(restart, 'Vfrac_rsv', lake_Vfrac_rsv_ptr)
-     if (field_exists(restart,'rsv_depth')) &
-        call get_tile_data(restart, 'rsv_depth', lake_rsv_depth_ptr)          
+        call get_tile_data(restart, 'Vfrac_rsv', lake_Vfrac_rsv_ptr)        
      if (field_exists(restart,'sub_lmass')) &
         call get_tile_data(restart, 'sub_lmass', lake_sub_lmass_ptr)  
      if (field_exists(restart,'sub_fmass')) &
@@ -341,10 +323,7 @@ subroutine lake_init ( id_ug )
      call error_mesg('lake_init', 'cold-starting lake', NOTE)
   endif
 
-  if(field_exists(restart,'Afrac_rsv').and.&
-     field_exists(restart,'Vfrac_rsv').and.&
-     field_exists(restart,'rsv_depth'))then
-
+  if(field_exists(restart,'Afrac_rsv').and.field_exists(restart,'Vfrac_rsv'))then
     ce = first_elmt(land_tile_map)
     do while (loop_over_tiles(ce,tile))
       if (.not.associated(tile%lake)) cycle 
@@ -352,8 +331,7 @@ subroutine lake_init ( id_ug )
         is_rsv_restart=.true.
         exit
       endif
-    enddo
-         
+    enddo       
   endif 
 
   call free_land_restart(restart)
@@ -399,7 +377,6 @@ subroutine save_lake_restart (tile_dim_length, timestamp)
   call add_tile_data(restart,'ws',   'zfull', lake_ws_ptr,   'solid water content','kg/m2')
   call add_tile_data(restart,'Afrac_rsv', lake_Afrac_rsv_ptr, 'area fraction of reservoir to the lake tile', 'unitless') 
   call add_tile_data(restart,'Vfrac_rsv', lake_Vfrac_rsv_ptr, 'volume fraction of reservoir to the lake tile', 'unitless')  
-  call add_tile_data(restart,'rsv_depth', lake_rsv_depth_ptr, 'volume fraction of reservoir to the lake tile', 'unitless')  
   call add_tile_data(restart,'sub_lmass', lake_sub_lmass_ptr, 'buried liquid water under lake due to reservoir building', 'kg/m2')
   call add_tile_data(restart,'sub_fmass', lake_sub_fmass_ptr, 'buried frozen water under lake due to reservoir building', 'kg/m2') 
   call add_tile_data(restart,'sub_heat',  lake_sub_heat_ptr,  'buried heat under lake due to reservoir building', 'J/m2') 
@@ -1538,15 +1515,6 @@ subroutine lake_Vfrac_rsv_ptr(tile, ptr)
       if(associated(tile%lake)) ptr=>tile%lake%Vfrac_rsv
    endif
 end subroutine lake_Vfrac_rsv_ptr
-
-subroutine lake_rsv_depth_ptr(tile, ptr)
-   type(land_tile_type), pointer :: tile
-   real                , pointer :: ptr
-   ptr=>NULL()
-   if(associated(tile)) then
-      if(associated(tile%lake)) ptr=>tile%lake%rsv_depth
-   endif
-end subroutine lake_rsv_depth_ptr
 
 subroutine lake_sub_lmass_ptr(tile, ptr)
    type(land_tile_type), pointer :: tile
