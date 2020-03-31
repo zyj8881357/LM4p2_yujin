@@ -310,7 +310,9 @@ subroutine lake_init ( id_ug )
      if (field_exists(restart,'Afrac_rsv')) &
         call get_tile_data(restart, 'Afrac_rsv', lake_Afrac_rsv_ptr)      
      if (field_exists(restart,'Vfrac_rsv')) &
-        call get_tile_data(restart, 'Vfrac_rsv', lake_Vfrac_rsv_ptr)        
+        call get_tile_data(restart, 'Vfrac_rsv', lake_Vfrac_rsv_ptr)   
+     if (field_exists(restart,'depth_rsv')) &
+        call get_tile_data(restart, 'depth_rsv', lake_depth_rsv_ptr)                
      if (field_exists(restart,'sub_lmass')) &
         call get_tile_data(restart, 'sub_lmass', lake_sub_lmass_ptr)  
      if (field_exists(restart,'sub_fmass')) &
@@ -323,15 +325,8 @@ subroutine lake_init ( id_ug )
      call error_mesg('lake_init', 'cold-starting lake', NOTE)
   endif
 
-  if(field_exists(restart,'Afrac_rsv').and.field_exists(restart,'Vfrac_rsv'))then
-    ce = first_elmt(land_tile_map)
-    do while (loop_over_tiles(ce,tile))
-      if (.not.associated(tile%lake)) cycle 
-      if(tile%lake%Afrac_rsv/=0.)then    
-        is_rsv_restart=.true.
-        exit
-      endif
-    enddo       
+  if(field_exists(restart,'Afrac_rsv').and.field_exists(restart,'Vfrac_rsv').and.field_exists(restart,'depth_rsv'))then
+    is_rsv_restart=.true.     
   endif 
 
   call free_land_restart(restart)
@@ -376,7 +371,8 @@ subroutine save_lake_restart (tile_dim_length, timestamp)
   call add_tile_data(restart,'wl',   'zfull', lake_wl_ptr,   'liquid water content','kg/m2')
   call add_tile_data(restart,'ws',   'zfull', lake_ws_ptr,   'solid water content','kg/m2')
   call add_tile_data(restart,'Afrac_rsv', lake_Afrac_rsv_ptr, 'area fraction of reservoir to the lake tile', 'unitless') 
-  call add_tile_data(restart,'Vfrac_rsv', lake_Vfrac_rsv_ptr, 'volume fraction of reservoir to the lake tile', 'unitless')  
+  call add_tile_data(restart,'Vfrac_rsv', lake_Vfrac_rsv_ptr, 'volume fraction of reservoir to the lake tile', 'unitless') 
+  call add_tile_data(restart,'depth_rsv', lake_depth_rsv_ptr, 'reservoir construction depth', 'm')   
   call add_tile_data(restart,'sub_lmass', lake_sub_lmass_ptr, 'buried liquid water under lake due to reservoir building', 'kg/m2')
   call add_tile_data(restart,'sub_fmass', lake_sub_fmass_ptr, 'buried frozen water under lake due to reservoir building', 'kg/m2') 
   call add_tile_data(restart,'sub_heat',  lake_sub_heat_ptr,  'buried heat under lake due to reservoir building', 'J/m2') 
@@ -1184,8 +1180,8 @@ subroutine lake_abstraction (use_reservoir, is_terminal, &
    !if here is river terminal point, and all area is reservoir, then no rsv_out allowed.
    if(is_terminal.and.Afrac_rsv>=1.) rsv_out = 0. !m3
    vr1 = vr0 + influx/DENS_H2O - lake_abst - rsv_out !m3
-   if(vr1<0.) &
-     call error_mesg('lake_abstraction', 'vr1 could not be less than 0', FATAL)
+   !if(vr1<0.) &
+     !call error_mesg('lake_abstraction', 'vr1 could not be less than 0', FATAL)
    rsv_out = rsv_out*DENS_H2O !m3 * kg/m3 = kg
    rsv_out_s = 0. ; rsv_out_h = 0.
    if(rsv_out>0..and.Afrac_rsv>=1) then !special case: no lake, only reservoir
@@ -1193,8 +1189,8 @@ subroutine lake_abstraction (use_reservoir, is_terminal, &
                         tot_area,rsv_out,&
                         rsv_out_s,rsv_out_h) !we need to know rsv_out_s,rsv_out_h only when there is no lake
      vr1 = vr0 + influx/DENS_H2O - lake_abst - rsv_out/DENS_H2O !m3
-     if(vr1<0.) &
-       call error_mesg('lake_abstraction', 'vr1 could not be less than 0', FATAL)   
+     !if(vr1<0.) &
+       !call error_mesg('lake_abstraction', 'vr1 could not be less than 0', FATAL)   
    endif
  else
    rsv_out = 0. ;  vr1 = 0.
@@ -1515,6 +1511,15 @@ subroutine lake_Vfrac_rsv_ptr(tile, ptr)
       if(associated(tile%lake)) ptr=>tile%lake%Vfrac_rsv
    endif
 end subroutine lake_Vfrac_rsv_ptr
+
+subroutine lake_depth_rsv_ptr(tile, ptr)
+   type(land_tile_type), pointer :: tile
+   real                , pointer :: ptr
+   ptr=>NULL()
+   if(associated(tile)) then
+      if(associated(tile%lake)) ptr=>tile%lake%rsv_depth
+   endif
+end subroutine lake_depth_rsv_ptr
 
 subroutine lake_sub_lmass_ptr(tile, ptr)
    type(land_tile_type), pointer :: tile
