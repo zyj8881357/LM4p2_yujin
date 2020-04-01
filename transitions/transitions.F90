@@ -592,7 +592,7 @@ subroutine lake_transitions_init(id_ug)
   type(nfu_validtype) :: v_lake ! valid values range  
   type(land_tile_enum_type)     :: ce    ! land tile enumerator
   type(land_tile_type), pointer :: tile  ! pointer to current tile  
-  real :: frac2land, whole_lake_area
+  real :: frac2land, whole_lake_area, Afrac_rsv_bak
 
   if(module_is_initialized_lake) return
   module_is_initialized_lake = .TRUE.
@@ -732,22 +732,25 @@ subroutine lake_transitions_init(id_ug)
 
 
   if(.not.timel0==set_date(0001,01,01).and.is_rsv_restart)then
-    call error_mesg('lake_transitions_init','reservoir warm start', NOTE) 
+    call error_mesg('lake_transitions_init','reservoir warm start from previous laketran run', NOTE) 
     call check_rsv_depth()
     return
   else if(.not.timel0==set_date(0001,01,01).and..not.is_rsv_restart)then !we have laketran.res but restart files are not complete
     call error_mesg('lake_transitions_init','restart files are not complete', FATAL)     
   endif
   
-  !timel0==set_date(0001,01,01), we abandon all the restart files if there are any.
-  call error_mesg('lake_transitions_init','reservoir cold start', NOTE)
-
-  call rsv_set_zero()
-  if (do_lake_change) return
+  !timel0==set_date(0001,01,01)
+  call error_mesg('lake_transitions_init','reservoir cold start', NOTE)  
+  if (do_lake_change) then
+    call error_mesg('lake_transitions_init','do_lake_change mod, abandon all restarts for rsv if there are any', NOTE)      
+    call rsv_set_zero()
+    return
+  endif
 
   if (use_reservoir) &
     call error_mesg('lake_transitions_init','static reservoir mod', NOTE) 
   !use_reservoir%.not.do_lake_change  or  .not.use_reservoir&.not.do_lake_change
+  !if Afrac_rsv and rsv_depth files exist, we read data anyway, and then determine Vfrac_rsv by restart or Afrac_rsv
   if (file_exist(state_file_lake).and.file_exist(depth_file_rsv)) then
     n1 = size(depth_time_in_rsv)
     call read_rsv_depth(n1)    
@@ -757,7 +760,8 @@ subroutine lake_transitions_init(id_ug)
     do l=lnd%ls, lnd%le
       ce = first_elmt(land_tile_map(l))
       do while(loop_over_tiles(ce,tile))
-        if (.not.associated(tile%lake)) cycle          
+        if (.not.associated(tile%lake)) cycle  
+        if(is_rsv_restart)  Afrac_rsv_bak = tile%lake%Afrac_rsv     
         if(lnd%ug_area(l)>0.)then
           frac2land = frac(l)*(lnd%ug_cellarea(l)/lnd%ug_area(l))
         else
@@ -765,14 +769,17 @@ subroutine lake_transitions_init(id_ug)
         endif
         frac2land = max(0.,min(frac2land, tile%frac))  
         tile%lake%Afrac_rsv = frac2land/tile%frac
-        if(tile%lake%rsv_depth <= 0.) tile%lake%Afrac_rsv = 0.  
-        tile%lake%Vfrac_rsv = tile%lake%Afrac_rsv      
+        if(tile%lake%rsv_depth <= 0.) tile%lake%Afrac_rsv = 0.
+        ! we use Vfrac_rsv from restart if there is any, otherwise set it to Afrac_rsv
+        if(.not.is_rsv_restart.or.(is_rsv_restart.and.Afrac_rsv_bak/=tile%lake%Afrac_rsv)) &
+          tile%lake%Vfrac_rsv = tile%lake%Afrac_rsv      
       enddo
     enddo
     if(use_reservoir) call adjust_whole_lake_area() 
-  else 
+  else !if files are incomplete, we keep restart if there is any, otherwise set rsv to zero
     if(use_reservoir) call error_mesg('lake_transitions_init', &
-                           'reservoir cold start requires both state_file_lake and depth_file_rsv', FATAL)     
+                           'reservoir cold start requires both state_file_lake and depth_file_rsv', FATAL)   
+    if(.not.is_rsv_restart) call rsv_set_zero()                                      
   endif
 
 
