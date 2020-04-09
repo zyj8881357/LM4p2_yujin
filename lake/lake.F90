@@ -86,8 +86,9 @@ real    :: lake_depth_max       = 1.e10
 real    :: lake_depth_min       = 1.99
 real    :: max_plain_slope      = -1.e10
 logical :: do_lake_abstraction  = .false.
-real    :: ResMin               = 0.1
-real    :: ResMax               = 0.75
+logical, public :: use_reservoir        = .false.
+real, public    :: ResMin               = 0.1 !public for river_physics
+real, public    :: ResMax               = 0.75 
 logical :: prohibit_shallowlake = .false.
 
 namelist /lake_nml/ init_temp, init_w,       &
@@ -97,7 +98,7 @@ namelist /lake_nml/ init_temp, init_w,       &
                     min_rat, do_stratify, albedo_to_use, K_z_large, &
 		    K_z_background, K_z_min, K_z_factor, &
 		    lake_depth_max, lake_depth_min, max_plain_slope, &
-        do_lake_abstraction, ResMin, ResMax, prohibit_shallowlake
+        do_lake_abstraction, use_reservoir, ResMin, ResMax, prohibit_shallowlake
 !---- end of namelist --------------------------------------------------------
 real    :: K_z_molec            = 1.4e-7
 real    :: tc_molec             = 0.59052 ! dens_h2o*clw*K_z_molec
@@ -627,6 +628,7 @@ end subroutine lake_step_1
      melt_per_deg, melt
   real :: jj
   integer :: l
+  real :: v0, v1
 
   jj = 1.
 
@@ -670,6 +672,8 @@ end subroutine lake_step_1
     enddo
   endif
 
+  v0 = sum(lake%wl+lake%ws)/DENS_H2O !m
+
   ! ---- extract evap from lake and do implicit melt --------------------
   lake%wl(1) = lake%wl(1) - lake_levap*delta_time
   lake%ws(1) = lake%ws(1) - lake_fevap*delta_time
@@ -705,7 +709,10 @@ end subroutine lake_step_1
       flow(l+1) = 0
       dW_l(l) = flow(l) - flow(l+1)
       lake%wl(l) = lake%wl(l) + dW_l(l)
-    enddo
+    enddo                                                                   
+
+  v1 = sum(lake%wl+lake%ws)/DENS_H2O !m
+  if(use_reservoir) lake%Vfrac_rsv = (lake%Vfrac_rsv*v0 + (snow_lprec-subs_evap)*lake%Afrac_rsv*delta_time/DENS_H2O) / v1
 
   if(is_watch_point()) then
      write(*,*) ' ***** lake_step_2 checkpoint 3.3 ***** '
@@ -1054,7 +1061,7 @@ end subroutine lake_step_2
 ! if both use_reservoir and do_lake_abstraction are true, water can only be extracted from reservoir
 ! if use_reservoir is false and do_lake_abstraction is true, water is extracted from lake
 ! if use_reservoir is true and do_lake_abstraction is false, no water extraction is allowed, but reservoir will act with lake_abst==0.
-subroutine lake_abstraction (use_reservoir, is_terminal, &
+subroutine lake_abstraction (is_terminal, &
                              irr_demand, Afrac_rsv, Vfrac_rsv, &
                              influx, influx_c, &
                              tot_area, lake_depth_sill, rsv_depth, env_flow, &
@@ -1062,7 +1069,7 @@ subroutine lake_abstraction (use_reservoir, is_terminal, &
                              lake_abst, lake_habst, &
                              rsv_out, rsv_out_s, rsv_out_h, vr1)
   
-  logical, intent(in) :: use_reservoir, is_terminal
+  logical, intent(in) :: is_terminal
   real, intent(inout) :: irr_demand !m3
   real, intent(in)    :: Afrac_rsv, Vfrac_rsv
   real, intent(in) :: influx !kg
@@ -1203,7 +1210,7 @@ end subroutine lake_abstraction
 subroutine prohibit_shallow_lake(lake)
   type(lake_tile_type), intent(inout) :: lake
 
-  real :: fac_min = 0.1
+  !real :: fac_min = 0.1
   real :: heat0, heat1, lm0, lm1, fm0, fm1
   real :: liq_frac
   real, dimension(num_l) :: dz_frac
@@ -1211,13 +1218,13 @@ subroutine prohibit_shallow_lake(lake)
   integer :: l
 
   if(.not.prohibit_shallowlake) return
-  if(sum(lake%dz)>=fac_min*lake%pars%depth_sill) return
+  if(sum(lake%dz)>=ResMin*lake%pars%depth_sill) return
 
   heat0 = lake_tile_heat(lake)
   call lake_tile_stock_pe(lake, lm0, fm0)  
   
   dz_frac = lake%dz/sum(lake%dz)
-  new_z = fac_min*lake%pars%depth_sill 
+  new_z = ResMin*lake%pars%depth_sill 
   lake%dz = dz_frac*new_z
 
   do l = 2, num_l 

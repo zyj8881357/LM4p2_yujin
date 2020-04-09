@@ -14,7 +14,9 @@ use mpp_io_mod, only : mpp_open, mpp_close, MPP_ASCII, MPP_RDONLY
 
 use fms_mod, only : string, error_mesg, FATAL, WARNING, NOTE, &
      mpp_pe, lowercase, file_exist, close_file, &
-     check_nml_error, stdlog, mpp_root_pe, fms_error_handler
+     check_nml_error, stdlog, mpp_root_pe, fms_error_handler, &
+     read_data
+use fms_io_mod, only : get_file_name     
 
 use time_manager_mod, only : time_type, set_date, get_date, set_time, &
      operator(+), operator(-), operator(>), operator(<), operator(<=), operator(/), &
@@ -57,8 +59,7 @@ use vegn_harvesting_mod, only : vegn_cut_forest
 use land_debug_mod, only : set_current_point, is_watch_cell, &
      get_current_point, check_var_range, log_date
 use land_numerics_mod, only : rank_descending
-use lake_mod, only : prohibit_shallow_lake, is_rsv_restart 
-use river_mod, only : use_reservoir
+use lake_mod, only : prohibit_shallow_lake, is_rsv_restart, use_reservoir
 
 implicit none
 private
@@ -199,10 +200,13 @@ type(var_set_type) :: input_state_lake (2,2) ! input state field (for initial tr
 type(var_set_type) :: input_depth_rsv
 character(len=5), parameter  :: &
      landuse_name_lake (2) = (/ 'lake','soil'/)
-type(horiz_interp_type), save :: interp_lake ! interpolator for the input data    
+!type(horiz_interp_type), save :: interp_lake ! interpolator for the input data    
 real, allocatable :: norm_in_lake  (:,:) ! normalizing factor to convert input data to 
 integer :: nlon_in_lake, nlat_in_lake  
 real :: rsv_depth_min = 2.                                                                                
+character(len=1024) :: input_lake_file  = '' ! input data set of lake transition dates
+character(len=1024) :: state_lake_file  = '' ! input data set of LU states (for initial transition only)
+character(len=1024) :: depth_rsv_file   = '' ! reservoir construction depth
 
 ! ---- namelist variables ---------------------------------------------------
 logical, protected, public :: do_landuse_change = .FALSE. ! if true, then the landuse changes with time
@@ -231,7 +235,6 @@ logical :: irrigation_on = .TRUE.
 
 character(len=1024) :: input_file_lake  = '' ! input data set of lake transition dates
 character(len=1024) :: state_file_lake  = '' ! input data set of LU states (for initial transition only)
-character(len=1024) :: static_file_lake = '' ! static data file, for input land fraction
 character(len=1024) :: depth_file_rsv   = '' ! reservoir construction depth
 logical, protected, public :: do_lake_change = .FALSE.
 
@@ -240,7 +243,7 @@ namelist/landuse_nml/do_landuse_change, input_file, state_file, static_file, dat
      overshoot_handling, overshoot_tolerance, &
      conservation_handling, &
      manag_file, irrigation_on, &
-     input_file_lake, state_file_lake, static_file_lake, depth_file_rsv, do_lake_change
+     input_file_lake, state_file_lake, depth_file_rsv, do_lake_change
 
 
 contains ! ###################################################################
@@ -593,6 +596,7 @@ subroutine lake_transitions_init(id_ug)
   type(land_tile_enum_type)     :: ce    ! land tile enumerator
   type(land_tile_type), pointer :: tile  ! pointer to current tile  
   real :: frac2land, whole_lake_area, Afrac_rsv_bak
+  logical :: read_dist, io_domain_exist, found_file  
 
   if(module_is_initialized_lake) return
   module_is_initialized_lake = .TRUE.
@@ -610,127 +614,65 @@ subroutine lake_transitions_init(id_ug)
      timel0 = set_date(0001,01,01)
   endif
 
-  if (file_exist(state_file_lake)) then
+  found_file = get_file_name(input_file_lake, input_lake_file, read_dist, io_domain_exist, domain=lnd%sg_domain)
+  !if(.not.found_file) call error_mesg('lake_transitions_init',trim(input_lake_file)//'does not exist', FATAL)  
+  found_file = get_file_name(state_file_lake, state_lake_file, read_dist, io_domain_exist, domain=lnd%sg_domain)
+  !if(.not.found_file) call error_mesg('lake_transitions_init',trim(state_lake_file)//'does not exist', FATAL)
+  found_file = get_file_name(depth_file_rsv, depth_rsv_file, read_dist, io_domain_exist, domain=lnd%sg_domain)  
+  !if(.not.found_file) call error_mesg('lake_transitions_init',trim(depth_rsv_file)//'does not exist', FATAL)  
+
+  if (file_exist(state_lake_file)) then
       ! open state file
-      ierr=nf_open(state_file_lake,NF_NOWRITE,state_ncid_lake)
+      ierr=nf_open(state_lake_file,NF_NOWRITE,state_ncid_lake)
       if(ierr/=NF_NOERR) call error_mesg('lake_transitions_init', 'lake state file "'// &
-          trim(state_file_lake)//'" could not be opened because '//nf_strerror(ierr), FATAL)
+          trim(state_lake_file)//'" could not be opened because '//nf_strerror(ierr), FATAL)
       call get_time_axis(state_ncid_lake, state_time_in_lake)
       ! initialize state variable array
-      do k2 = 1,2 !1 means lake, 2 means soil
-        if (k2==2) cycle !k2==1
-        input_state_lake(2,k2)%name='initial '//trim(landuse_name_lake(2))//'2'//trim(landuse_name_lake(k2))
-        call add_var_to_varset(input_state_lake(2,k2),state_ncid_lake,state_file_lake,trim(landuse_name_lake(k2)))
-      enddo
+      ! 1 means lake, 2 means soil
+      !input_state_lake(2,1)%name='initial '//trim(landuse_name_lake(2))//'2'//trim(landuse_name_lake(1))
+      input_state_lake(2,1)%name='lake'
+      call add_var_to_varset(input_state_lake(2,1),state_ncid_lake,state_lake_file,'lake')
   endif
 
-  if(file_exist(depth_file_rsv))then
+  if(file_exist(depth_rsv_file))then
       ! open reservoir depth file
-      ierr=nf_open(depth_file_rsv,NF_NOWRITE,depth_ncid_rsv)
+      ierr=nf_open(depth_rsv_file,NF_NOWRITE,depth_ncid_rsv)
       if(ierr/=NF_NOERR) call error_mesg('lake_transitions_init', 'reservoir depth file "'// &
-          trim(depth_file_rsv)//'" could not be opened because '//nf_strerror(ierr), FATAL)
+          trim(depth_rsv_file)//'" could not be opened because '//nf_strerror(ierr), FATAL)
       call get_time_axis(depth_ncid_rsv, depth_time_in_rsv)
-      call add_var_to_varset(input_depth_rsv,depth_ncid_rsv,depth_file_rsv,'rsv_depth') 
+      input_depth_rsv%name = 'rsv_depth'
+      call add_var_to_varset(input_depth_rsv,depth_ncid_rsv,depth_rsv_file,'rsv_depth') 
   else
-      if(use_reservoir) call error_mesg('lake_transitions_init','use_reservoir mod requires depth_file_rsv', FATAL) 
+      if(use_reservoir) call error_mesg('lake_transitions_init','use_reservoir mod requires depth_rsv_file', FATAL) 
   endif
 
   if(do_lake_change) then    
-    if (trim(input_file_lake)=='') call error_mesg('lake_transitions_init', &
+    if (trim(input_lake_file)=='') call error_mesg('lake_transitions_init', &
        'do_lake_change is requested, but lake transition file is not specified', &
         FATAL)  
-    ierr=nf_open(input_file_lake,NF_NOWRITE,tran_ncid_lake)
+    ierr=nf_open(input_lake_file,NF_NOWRITE,tran_ncid_lake)
     if(ierr/=NF_NOERR) call error_mesg('lake_transitions_init', &
        'do_lake_change is requested, but lake transition file "'// &
-       trim(input_file_lake)//'" could not be opened because '//nf_strerror(ierr), FATAL)
+       trim(input_lake_file)//'" could not be opened because '//nf_strerror(ierr), FATAL)
     call get_time_axis(tran_ncid_lake,time_in_lake)
-    do k1 = 1,2
-    do k2 = 1,2
-      input_tran_lake(k1,k2)%name=trim(landuse_name_lake(k1))//'2'//trim(landuse_name_lake(k2))
-      if (k1==k2) cycle
-      call add_var_to_varset(input_tran_lake(k1,k2),tran_ncid_lake,input_file_lake,trim(landuse_name_lake(k1))//'_to_'//trim(landuse_name_lake(k2)))
-    enddo
-    enddo
-    if(.not.file_exist(depth_file_rsv)) &
-      call error_mesg('lake_transitions_init','depth_file_rsv must exist with do_lake_change turned on', FATAL)
-    if(timel0==set_date(0001,01,01).and.(.not.file_exist(state_file_lake))) &
-      call error_mesg('lake_transitions_init','state_file_lake must exist when do_lake_change start', FATAL)             
+    !do k1 = 1,2
+    !do k2 = 1,2
+      input_tran_lake(2,1)%name='soil_to_lake'
+      !if (k1==k2) cycle
+      call add_var_to_varset(input_tran_lake(2,1),tran_ncid_lake,input_lake_file,'soil_to_lake')
+    !enddo
+    !enddo
+    if(.not.file_exist(depth_rsv_file)) &
+      call error_mesg('lake_transitions_init','depth_rsv_file must exist with do_lake_change turned on', FATAL)
+    if(timel0==set_date(0001,01,01).and.(.not.file_exist(state_lake_file))) &
+      call error_mesg('lake_transitions_init','state_lake_file must exist when do_lake_change start', FATAL)             
   endif
 
- id_lake = -1
- if(do_lake_change)then
-   used_id = tran_ncid_lake
-   lz1:do k1 = 1,size(input_tran_lake,1)
-   do k2 = 1,size(input_tran_lake,2)
-      if (.not.allocated(input_tran_lake(k1,k2)%id)) cycle
-      do k3 = 1,size(input_tran_lake(k1,k2)%id(:))
-         if (input_tran_lake(k1,k2)%id(k3)>0) then
-            id_lake = input_tran_lake(k1,k2)%id(k3)
-            exit lz1 ! from all loops
-         endif
-      enddo
-   enddo
-   enddo lz1   
- else if(file_exist(state_file_lake))then
-   used_id = state_ncid_lake
-   lz2:do k1 = 1,size(input_state_lake,1)
-   do k2 = 1,size(input_state_lake,2)
-      if (.not.allocated(input_state_lake(k1,k2)%id)) cycle
-      do k3 = 1,size(input_state_lake(k1,k2)%id(:))
-         if (input_state_lake(k1,k2)%id(k3)>0) then
-            id_lake = input_state_lake(k1,k2)%id(k3)
-            exit lz2 ! from all loops
-         endif
-      enddo
-   enddo
-   enddo lz2  
- endif
- 
-
-  !if (id_lake<=0) call error_mesg('land_transitions_init',&
-  !       'could not find any lake transition fields in the input file', FATAL)
-  if (id_lake > 0) then
-  ! we assume that all transition rate fields are specified on the same grid,
-  ! in both horizontal and time "directions". Therefore there is a single grid
-  ! for all fields, initialized only once.
-
-  __NF_ASRT__(nfu_inq_var(used_id,id_lake,dimids=dimids_lake,dimlens=dimlens_lake))
-  nlon_in_lake = dimlens_lake(1); nlat_in_lake = dimlens_lake(2)
-  ! allocate temporary variables
-  allocate(buffer_in_lake(nlon_in_lake,nlat_in_lake), &
-           mask_in_lake(nlon_in_lake,nlat_in_lake),   &
-           lon_in_lake(nlon_in_lake+1,1), lat_in_lake(1,nlat_in_lake+1) )
-  ! allocate module data
-  allocate(norm_in_lake(nlon_in_lake,nlat_in_lake))
-  ! get the boundaries of the horizontal axes and initialize horizontal
-  ! interpolator
-  __NF_ASRT__(nfu_get_dim_bounds(used_id, dimids_lake(1), lon_in_lake(:,1)))
-  __NF_ASRT__(nfu_get_dim_bounds(used_id, dimids_lake(2), lat_in_lake(1,:)))
-  if(lat_in_lake(1,1).gt.90.) lat_in_lake(1,1)=90.
-  if(lat_in_lake(1,nlat_in_lake+1).lt.-90.) lat_in_lake(1,nlat_in_lake+1)=-90.
-  ! get the first record from variable and obtain the mask of valid data
-  ! assume that valid mask does not change with time
-  __NF_ASRT__(nfu_get_rec(used_id,id_lake,1,buffer_in_lake))
-  ! get the valid range for the variable
-  __NF_ASRT__(nfu_get_valid_range(used_id,id_lake,v_lake))
-  ! get the mask
-  where (nfu_is_valid(buffer_in_lake,v_lake))
-     mask_in_lake = 1
-  elsewhere
-     mask_in_lake = 0
-  end where  
-  norm_in_lake = 1.0
-  ! initialize horizontal interpolator
-  call horiz_interp_new(interp_lake, lon_in_lake*PI/180,lat_in_lake*PI/180, &
-       lnd%sg_lonb, lnd%sg_latb, &
-       interp_method='conservative',&
-       mask_in=mask_in_lake, is_latlon_in=.TRUE. )
-  ! get rid of temporary allocated data
-  deallocate(buffer_in_lake, mask_in_lake,lon_in_lake,lat_in_lake)
-
-  endif !if (id_lake > 0.)
+! interp_lake 
 
 
+
+! initialize reservoir (rsv_depth, Afrac_rsv, Vfrac_rsv)
   if(.not.timel0==set_date(0001,01,01).and.is_rsv_restart)then
     call error_mesg('lake_transitions_init','reservoir warm start from previous laketran run', NOTE) 
     call check_rsv_depth()
@@ -740,7 +682,8 @@ subroutine lake_transitions_init(id_ug)
   endif
   
   !timel0==set_date(0001,01,01)
-  call error_mesg('lake_transitions_init','reservoir cold start', NOTE)  
+  call error_mesg('lake_transitions_init', &
+      'reservoir cold start, rsv_depth and Afrac_rsv are from input, though Vfrac_rsv may be from restart', NOTE)  
   if (do_lake_change) then
     call error_mesg('lake_transitions_init','do_lake_change mod, abandon all restarts for rsv if there are any', NOTE)      
     call rsv_set_zero()
@@ -751,17 +694,17 @@ subroutine lake_transitions_init(id_ug)
     call error_mesg('lake_transitions_init','static reservoir mod', NOTE) 
   !use_reservoir%.not.do_lake_change  or  .not.use_reservoir&.not.do_lake_change
   !if Afrac_rsv and rsv_depth files exist, we read data anyway, and then determine Vfrac_rsv by restart or Afrac_rsv
-  if (file_exist(state_file_lake).and.file_exist(depth_file_rsv)) then
+  if (file_exist(state_lake_file).and.file_exist(depth_rsv_file)) then
     n1 = size(depth_time_in_rsv)
     call read_rsv_depth(n1)    
     frac(:) = 0.0
     n1 = size(state_time_in_lake)
-    call get_varset_data_lake(state_ncid_lake,input_state_lake(2,1),n1,frac) 
+    call get_varset_data_lake(state_file_lake,input_state_lake(2,1),n1,frac) 
     do l=lnd%ls, lnd%le
       ce = first_elmt(land_tile_map(l))
       do while(loop_over_tiles(ce,tile))
         if (.not.associated(tile%lake)) cycle  
-        if(is_rsv_restart)  Afrac_rsv_bak = tile%lake%Afrac_rsv     
+        Afrac_rsv_bak = tile%lake%Afrac_rsv     
         if(lnd%ug_area(l)>0.)then
           frac2land = frac(l)*(lnd%ug_cellarea(l)/lnd%ug_area(l))
         else
@@ -771,14 +714,15 @@ subroutine lake_transitions_init(id_ug)
         tile%lake%Afrac_rsv = frac2land/tile%frac
         if(tile%lake%rsv_depth <= 0.) tile%lake%Afrac_rsv = 0.
         ! we use Vfrac_rsv from restart if there is any, otherwise set it to Afrac_rsv
-        if(.not.is_rsv_restart.or.(is_rsv_restart.and.Afrac_rsv_bak/=tile%lake%Afrac_rsv)) &
+        if(.not.is_rsv_restart.or.&
+           (is_rsv_restart.and.Afrac_rsv_bak==0..and.tile%lake%Afrac_rsv>0.)) &
           tile%lake%Vfrac_rsv = tile%lake%Afrac_rsv      
       enddo
     enddo
     if(use_reservoir) call adjust_whole_lake_area() 
   else !if files are incomplete, we keep restart if there is any, otherwise set rsv to zero
     if(use_reservoir) call error_mesg('lake_transitions_init', &
-                           'reservoir cold start requires both state_file_lake and depth_file_rsv', FATAL)   
+                           'reservoir cold start requires both state_lake_file and depth_rsv_file', FATAL)   
     if(.not.is_rsv_restart) call rsv_set_zero()                                      
   endif
 
@@ -812,7 +756,7 @@ subroutine read_rsv_depth(i)
   real, dimension(lnd%ls:lnd%le) :: rsv_depth  
 
     rsv_depth(:) = 0.0
-    call get_varset_data_lake(depth_ncid_rsv,input_depth_rsv,i,rsv_depth)    
+    call get_varset_data_lake(depth_file_rsv,input_depth_rsv,i,rsv_depth)    
     do l=lnd%ls, lnd%le
       ce = first_elmt(land_tile_map(l))
       do while(loop_over_tiles(ce,tile))
@@ -1043,7 +987,7 @@ end subroutine land_transitions_end
 subroutine lake_transitions_end()
 
   module_is_initialized_lake=.FALSE.
-  if (do_lake_change.or.file_exist(state_file_lake)) call horiz_interp_del(interp_lake)
+  !if (do_lake_change.or.file_exist(state_lake_file)) call horiz_interp_del(interp_lake)
   if(allocated(time_in_lake)) deallocate(time_in_lake)
 
 end subroutine lake_transitions_end
@@ -1113,25 +1057,27 @@ subroutine get_varset_data(ncid,varset,rec,frac)
    call horiz_interp_ug(interp,buff1*norm_in,frac)
 end subroutine get_varset_data
 
-subroutine get_varset_data_lake(ncid,varset,rec,frac)
-   integer, intent(in) :: ncid
+subroutine get_varset_data_lake(filename,varset,rec,frac)
+   character(len=*), intent(in) :: filename
    type(var_set_type), intent(in) :: varset
    integer, intent(in) :: rec
    real, intent(out) :: frac(:)
    
-   real :: buff0(nlon_in_lake,nlat_in_lake)
-   real :: buff1(nlon_in_lake,nlat_in_lake)
-   integer :: i
+   !real :: buff0(nlon_in_lake,nlat_in_lake)
+   !real :: buff1(nlon_in_lake,nlat_in_lake)
+   !integer :: i
 
    frac = 0.0
-   buff1 = 0.0
-   do i = 1,varset%nvars
-     if (varset%id(i)>0) then
-        __NF_ASRT__(nfu_get_rec(ncid,varset%id(i),rec,buff0))
-        buff1 = buff1 + buff0
-     endif
-   enddo
-   call horiz_interp_ug(interp_lake,buff1*norm_in_lake,frac)
+   call read_data(filename, trim(varset%name), frac, lnd%sg_domain, lnd%ug_domain, timelevel=rec)   
+   !buff1 = 0.0
+   !do i = 1,varset%nvars
+   !  if (varset%id(i)>0) then
+   !     __NF_ASRT__(nfu_get_rec(ncid,varset%id(i),rec,buff0))
+   !     buff1 = buff1 + buff0
+   !  endif
+   !enddo
+   !call horiz_interp_ug(interp_lake,buff1*norm_in_lake,frac)
+
 end subroutine get_varset_data_lake
 
 ! ============================================================================
@@ -1663,17 +1609,17 @@ subroutine lake_transitions (time)
   enddo
        
   transitions => NULL()
-  do k1 = 1,2 ! 1 is lake, and 2 is soil
-  do k2 = 1,2
+  !do k1 = 2,2 ! 1 is lake, and 2 is soil
+  !do k2 = 1,1
      ! get transition rate for this specific transition
      frac(:) = 0.0
      if (timel0==set_date(0001,01,01).and.state_ncid_lake>0) then
         ! read initial transition from state file
         call time_interp(time, state_time_in_lake, w, i1,i2)
-        call get_varset_data_lake(state_ncid_lake,input_state_lake(k1,k2),i1,frac)
+        call get_varset_data_lake(state_file_lake,input_state_lake(2,1),i1,frac)
      else
-        if (any(input_tran_lake(k1,k2)%id(:)>0)) then
-           call integral_transition_lake(timel0,time,input_tran_lake(k1,k2),frac)
+        if (any(input_tran_lake(2,1)%id(:)>0)) then
+           call integral_transition_lake(timel0,time,input_tran_lake(2,1),frac)
         endif
      endif
 
@@ -1683,18 +1629,18 @@ subroutine lake_transitions (time)
        else
          frac(l) = 0.
        endif
-       if(k1==2.and.k2==1)then !from soil to lake
+       !if(k1==2.and.k2==1)then !from soil to lake
          frac(l) = min(atots(l), frac(l))
          if(atotl(l)<=0.) frac(l)=0. !Currently we do not build reservoir if there is no original lake in the gridcell. 
-       else !from lake to soil
-         frac(l) = min(atotl(l), frac(l))
-         if(atots(l)==0.) frac(l)=0. 
-       endif
+       !else !from lake to soil
+         !frac(l) = min(atotl(l), frac(l))
+         !if(atots(l)==0.) frac(l)=0. 
+       !endif
      enddo
 
-     call add_to_transitions(frac,time0,time,k1,k2,transitions, is_laketran)
-  enddo
-  enddo 
+     call add_to_transitions(frac,time0,time,2,1,transitions, is_laketran)
+  !enddo
+  !enddo 
 
   do l = lnd%ls,lnd%le
      if(empty(land_tile_map(l))) cycle ! skip cells where there is no land  !irr code  
@@ -2453,12 +2399,12 @@ subroutine integral_transition_lake(t1, t2, tran, frac, err_msg)
   if(msg /= '') then
     if(fms_error_handler('integral_transition_lake','Message from time_interp: '//trim(msg),err_msg)) return
   endif
-  call get_varset_data_lake(tran_ncid_lake,tran,i1,frac)
+  call get_varset_data_lake(input_file_lake,tran,i1,frac)
 
   dt = (time_in_lake(i2)-time_in_lake(i1))//set_time(0,days_in_year((time_in_lake(i2)+time_in_lake(i1))/2))
   sum = -frac*w*dt
   do while(time_in_lake(i2)<=te)
-     call get_varset_data_lake(tran_ncid_lake,tran,i1,frac)
+     call get_varset_data_lake(input_file_lake,tran,i1,frac)
      dt = (time_in_lake(i2)-time_in_lake(i1))//set_time(0,days_in_year((time_in_lake(i2)+time_in_lake(i1))/2))
      sum = sum+frac*dt
      i2 = i2+1
@@ -2470,7 +2416,7 @@ subroutine integral_transition_lake(t1, t2, tran, frac, err_msg)
   if(msg /= '') then
     if(fms_error_handler('integral_transition_lake','Message from time_interp: '//trim(msg),err_msg)) return
   endif
-  call get_varset_data_lake(tran_ncid_lake,tran,i1,frac)
+  call get_varset_data_lake(input_file_lake,tran,i1,frac)
   dt = (time_in_lake(i2)-time_in_lake(i1))//set_time(0,days_in_year((time_in_lake(i2)+time_in_lake(i1))/2))
   frac = sum+frac*w*dt
   ! check the transition rate validity

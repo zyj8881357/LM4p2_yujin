@@ -79,6 +79,7 @@ module river_mod
   use tracer_manager_mod, only : NO_TRACER
   use table_printer_mod
   use soil_tile_mod,      only : soil_tile_type, num_soil=>num_l, dz_soil=>dz
+  use lake_mod,           only : use_reservoir
 
   implicit none
   private
@@ -121,7 +122,6 @@ character(len=*), parameter :: module_name = 'river_mod'
           ! rather than source concentration and flux files
   logical :: do_groundwater_abstraction = .false.
   logical :: do_deep_gw_abst = .false.  
-  logical,public :: use_reservoir = .false. !public for lake transitions
 
   namelist /river_nml/ dt_slow, diag_freq, debug_river,                      &
                        Somin, outflowmean_min, ave_DHG_exp, ave_AAS_exp,     &
@@ -129,8 +129,7 @@ character(len=*), parameter :: module_name = 'river_mod'
                        land_area_called_cellarea, all_big_outlet_ctn0,       &
                        lake_area_bug, stop_on_mask_mismatch,                 &
                        tracers_from_runoff, &
-                       do_groundwater_abstraction, do_deep_gw_abst, &
-                       use_reservoir
+                       do_groundwater_abstraction, do_deep_gw_abst
 
   character(len=128) :: river_src_file   = 'INPUT/river_data.nc'
   character(len=128) :: river_Omean_file = 'INPUT/river_Omean.nc'
@@ -1002,7 +1001,7 @@ end subroutine print_river_tracer_data
          lake_sfc_A, lake_sfc_bot, lake_depth_sill, &
          lake_width_sill, lake_whole_area,         &
          lake_T, lake_wl, lake_ws, lake_dz, irr_demand, &
-         rsv_depth, Afrac_rsv, Vfrac_rsv, rsv_outflow, use_reservoir )
+         rsv_depth, Afrac_rsv, Vfrac_rsv, rsv_outflow )
 !***************************************************************
        call mpp_clock_end(physicsclock)
     enddo

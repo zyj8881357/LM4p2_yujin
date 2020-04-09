@@ -36,7 +36,7 @@ module river_physics_mod
   use diag_manager_mod,only : register_diag_field, send_data
   use tracer_manager_mod, only : NO_TRACER
   use river_type_mod,  only : river_type, Leo_Mad_trios, NO_RIVER_FLAG
-  use lake_mod,        only : large_dyn_small_stat, lake_abstraction
+  use lake_mod,        only : large_dyn_small_stat, use_reservoir, lake_abstraction, ResMin, ResMax
   use lake_tile_mod,   only : num_l
   use constants_mod,   only : tfreeze, hlf, DENS_H2O
   use land_debug_mod,  only : set_current_point, is_watch_cell
@@ -195,7 +195,7 @@ contains
   subroutine river_physics_step(River, cur_travel, &
          lake_sfc_A, lake_sfc_bot, lake_depth_sill, lake_width_sill, &
          lake_whole_area, lake_T, lake_wl, lake_ws, lake_dz, irr_demand, &
-         rsv_depth, Afrac_rsv, Vfrac_rsv, rsv_outflow, use_reservoir )
+         rsv_depth, Afrac_rsv, Vfrac_rsv, rsv_outflow )
 
     type(river_type),     intent(inout) :: River
     integer,                 intent(in) :: cur_travel
@@ -213,7 +213,6 @@ contains
     real, dimension(isd:ied,jsd:jed), intent(in) :: Afrac_rsv 
     real, dimension(isd:ied,jsd:jed), intent(inout) :: Vfrac_rsv
     real, dimension(isc:iec,jsc:jec), intent(inout) :: rsv_outflow !kg
-    logical, intent(in) :: use_reservoir
 ! ---- local vars ----------------------------------------------------------
     integer   :: i, j, to_i, to_j, i_species, lev
     real      :: Q0, dQ_dV, dh_dQ, avail, out_frac, qmelt, abst_frac
@@ -317,7 +316,7 @@ contains
                          write(*,*) 'rsv_depth(i,j):', rsv_depth(i,j)
                 endif
                 is_terminal = .True.                
-                call lake_abstraction( use_reservoir, is_terminal, &
+                call lake_abstraction( is_terminal, &
                                        irr_demand(i,j), Afrac_rsv(i,j), Vfrac_rsv(i,j), &
                                        influx, influx_c(1:2), &
                                        tot_area, lake_depth_sill(i,j), rsv_depth(i,j), River%env_flow(i,j)*River%dt_slow, &
@@ -399,7 +398,7 @@ contains
                          write(*,*) 'rsv_depth(i,j):', rsv_depth(i,j)
                      endif  
                      is_terminal = .False.                                    
-                     call lake_abstraction( use_reservoir, is_terminal, &
+                     call lake_abstraction( is_terminal, &
                                             irr_demand(i,j), Afrac_rsv(i,j), Vfrac_rsv(i,j), &
                                             influx, influx_c(1:2), &
                                             tot_area, lake_depth_sill(i,j), rsv_depth(i,j), River%env_flow(i,j)*River%dt_slow, &
@@ -422,9 +421,12 @@ contains
                          write(*,*) 'vr1:', vr1                         
                      endif                                                                                                                       
                      ! LAKE_SFC_C(I,J,:) = LAKE_SFC_C(I,J,:) + INFLUX_C / LAKE_AREA
-                      h0 = lake_sfc_bot(i,j) + (lake_wl(i,j,1)+lake_ws(i,j,1))/DENS_H2O*V2A_l & !if Afrac_rsv(i,j)==1., h0<=0 and qt<=0
-                                             -lake_depth_sill(i,j) !kg/m2 / kg/m3 = m
+                      !h0 = lake_sfc_bot(i,j) + (lake_wl(i,j,1)+lake_ws(i,j,1))/DENS_H2O*V2A_l & !if Afrac_rsv(i,j)==1., h0<=0 and qt<=0
+                      !                       -lake_depth_sill(i,j) !kg/m2 / kg/m3 = m
+                      h0 = sum(lake_wl(i,j,:)+lake_ws(i,j,:))/DENS_H2O*V2A_l-lake_depth_sill(i,j)                      
                       qt = lake_area * h0 * DENS_H2O ! m2 * m * kg/m3 = kg
+                      if(use_reservoir.and.sum(lake_wl(i,j,:)+lake_ws(i,j,:))/DENS_H2O<=ResMin*lake_depth_sill(i,j)) &
+                        qt = 0. !this is for numerical stability
                      ! qt is mass of water stored transiently above sill
                      ! now reduce it to amount that discharges this time step
                      if (qt.gt.0.) then
