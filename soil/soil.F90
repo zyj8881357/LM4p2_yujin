@@ -4848,6 +4848,14 @@ subroutine irrigation_deficit_evap()
 
  if (.not. use_irrigation_routine) return
 
+ atots = 0.
+ do l=lnd%ls, lnd%le
+     ce = first_elmt(land_tile_map(l))
+     do while(loop_over_tiles(ce,tile))    
+       if (associated(tile%soil)) atots(l) = atots(l) + tile%frac        
+     enddo  
+ enddo
+
  n = n + 1
 
  do l=lnd%ls, lnd%le  
@@ -4876,8 +4884,8 @@ subroutine irrigation_deficit_evap()
        soil%irr_area2frac_input = irr_area_input / tile%frac !m2 
        soil%irr_area2frac_real = irr_area_temp / tile%frac !m2 
        call send_tile_data(id_irr_demand, irr_demand, tile%diag) !kg/(m2 s)
-       call send_tile_data(id_irr_area_input, soil%irr_area2frac_input, tile%diag)       
-       call send_tile_data(id_irr_area_real, soil%irr_area2frac_real, tile%diag)
+       call send_tile_data(id_irr_area_input, soil%irr_area2frac_input * atots(l), tile%diag)       
+       call send_tile_data(id_irr_area_real, soil%irr_area2frac_real * atots(l), tile%diag)
      enddo
  enddo   
 
