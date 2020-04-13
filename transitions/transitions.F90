@@ -1578,6 +1578,7 @@ subroutine lake_transitions (time)
   type(land_tile_type), pointer :: tile  
   real, dimension(lnd%ls:lnd%le) :: atots, atotl
   logical :: is_laketran = .True.
+  type(time_type) :: time_adj
 
   if(.not.do_lake_change) return
 
@@ -1592,7 +1593,9 @@ subroutine lake_transitions (time)
 
   !update rsv depth
   if(use_reservoir)then
-    call time_interp(time, depth_time_in_rsv, w, i1,i2)
+  ! adjust the integration limits, in case they are out of range
+    time_adj = time_adjust(time, depth_time_in_rsv)
+    call time_interp(time_adj, depth_time_in_rsv, w, i1,i2)
     call read_rsv_depth(i1) 
   endif      
 
@@ -1615,7 +1618,8 @@ subroutine lake_transitions (time)
      frac(:) = 0.0
      if (timel0==set_date(0001,01,01).and.state_ncid_lake>0) then
         ! read initial transition from state file
-        call time_interp(time, state_time_in_lake, w, i1,i2)
+        time_adj = time_adjust(time, state_time_in_lake)     
+        call time_interp(time_adj, state_time_in_lake, w, i1,i2)
         call get_varset_data_lake(state_file_lake,input_state_lake(2,1),i1,frac)
      else
         if (any(input_tran_lake(2,1)%id(:)>0)) then
@@ -1961,6 +1965,19 @@ subroutine lake_transitions_0d(d_list,d_kinds,a_kinds,area)
   call check_conservation ('upward longwave', lwup0, lwup1, 1e-4)
 
 end subroutine lake_transitions_0d
+! =============================================================================
+function time_adjust(time, time_list)
+  type(time_type) :: time_adjust  
+  type(time_type), intent(in) :: time, time_list(:)
+
+  integer :: n
+
+  n = size(time_list)
+  time_adjust = time
+  if (time_adjust<time_list(1)) time_adjust = time_list(1)
+  if (time_adjust>time_list(n)) time_adjust = time_list(n)
+
+end function time_adjust
 ! =============================================================================
 ! check that the requested area of transitions is not larger than available area
 ! in tiles
@@ -2462,14 +2479,11 @@ subroutine fractions_irr_area(t2, manag, irr_area,  err_msg)
   integer         :: i1,i2
   real :: w  ! time interpolation weight
   character(len=256) :: msg
+  type(time_type) :: time_adj
 
   msg = ''
-  ntime=size(manag_time_in)
-  if(t2>manag_time_in(ntime))then
-    call time_interp(manag_time_in(ntime), manag_time_in, w, i1,i2, err_msg=msg)    
-  else
-    call time_interp(t2, manag_time_in, w, i1,i2, err_msg=msg)
-  endif
+  time_adj = time_adjust(t2, manag_time_in)
+  call time_interp(time_adj, manag_time_in, w, i1,i2, err_msg=msg)
   if(msg /= '') then
     if(fms_error_handler('fractions_irr_area','Message from time_interp:'//trim(msg),err_msg)) return
   endif
