@@ -4844,6 +4844,7 @@ subroutine irrigation_deficit_evap()
   real :: thres = 0.03   
   real :: w_scale_thres = 0.99
   integer, save :: n = 0  ! fast time step with each slow time step  
+  real,dimension(lnd%ls:lnd%le) :: atots
 !----------------------------------------------------
 
  if (.not. use_irrigation_routine) return
