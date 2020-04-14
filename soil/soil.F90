@@ -4847,7 +4847,7 @@ subroutine irrigation_deficit_evap()
   real,dimension(lnd%ls:lnd%le) :: atots
 !----------------------------------------------------
 
- if (.not. use_irrigation_routine) return
+ !if (.not. use_irrigation_routine) return
 
  atots = 0.
  do l=lnd%ls, lnd%le
@@ -4870,11 +4870,15 @@ subroutine irrigation_deficit_evap()
          irr_area_input = tile%frac*lnd%ug_area(l)
          irr_area_temp = tile%frac*lnd%ug_area(l)
          irr_demand = 0. !kg/(m2 s)
-         do i = 1, vegn%n_cohorts
-            if(vegn%cohorts(i)%w_scale < w_scale_thres .and. vegn%cohorts(i)%lai > 0) then
-              irr_demand =  irr_demand + max(0.,vegn%cohorts(i)%layerfrac * vegn%cohorts(i)%evap_demand*(1.-vegn%cohorts(i)%w_scale) * vegn%cohorts(i)%nindivs)  !kg/(m2 s) evap_demand maybe in restart
-            endif
-         enddo
+         if(use_irrigation_routine)then
+           do i = 1, vegn%n_cohorts
+             if(vegn%cohorts(i)%w_scale < w_scale_thres .and. vegn%cohorts(i)%lai > 0) then
+               irr_demand =  irr_demand + max(0.,vegn%cohorts(i)%layerfrac * vegn%cohorts(i)%evap_demand*(1.-vegn%cohorts(i)%w_scale) * vegn%cohorts(i)%nindivs)  !kg/(m2 s) evap_demand maybe in restart
+             endif
+           enddo
+         else
+           irr_demand = 0.  
+         endif
          if(irr_demand == 0.) irr_area_temp = 0.
        else        ! if(vegn%landuse /= LU_IRRIG)
          irr_demand = 0.
@@ -4921,7 +4925,7 @@ subroutine irrigation_deficit()
   real,dimension(lnd%ls:lnd%le) :: atots
 !----------------------------------------------------
 
- if (.not. use_irrigation_routine) return
+ !if (.not. use_irrigation_routine) return
 
  atots = 0.
  do l=lnd%ls, lnd%le
@@ -4946,20 +4950,24 @@ subroutine irrigation_deficit()
            irr_area_input = tile%frac*lnd%ug_area(l)            
            irr_area_temp = tile%frac*lnd%ug_area(l) !m2
            irr_demand_ac = 0. !kg/m2
-           do i = 1, vegn%n_cohorts
-              ! depth for 95% of root according to Jackson distribution
-              depth_ave = -log(1.-percentile)*vegn%cohorts(i)%root_zeta !m
-              theta_test = soil_ave_theta3(soil, depth_ave, layer) !1
-              soil_target = soil%pars%vwc_wilt + irr_fac*(soil%pars%vwc_fc-soil%pars%vwc_wilt) !1
-              if(theta_test < soil_target.and. vegn%cohorts(i)%lai > 0 .and. soil%ws(1) <= 0.0) then
-                soil_def = max(0., soil_target-theta_test) ! 1
-                time_fac = (num_fast_calls*delta_time) / (irr_tau * seconds_per_year/days_per_year)
-                irr_cohorts = soil_def*(dens_h2o*sum(dz(1:layer)))*time_fac ! kg/m3 * m = kg/m2 
-              else
-                irr_cohorts = 0.
-              endif
-              irr_demand_ac =  irr_demand_ac + vegn%cohorts(i)%layerfrac*irr_cohorts !kg/m2
-           enddo
+           if(use_irrigation_routine)then 
+             do i = 1, vegn%n_cohorts
+               ! depth for 95% of root according to Jackson distribution
+               depth_ave = -log(1.-percentile)*vegn%cohorts(i)%root_zeta !m
+               theta_test = soil_ave_theta3(soil, depth_ave, layer) !1
+               soil_target = soil%pars%vwc_wilt + irr_fac*(soil%pars%vwc_fc-soil%pars%vwc_wilt) !1
+               if(theta_test < soil_target.and. vegn%cohorts(i)%lai > 0 .and. soil%ws(1) <= 0.0) then
+                 soil_def = max(0., soil_target-theta_test) ! 1
+                 time_fac = (num_fast_calls*delta_time) / (irr_tau * seconds_per_year/days_per_year)
+                 irr_cohorts = soil_def*(dens_h2o*sum(dz(1:layer)))*time_fac ! kg/m3 * m = kg/m2 
+               else
+                 irr_cohorts = 0.
+               endif
+               irr_demand_ac =  irr_demand_ac + vegn%cohorts(i)%layerfrac*irr_cohorts !kg/m2
+             enddo
+           else !use_irrigation_routine
+             irr_demand_ac = 0.
+           endif !use_irrigation_routine
            if(irr_demand_ac == 0.) irr_area_temp = 0.
          else     ! if(vegn%landuse /= LU_IRRIG) 
            irr_demand_ac=0.
