@@ -701,11 +701,7 @@ real function soil_evap_bl_resistance(soil, theta_sfc, T_sfc, p, d_bl) result(r_
   real, intent(in) :: p         ! pressure, N/m2
   real, intent(in) :: d_bl      ! thickness of viscous sublayer, m
 
-  real, parameter :: sfc_tension_h2o = 0.071 ! surface tension of liquid water, J/m2
-
   real :: f_diff   ! surface wetness dependency factor, unitless
-  real :: psi_sat_sfc ! saturated matric water potential at the surface, m
-  real :: r_pores  ! surface pore radius, m
   real :: diff_h2o ! diffusivity of water vapor
 
   if (theta_sfc > 0) then
@@ -714,15 +710,12 @@ real function soil_evap_bl_resistance(soil, theta_sfc, T_sfc, p, d_bl) result(r_
      ! to set reasonable value for theta_sfc > pi/4: f_diff = 0 means that water diffuses
      ! like from a completely wet surface
      f_diff = max(f_diff,0.0)
-     ! pore radius (should really be moved into initialization or soil properties update):
-     psi_sat_sfc = abs(soil%pars%psi_sat_ref/soil%alpha(1)) ! saturated matric water potential at the surface, m
-     r_pores = 2*sfc_tension_h2o/(dens_h2o*grav*psi_sat_sfc)
      ! diffusivity of water vapor for current conditions:
      diff_h2o = diffusivity_h2o(T_sfc,p)
      ! finally, calculate resistance
-     r_bl = (d_bl + r_pores*sqrt(pi)*f_diff)/diff_h2o
+     r_bl = (d_bl + soil%r_pores*sqrt(pi)*f_diff)/diff_h2o
      if (is_watch_point()) then
-        __DEBUG4__(f_diff,r_pores,diff_h2o,r_bl)
+        __DEBUG4__(f_diff,soil%r_pores,diff_h2o,r_bl)
      endif
   else ! theta_sfc <= 0
      ! returning HUGE value is not incorrect, but it causes overflow in the follow-up

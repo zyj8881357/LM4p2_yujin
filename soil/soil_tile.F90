@@ -49,9 +49,12 @@ public :: soil_data_psi_for_rh
 public :: soil_data_gw_hydraulics
 public :: soil_data_gw_hydraulics_ar5
 public :: soil_data_vwc_for_init_only
+
 public :: soil_data_init_derive_subsurf_pars
 public :: soil_data_init_derive_subsurf_pars_ar5
 public :: soil_data_init_derive_subsurf_pars_tiled
+public :: finalize_soil_data_init
+
 public :: soil_ave_temp  ! calculate average soil temeperature
 public :: soil_ave_theta0! calculate average soil moisture, pcm based on available water, zeta input
 public :: soil_ave_theta1! calculate average soil moisture, ens based on all water
@@ -127,10 +130,7 @@ character(16), parameter, public :: &
 
 ! ==== types =================================================================
 type :: soil_pars_type
-  real vwc_wilt
-  real vwc_fc
   real vwc_sat
-  real vlc_min
   real awc_lm2
   real k_sat_ref
   real psi_sat_ref
@@ -267,6 +267,8 @@ type :: soil_tile_type
                                      ! out of tile
    real, allocatable :: div_hlsp_NO3(:)  ! dimension (num_l) [kg N/m^2/s] net flux of nitrate out of tile
    real, allocatable :: div_hlsp_NH4(:)  ! dimension (num_l) [kg N/m^2/s] net flux of ammonium out of tile
+
+   real :: r_pores ! surface pore radius, m
 end type soil_tile_type
 
 ! ==== module data ===========================================================
@@ -811,23 +813,6 @@ subroutine soil_data_init_0d(soil)
   end select
 
   ! ---- derived constant soil parameters
-  ! w_fc (field capacity) set to w at which hydraulic conductivity equals
-  ! a nominal drainage rate "rate_fc"
-  ! w_wilt set to w at which psi is psi_wilt
-  if (use_lm2_awc) then
-     soil%w_wilt(:) = 0.15
-     soil%w_fc  (:) = 0.15 + soil%pars%awc_lm2
-  else
-     soil%w_wilt(:) = soil%pars%vwc_sat &
-          *(soil%pars%psi_sat_ref/(psi_wilt*soil%alpha(:)))**(1/soil%pars%chb)
-     soil%w_fc  (:) = soil%pars%vwc_sat &
-          *(rate_fc/(soil%pars%k_sat_ref*soil%alpha(:)**2))**(1/(3+2*soil%pars%chb))
-  endif
-
-  soil%pars%vwc_wilt = soil%w_wilt(1)
-  soil%pars%vwc_fc   = soil%w_fc  (1)
-
-  soil%pars%vlc_min = soil%pars%vwc_sat*K_rel_min**(1/(3+2*soil%pars%chb))
 
   soil%z0_scalar = soil%pars%z0_momentum * exp(-k_over_B)
 
@@ -851,6 +836,46 @@ subroutine soil_data_init_0d(soil)
       soil%pars%Qmax = max(0.0,10**(.4833*log10(clay(k))+2.3282)*(1.0-dat_w_sat(k))*2650*1e-6)
   endif
 end subroutine soil_data_init_0d
+
+! ============================================================================
+! finalize calculations of soil parameters. This is called after all other,
+! case-specific initialization calculations are done
+subroutine finalize_soil_data_init ( soil )
+  type(soil_tile_type), intent(inout) :: soil
+
+  real, parameter :: sfc_tension_h2o = 0.071 ! surface tension of liquid water, J/m2
+
+  integer :: l
+  real :: alpha
+  real :: psi_sat_sfc ! saturated matric water potential at the surface, m
+
+  ! w_fc (field capacity) set to w at which hydraulic conductivity equals
+  ! a nominal drainage rate "rate_fc"
+  ! w_wilt set to w at which psi is psi_wilt
+  if (use_lm2_awc) then
+     soil%w_wilt(:) = 0.15
+     soil%w_fc  (:) = 0.15 + soil%pars%awc_lm2
+  else
+     do l = 1,num_l
+!       w_fc and w_wilt were originally calculated before alpha was properly initialized;
+!       after discussion (pcm) suggested leaving it as is, e.g. because of conceptual issues
+!       with defining local values of field capacity w_fc.
+!       I can be fixed later by uncommenting the following two lines and defining extra
+!       namelist variable
+!
+!         alpha = soil%alpha(l)
+!         if (w_fc_bug) alpha = 1.0
+        alpha = 1.0
+        soil%w_wilt(l) = soil%pars%vwc_sat &
+             *(soil%pars%psi_sat_ref/(psi_wilt*alpha))**(1/soil%pars%chb)
+        soil%w_fc(l)  = soil%pars%vwc_sat &
+             *(rate_fc/(soil%pars%k_sat_ref*alpha**2))**(1/(3+2*soil%pars%chb))
+     enddo
+  endif
+  ! pore radius (should really be moved into initialization or soil properties update):
+  psi_sat_sfc = abs(soil%pars%psi_sat_ref/soil%alpha(1)) ! saturated matric water potential at the surface, m
+  soil%r_pores = 2*sfc_tension_h2o/(dens_h2o*grav*psi_sat_sfc)
+end subroutine finalize_soil_data_init
 
 ! ============================================================================
 subroutine soil_data_init_derive_subsurf_pars ( soil )

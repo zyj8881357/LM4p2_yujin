@@ -217,7 +217,7 @@ integer :: seed_transport_option = -1 ! type of requested seed transport algorit
 ! diagnostic field ids
 integer :: id_vegn_type, id_height, id_height_ave, &
    id_temp, id_wl, id_ws, &
-   id_lai, id_lai_var, id_lai_std, id_sai, id_leafarea, id_leaf_size, id_laii, &
+   id_lai, id_sai, id_leafarea, id_leaf_size, id_laii, &
    id_root_density, id_root_zeta, id_rs_min, id_leaf_refl, id_leaf_tran, &
    id_leaf_emis, id_snow_crit, id_stomatal, &
    id_an_op, id_an_cl,&
@@ -897,12 +897,6 @@ subroutine vegn_diag_init ( id_ug, id_band, time )
 
   id_lai    = register_cohort_diag_field ( module_name, 'lai',  &
        (/id_ug/), time, 'leaf area index', 'm2/m2', missing_value=-1.0)
-  id_lai_var = register_cohort_diag_field ( module_name, 'lai_var',  &
-       (/id_ug/), time, 'variance of leaf area index across tiles in grid cell', 'm4/m4', &
-       missing_value=-1.0 , opt='variance')
-  id_lai_std = register_cohort_diag_field ( module_name, 'lai_std',  &
-       (/id_ug/), time, 'standard deviation of leaf area index across tiles in grid cell', 'm2/m2', &
-       missing_value=-1.0, opt='stdev')
   id_sai    = register_cohort_diag_field ( module_name, 'sai',  &
        (/id_ug/), time, 'stem area index', 'm2/m2', missing_value=-1.0)
   id_leafarea = register_cohort_diag_field ( module_name, 'leafarea',  &
@@ -2103,12 +2097,7 @@ subroutine vegn_step_2 ( vegn, diag, &
   ! rearranged only once a year, that may not be true for part of the year
   call send_cohort_data(id_lai,     diag, c(1:N), c(1:N)%lai, weight=c(1:N)%layerfrac, op=OP_SUM)
   call send_cohort_data(id_laii,    diag, c(1:N), c(1:N)%lai, weight=c(1:N)%nindivs,   op=OP_AVERAGE)
-  call send_cohort_data(id_lai_var, diag, c(1:N), c(1:N)%lai, weight=c(1:N)%layerfrac, op=OP_SUM)
-  ! these are LAI variance and standard deviation among *tiles*, not cohorts. So the same data is sent
-  ! as for average LAI, but they are aggregated differently by the diagnostics
-  call send_cohort_data(id_lai_std, diag, c(1:N), c(1:N)%lai, weight=c(1:N)%layerfrac, op=OP_SUM)
   call send_cohort_data(id_sai,     diag, c(1:N), c(1:N)%sai, weight=c(1:N)%layerfrac, op=OP_SUM)
-!  call send_cohort_data(id_leafarea,  diag, c(1:N), c(1:N)%leafarea, weight=c(1:N)%nindivs, op=OP_SUM) -- same as LAI (checked)
   call send_cohort_data(id_leafarea, diag, c(1:N), c(1:N)%leafarea, weight=c(1:N)%nindivs, op=OP_AVERAGE)
 
   ! leaf size averaging weight is the number of leaves in cohort
@@ -2296,13 +2285,14 @@ subroutine update_derived_vegn_data(vegn, soil)
   integer :: sp ! shorthand for the vegetation species
   integer :: n_layers ! number of layers in cohort
   real, allocatable :: layer_area(:) ! total area of crowns in the layer
+  real, allocatable :: scale(:)      ! scaling factor for area of crowns in the layer
   integer :: current_layer
   real :: zbot ! height of the bottom of the canopy, m (=top of the lower layer)
   real :: VRL(num_l) ! vertical distribution of volumetric root length, m/m3
 
   ! determine layer boundaries in the array of cohorts
   n_layers = maxval(vegn%cohorts(:)%layer)
-  allocate (layer_area(n_layers))
+  allocate (layer_area(n_layers), scale(n_layers))
 
   ! calculate total area of canopies per layer (per unit tile area)
   layer_area(:) = 0
@@ -2312,19 +2302,22 @@ subroutine update_derived_vegn_data(vegn, soil)
   enddo
 
   ! limit layer area so that it only squeezes the cohorts if the total area of
-  ! the canopies is higher than tile area
-  if (allow_external_gaps) then
-     do k = 1,n_layers
-        layer_area(k) = max(layer_area(k),1.0)
-     enddo
-  endif
-
-  ! protect from zero layer area situation: this can happen if all cohorts die
-  ! due to mortality or starvation. In this case n_layers is 1, of course.
+  ! the canopies is higher than the tile area
   do k = 1,n_layers
+     ! protect from zero layer area situation: this can happen if all cohorts die
+     ! due to mortality or starvation. In this case n_layers is 1, of course.
      if (layer_area(k)<=0) layer_area(k) = 1.0
-  enddo
 
+     if (layer_area(k)<=1) then
+        if (allow_external_gaps) then
+           scale(k) = 1
+        else
+           scale(k) = layer_area(k)
+        endif
+     else
+        scale(k) = layer_area(k)
+     endif
+  enddo
 
   if (is_watch_point()) then
      write(*,*)'#### update_derived_vegn_data ####'
@@ -2349,13 +2342,13 @@ subroutine update_derived_vegn_data(vegn, soil)
        ! calculate area fraction that the cohort occupies in its layer
 !       if (layer_area(cc%layer)<=0) call error_mesg('update_derived_vegn_data', &
 !          'total area of canopy layer '//string(cc%layer)//' is zero', FATAL)
-       cc%layerfrac = cc%crownarea*cc%nindivs*(1-spdata(sp)%internal_gap_frac)/layer_area(cc%layer)
+       cc%layerfrac = cc%crownarea*cc%nindivs*(1-spdata(sp)%internal_gap_frac)/scale(cc%layer)
        ! calculate the leaf area index based on the biomass of leaves
        ! leaf_area_from_biomass returns the total area of leaves per individual;
        ! convert it to leaf area per m2, and re-normalize to take into account
        ! stretching of canopies
        cc%leafarea = leaf_area_from_biomass(cc%bl, sp, cc%layer, cc%firstlayer)
-       cc%lai = cc%leafarea/(cc%crownarea*(1-spdata(sp)%internal_gap_frac))*layer_area(cc%layer)
+       cc%lai = cc%leafarea/(cc%crownarea*(1-spdata(sp)%internal_gap_frac))*scale(cc%layer)
        if(cc%lai<min_lai) then
           cc%leafarea = 0.0
           cc%lai      = 0.0
@@ -2434,7 +2427,7 @@ subroutine update_derived_vegn_data(vegn, soil)
      vegn%root_distance(1:num_l) = 1.0 ! the value does not matter since uptake is 0 anyway
   end where
 
-  deallocate(layer_area)
+  deallocate(layer_area,scale)
 end subroutine update_derived_vegn_data
 
 
