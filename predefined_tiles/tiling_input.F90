@@ -563,10 +563,6 @@ subroutine retrieve_lake_parameters(tile_parameters,cid)
   call get_parameter_data(grpid,"thermal_cond_ref",nlake,lake%thermal_cond_ref)
   call get_parameter_data(grpid,"emis_sat",nlake,lake%emis_sat)
   call get_parameter_data(grpid,"k_sat_ref",nlake,lake%k_sat_ref)
-  call get_parameter_data(grpid,"nrsv",nlake,lake%nrsv)
-  call get_parameter_data(grpid,"rsv_area",nlake,lake%rsv_area)
-  call get_parameter_data(grpid,"rsv_cap",nlake,lake%rsv_cap)
-  call get_parameter_data(grpid,"rsv_depth",nlake,lake%rsv_depth)
 
   !Close access to the group
   call h5gclose_f(grpid,status)

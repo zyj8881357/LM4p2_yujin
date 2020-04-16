@@ -26,10 +26,6 @@ type :: lake_predefined_type
  real,allocatable,dimension(:) :: backwater
  real,allocatable,dimension(:) :: backwater_1
  real,allocatable,dimension(:) :: rsa_exp         ! riparian source-area exponent
- real,allocatable,dimension(:) :: nrsv
- real,allocatable,dimension(:) :: rsv_cap
- real,allocatable,dimension(:) :: rsv_depth
- real,allocatable,dimension(:) :: rsv_area
 
 end type lake_predefined_type
 
