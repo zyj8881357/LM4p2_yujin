@@ -487,7 +487,6 @@ subroutine land_model_init &
         call land_cover_cold_start()
      endif
   endif
-  endif
   call free_land_restart(restart)
 
   ! initialize land model diagnostics -- must be before *_data_init so that
