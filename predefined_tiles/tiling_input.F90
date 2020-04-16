@@ -31,8 +31,7 @@ subroutine check_h5err(status)
     integer, intent(in) :: status
 
     if (status .lt. 0) then
-        print*,'HDF5 error detected'
-        stop
+        call error_mesg('tiling_input', 'HDF5 error detected: ', FATAL)
     end if
 
 end subroutine
@@ -46,7 +45,7 @@ subroutine open_database_predefined_tiles(h5id,lnd)
 
   !Initialize the fortran library
   call h5open_f(status)
-  call error_mesg('tiling_input', 'HDF5 error detected: ', FATAL)
+  call check_h5err(status)
 
   !Define the file
   write(fid,'(I10)') lnd%ug_face
@@ -56,7 +55,7 @@ subroutine open_database_predefined_tiles(h5id,lnd)
   !Open access to the model input database
   CALL h5fopen_f(filename,H5F_ACC_RDONLY_F,h5id, status)
   
-  call error_mesg('tiling_input', 'HDF5 error detected: ', FATAL)
+  call check_h5err(status)
   !CALL h5fopen_f('INPUT/land_model_input_database.h5',H5F_ACC_RDONLY_F,h5id, status)
   !CALL h5fopen_f('INPUT/land_model_input_database.nc',H5F_ACC_RDONLY_F,h5id, status)
 
@@ -68,11 +67,11 @@ subroutine close_database_predefined_tiles(h5id)
   integer :: status
   !Close access to the model input database
   call h5fclose_f(h5id,status)
-    call error_mesg('tiling_input', 'HDF5 error detected: ', FATAL)
+    call check_h5err(status)
 
   !Close the hdf5 library
   call h5close_f(status)
-    call error_mesg('tiling_input', 'HDF5 error detected: ', FATAL)
+    call check_h5err(status)
 
 end subroutine close_database_predefined_tiles
 
@@ -91,7 +90,7 @@ subroutine load_group_into_memory(tile,is,js,h5id,buf_ptr,buf_len,image_ptr)
 
  !Open access to the group in the database that contains all the group information
  call h5gopen_f(h5id,"grid_data",grpid,status)
- call error_mesg('tiling_input', 'HDF5 error detected: ', FATAL)
+ call check_h5err(status)
  !Write the cell id to string
  !write(cellid_string,'(I10)') cellid
  !cellid_string = trim('g' // trim(adjustl(cellid_string)))
@@ -108,19 +107,19 @@ subroutine load_group_into_memory(tile,is,js,h5id,buf_ptr,buf_len,image_ptr)
  !3.Use the HDF5 api to then load this new file as a buffer
  !Ensure that we are always working in memory
  call h5pcreate_f(H5P_FILE_ACCESS_F,fapl,status)
- call error_mesg('tiling_input', 'HDF5 error detected: ', FATAL)
+ call check_h5err(status)
  !Setting the third parameter to false ensures that we never write this file to disk
  call h5pset_fapl_core_f(fapl,memory_increment,.False.,status)
- call error_mesg('tiling_input', 'HDF5 error detected: ', FATAL)
+ call check_h5err(status)
  !Although we create this file it is always in memory. It never gets written to disk
  call h5fcreate_f("buffer.hdf5",H5F_ACC_TRUNC_F,dstid,status,access_prp=fapl)
- call error_mesg('tiling_input', 'HDF5 error detected: ', FATAL)
+ call check_h5err(status)
  !Close access to the property list
  call h5pclose_f(fapl,status)
- call error_mesg('tiling_input', 'HDF5 error detected: ', FATAL)
+ call check_h5err(status)
  !Copy the group from the original database to the new file
  call h5ocopy_f(grpid,cellid_string,dstid,'data',status)
- call error_mesg('tiling_input', 'HDF5 error detected: ', FATAL)
+ call check_h5err(status)
  !print*,status,cellid_string
  !if (status .eq. -1)then
  ! print*,'This group does not exist in the database',cellid_string
@@ -128,23 +127,23 @@ subroutine load_group_into_memory(tile,is,js,h5id,buf_ptr,buf_len,image_ptr)
  !endif
  !Flush the file
  call h5fflush_f(dstid,H5F_SCOPE_GLOBAL_F,status)
- call error_mesg('tiling_input', 'HDF5 error detected: ', FATAL)
+ call check_h5err(status)
  !Determine the size of the desired group (which is now a file in memory...)
  buf_len = 0
  buf_ptr = C_NULL_PTR
  call h5fget_file_image_f(dstid,buf_ptr,int(0,size_t),status,buf_len)
- call error_mesg('tiling_input', 'HDF5 error detected: ', FATAL)
+ call check_h5err(status)
  !Load the entire new file (i.e., desired group) into memory
  allocate(image_ptr(1:buf_len))
  buf_ptr = c_loc(image_ptr(1)(1:1))
  call h5fget_file_image_f(dstid,buf_ptr,buf_len,status)
- call error_mesg('tiling_input', 'HDF5 error detected: ', FATAL)
+ call check_h5err(status)
  !Close the copied file (release memory)
  call h5fclose_f(dstid,status)
- call error_mesg('tiling_input', 'HDF5 error detected: ', FATAL)
+ call check_h5err(status)
  !Close access to the grid data group
  call h5gclose_f(grpid,status)
- call error_mesg('tiling_input', 'HDF5 error detected: ', FATAL)
+ call check_h5err(status)
 
 end subroutine load_group_into_memory
 
@@ -161,19 +160,19 @@ subroutine open_image_file(buf_ptr,buf_len,image_ptr,dstid)
  !the buffer as if it is a file
  !Open a new fapl
  call h5pcreate_f(H5P_FILE_ACCESS_F,fapl,status)
- call error_mesg('tiling_input', 'HDF5 error detected: ', FATAL)
+ call check_h5err(status)
  call h5pset_fapl_core_f(fapl,buf_len,.False.,status)
- call error_mesg('tiling_input', 'HDF5 error detected: ', FATAL)
+ call check_h5err(status)
  !Assign the buffer to memory
  call h5pset_file_image_f(fapl,buf_ptr,buf_len,status)
- call error_mesg('tiling_input', 'HDF5 error detected: ', FATAL)
+ call check_h5err(status)
  !Discard the buffer
  deallocate(image_ptr)
  buf_ptr = C_NULL_PTR
  !Open the file from memory
  dstid = 0
  call h5fopen_f("test_image",H5F_ACC_RDONLY_F,dstid,status,fapl)
- call error_mesg('tiling_input', 'HDF5 error detected: ', FATAL)
+ call check_h5err(status)
 
 end subroutine open_image_file
 
@@ -215,7 +214,7 @@ subroutine land_cover_cold_start_0d_predefined_tiles(tiles,lnd,l,h5id)
 
   !Retrieve the group
   call h5gopen_f(dstid,'data',cid,status)
-  call error_mesg('tiling_input', 'HDF5 error detected: ', FATAL)
+  call check_h5err(status)
 
   !Metadata
   call retrieve_metadata(tile_parameters,cid)
@@ -277,9 +276,9 @@ subroutine land_cover_cold_start_0d_predefined_tiles(tiles,lnd,l,h5id)
 
   !Close access to the grid cell's group
   call h5gclose_f(cid,status)
-  call error_mesg('tiling_input', 'HDF5 error detected: ', FATAL)
+  call check_h5err(status)
   call h5fclose_f(dstid,status)
-  call error_mesg('tiling_input', 'HDF5 error detected: ', FATAL)
+  call check_h5err(status)
 
   !Define the maximum number of parent tiles
   lnd%max_npt = max(lnd%max_npt,tile_parameters%metadata%ntile)
@@ -321,7 +320,7 @@ subroutine land_cover_warm_start_0d_predefined_tiles(tiles,lnd,l,h5id,warm_tiles
 
   !Retrieve the group
   call h5gopen_f(dstid,'data',cid,status)
-  call error_mesg('tiling_input', 'HDF5 error detected: ', FATAL)
+  call check_h5err(status)
 
   !Metadata
   call retrieve_metadata(tile_parameters,cid)
@@ -383,9 +382,9 @@ subroutine land_cover_warm_start_0d_predefined_tiles(tiles,lnd,l,h5id,warm_tiles
 
   !Close access to the grid cell's group
   call h5gclose_f(cid,status)
-  call error_mesg('tiling_input', 'HDF5 error detected: ', FATAL)
+  call check_h5err(status)
   call h5fclose_f(dstid,status)
-  call error_mesg('tiling_input', 'HDF5 error detected: ', FATAL)
+  call check_h5err(status)
 
   !Define the maximum number of parent tiles
   lnd%max_npt = max(lnd%max_npt,tile_parameters%metadata%ntile)
@@ -407,17 +406,17 @@ subroutine retrieve_metadata(tile_parameters,cid)
 
   !Retrieve the group id
   call h5gopen_f(cid,"metadata",grpid,status)
-  call error_mesg('tiling_input', 'HDF5 error detected: ', FATAL)
+  call check_h5err(status)
 
   !Retrieve the number of tiles
   call h5dopen_f(grpid,"tile",varid,status)
-  call error_mesg('tiling_input', 'HDF5 error detected: ', FATAL)
+  call check_h5err(status)
   call h5dget_space_f(varid,dsid,status)
-  call error_mesg('tiling_input', 'HDF5 error detected: ', FATAL)
+  call check_h5err(status)
   call h5sget_simple_extent_dims_f(dsid,dims,maxdims,status)
-  call error_mesg('tiling_input', 'HDF5 error detected: ', FATAL)
+  call check_h5err(status)
   call h5dclose_f(varid,status)
-  call error_mesg('tiling_input', 'HDF5 error detected: ', FATAL)
+  call check_h5err(status)
   metadata%ntile = dims(1)
 
   !Retrieve the info
@@ -446,7 +445,7 @@ subroutine retrieve_metadata(tile_parameters,cid)
 
   !Close access to the group
   call h5gclose_f(grpid,status)
-  call error_mesg('tiling_input', 'HDF5 error detected: ', FATAL)
+  call check_h5err(status)
 
 end subroutine retrieve_metadata
 
@@ -463,30 +462,26 @@ subroutine retrieve_glacier_parameters(tile_parameters,cid)
 
   !Retrieve the group id
   call h5gopen_f(cid,"glacier",grpid,status)
-  !call error_mesg('tiling_input', 'HDF5 error detected: ', FATAL)
+  !call check_h5err(status)
 
   !If it does not exist then exit
   if (status .eq. -1)return
 
   !Retrieve the number of lake tiles and bands
   call h5dopen_f(grpid,"refl_min_dir",varid,status)
-  
-  call error_mesg('tiling_input', 'HDF5 error detected: ', FATAL)
+  call check_h5err(status)
   call h5dget_space_f(varid,dsid,status)
-  
-  call error_mesg('tiling_input', 'HDF5 error detected: ', FATAL)
+  call check_h5err(status)
   call h5sget_simple_extent_dims_f(dsid,dims,maxdims,status)
   
-  call error_mesg('tiling_input', 'HDF5 error detected: ', FATAL)
+  call check_h5err(status)
   nglacier = dims(1)
   nband = dims(2)
   glacier%nglacier = nglacier
   call h5sclose_f(dsid,status)
-  
-  call error_mesg('tiling_input', 'HDF5 error detected: ', FATAL)
+  call check_h5err(status)
   call h5dclose_f(varid,status)
-  
-  call error_mesg('tiling_input', 'HDF5 error detected: ', FATAL)
+  call check_h5err(status)
 
   !Retrieve the parameters
   call get_parameter_data(grpid,"w_sat",nglacier,glacier%w_sat)
@@ -508,8 +503,7 @@ subroutine retrieve_glacier_parameters(tile_parameters,cid)
 
   !Close access to the group
   call h5gclose_f(grpid,status)
-  
-  call error_mesg('tiling_input', 'HDF5 error detected: ', FATAL)
+  call check_h5err(status)
 
 end subroutine retrieve_glacier_parameters
 
@@ -526,26 +520,25 @@ subroutine retrieve_lake_parameters(tile_parameters,cid)
 
   !Retrieve the group id
   call h5gopen_f(cid,"lake",grpid,status)
-  !call error_mesg('tiling_input', 'HDF5 error detected: ', FATAL)
+  !call check_h5err(status)
 
   !If it does not exist then exit
   if (status .eq. -1)return
 
   !Retrieve the number of lake tiles and bands
   call h5dopen_f(grpid,"refl_dry_dir",varid,status)
-  call error_mesg('tiling_input', 'HDF5 error detected: ', FATAL)
+  call check_h5err(status)
   call h5dget_space_f(varid,dsid,status)
-  call error_mesg('tiling_input', 'HDF5 error detected: ', FATAL)
+  call check_h5err(status)
   call h5sget_simple_extent_dims_f(dsid,dims,maxdims,status)
-  call error_mesg('tiling_input', 'HDF5 error detected: ', FATAL)
+  call check_h5err(status)
   nlake = dims(1)
   nband = dims(2)
   lake%nlake = nlake
   call h5sclose_f(dsid,status)
-  
-  call error_mesg('tiling_input', 'HDF5 error detected: ', FATAL)
+  call check_h5err(status)
   call h5dclose_f(varid,status)
-  call error_mesg('tiling_input', 'HDF5 error detected: ', FATAL)
+  call check_h5err(status)
 
   !Retrieve the parameters
   call get_parameter_data(grpid,"connected_to_next",nlake,lake%connected_to_next)
@@ -577,8 +570,7 @@ subroutine retrieve_lake_parameters(tile_parameters,cid)
 
   !Close access to the group
   call h5gclose_f(grpid,status)
-  
-  call error_mesg('tiling_input', 'HDF5 error detected: ', FATAL)
+  call check_h5err(status)
 
 end subroutine retrieve_lake_parameters
 
@@ -595,26 +587,25 @@ subroutine retrieve_soil_parameters(tile_parameters,cid)
 
   !Retrieve the group id
   call h5gopen_f(cid,"soil",grpid,status)
-  !call error_mesg('tiling_input', 'HDF5 error detected: ', FATAL)
+  !call check_h5err(status)
 
   !If it does not exist then exit
   if (status .eq. -1)return
 
   !Retrieve the number of soil tiles and bands
   call h5dopen_f(grpid,"dat_refl_dry_dir",varid,status)
-  call error_mesg('tiling_input', 'HDF5 error detected: ', FATAL)
+  call check_h5err(status)
   call h5dget_space_f(varid,dsid,status)
-  call error_mesg('tiling_input', 'HDF5 error detected: ', FATAL)
+  call check_h5err(status)
   call h5sget_simple_extent_dims_f(dsid,dims,maxdims,status)
-  
-  call error_mesg('tiling_input', 'HDF5 error detected: ', FATAL)
+  call check_h5err(status)
   nsoil = dims(1)
   nband = dims(2)
   soil%nsoil = nsoil
   call h5sclose_f(dsid,status)
-  call error_mesg('tiling_input', 'HDF5 error detected: ', FATAL)
+  call check_h5err(status)
   call h5dclose_f(varid,status)
-  call error_mesg('tiling_input', 'HDF5 error detected: ', FATAL)
+  call check_h5err(status)
 
   !Retrieve the parameters
   call get_parameter_data(grpid,"dat_w_sat",nsoil,soil%dat_w_sat)
@@ -707,7 +698,7 @@ subroutine retrieve_soil_parameters(tile_parameters,cid)
 
   !Close access to the group
   call h5gclose_f(grpid,status)
-  call error_mesg('tiling_input', 'HDF5 error detected: ', FATAL)
+  call check_h5err(status)
 
 end subroutine retrieve_soil_parameters
 
@@ -726,11 +717,11 @@ subroutine get_parameter_data_1d_integer(grpid,var,nx,tmp)
 
  dims(1) = nx
  call h5dopen_f(grpid,var,varid,status)
- call error_mesg('tiling_input', 'HDF5 error detected: ', FATAL)
+ call check_h5err(status)
  call h5dread_f(varid,H5T_STD_I32LE,tmp,dims,status)
- call error_mesg('tiling_input', 'HDF5 error detected: ', FATAL)
+ call check_h5err(status)
  call h5dclose_f(varid,status)
- call error_mesg('tiling_input', 'HDF5 error detected: ', FATAL)
+ call check_h5err(status)
 
 end subroutine
 
@@ -750,11 +741,11 @@ subroutine get_parameter_data_1d_real(grpid,var,nx,tmp)
 
  dims(1) = nx
  call h5dopen_f(grpid,var,varid,status)
- call error_mesg('tiling_input', 'HDF5 error detected: ', FATAL)
+ call check_h5err(status)
  call h5dread_f(varid,H5T_IEEE_F64LE,tmp,dims,status)
- call error_mesg('tiling_input', 'HDF5 error detected: ', FATAL)
+ call check_h5err(status)
  call h5dclose_f(varid,status)
- call error_mesg('tiling_input', 'HDF5 error detected: ', FATAL)
+ call check_h5err(status)
 
 end subroutine
 
@@ -773,11 +764,11 @@ subroutine get_parameter_data_2d_integer(grpid,var,nx,ny,tmp)
  dims(1) = nx
  dims(2) = ny
  call h5dopen_f(grpid,var,varid,status)
- call error_mesg('tiling_input', 'HDF5 error detected: ', FATAL)
+ call check_h5err(status)
  call h5dread_f(varid,H5T_STD_I32LE,tmp,dims,status)
- call error_mesg('tiling_input', 'HDF5 error detected: ', FATAL)
+ call check_h5err(status)
  call h5dclose_f(varid,status)
- call error_mesg('tiling_input', 'HDF5 error detected: ', FATAL)
+ call check_h5err(status)
 
 end subroutine
 
@@ -796,11 +787,11 @@ subroutine get_parameter_data_2d_real(grpid,var,nx,ny,tmp)
  dims(1) = nx
  dims(2) = ny
  call h5dopen_f(grpid,var,varid,status)
- call error_mesg('tiling_input', 'HDF5 error detected: ', FATAL)
+ call check_h5err(status)
  call h5dread_f(varid,H5T_IEEE_F64LE,tmp,dims,status)
- call error_mesg('tiling_input', 'HDF5 error detected: ', FATAL)
+ call check_h5err(status)
  call h5dclose_f(varid,status)
- call error_mesg('tiling_input', 'HDF5 error detected: ', FATAL)
+ call check_h5err(status)
 
 end subroutine
 
