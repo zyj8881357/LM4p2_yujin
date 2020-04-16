@@ -249,6 +249,9 @@ function vegn_tile_ctor_predefined(tile_parameters,itile) result(ptr)
   type(vegn_tile_type), pointer :: ptr ! return value
 
   allocate(ptr)
+  allocate(ptr%drop_seed_C(0:nspecies-1), ptr%drop_seed_N(0:nspecies-1))
+  ptr%drop_seed_C(:) = 0.0 ; ptr%drop_seed_N(:) = 0.0
+
   ptr%tag = tile_parameters%vegn(itile)
   ptr%landuse = tile_parameters%landuse(itile)
   ptr%irrigation = tile_parameters%irrigation(itile)
