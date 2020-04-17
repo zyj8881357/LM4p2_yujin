@@ -1017,9 +1017,12 @@ subroutine soil_data_init_0d_predefined(soil,tile_parameters,itile)
   !Convert horizontal k_sat_gw to vertical k_sat_gw (anisotropy ratio)
   soil%pars%k_sat_gw          = soil%pars%k_sat_gw/anisotropy_ratio
   !Calculate soil_e_depth
-  call calculate_soil_e_depth_ksat(soil%pars%soil_e_depth,soil%pars%k_sat_gw,&
-       tile_parameters%ksat200cm(itile),tile_parameters%ksat0cm(itile))
-  if (override_soil_e_depth)soil%pars%soil_e_depth = soil_e_depth
+  if (override_soil_e_depth) then
+     soil%pars%soil_e_depth = soil_e_depth
+  else
+     call calculate_soil_e_depth_ksat(soil%pars%soil_e_depth,soil%pars%k_sat_gw,&
+          tile_parameters%ksat200cm(itile),tile_parameters%ksat0cm(itile))
+  endif
   soil%pars%iwtd              = tile_parameters%iwtd(itile)
   soil%pars%storage_index     = 1
   soil%alpha                  = 1.0
