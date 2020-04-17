@@ -53,6 +53,7 @@ use vegn_data_mod, only : read_vegn_data_namelist, FORM_WOODY, FORM_GRASS, &
      SEED_TRANSPORT_NONE, SEED_TRANSPORT_SPREAD, SEED_TRANSPORT_DIFFUSE, &
      c2n_N_fixer, C2N_SEED, &
      snow_masking_option, SNOW_MASKING_HEIGHT, &
+     tree_grass_option, TREES_SQUEEZE_GRASS, reserved_grass_frac, &
      phen_theta_option, PHEN_THETA_FC, PHEN_THETA_POROSITY, MAX_TILE_AGE
 use vegn_cohort_mod, only : vegn_cohort_type, &
      init_cohort_allometry_ppa, init_cohort_hydraulics, &
@@ -1251,7 +1252,7 @@ subroutine vegn_diag_init ( id_ug, id_band, time )
        time, 'Carbon Mass Flux into Atmosphere due to CO2 Emission from Fire', 'kg m-2 s-1', missing_value=-1.0, &
        standard_name='surface_upward_mass_flux_of_carbon_dioxide_expressed_as_carbon_due_to_emission_from_fires_excluding_anthropogenic_land_use_change', &
        fill_missing=.TRUE.)
-  ! we currently don't have deforestation fires, so fFire and cToFireLut are the same.
+  ! we currently do not have deforestation fires, so fFire and cToFireLut are the same.
   call add_tiled_diag_field_alias(id_fFire, cmor_name, 'cToFireLut', (/id_ug/), &
        time, 'Total carbon loss from natural and managed fire on land use tile, including deforestation fires', 'kg m-2 s-1', &
        missing_value=-1.0, standard_name='surface_upward_mass_flux_of_carbon_dioxide_expressed_as_carbon_due_to_emission_from_fires', &
@@ -2285,24 +2286,36 @@ subroutine update_derived_vegn_data(vegn, soil)
   integer :: sp ! shorthand for the vegetation species
   integer :: n_layers ! number of layers in cohort
   real, allocatable :: layer_area(:) ! total area of crowns in the layer
-  real, allocatable :: scale(:)      ! scaling factor for area of crowns in the layer
+  real, allocatable :: area_t(:),  area_g(:)  ! area of tree and grass crowns in the layer
+  real, allocatable :: scale_t(:), scale_g(:) ! scaling factors for tree and grass crowns in the layer
   integer :: current_layer
   real :: zbot ! height of the bottom of the canopy, m (=top of the lower layer)
   real :: VRL(num_l) ! vertical distribution of volumetric root length, m/m3
+  real :: scale
+
+  if (is_watch_point()) then
+     write(*,*)'#### update_derived_vegn_data ####'
+  endif
 
   ! determine layer boundaries in the array of cohorts
   n_layers = maxval(vegn%cohorts(:)%layer)
-  allocate (layer_area(n_layers), scale(n_layers))
+  allocate (layer_area(n_layers), &
+            area_t(n_layers),  area_g(n_layers), &
+            scale_t(n_layers), scale_g(n_layers) )
 
   ! calculate total area of canopies per layer (per unit tile area)
-  layer_area(:) = 0
+  layer_area(:) = 0; area_t(:) = 0; area_g(:) = 0
   do k = 1, vegn%n_cohorts
      cc=>vegn%cohorts(k)
      layer_area(cc%layer) = layer_area(cc%layer) + cc%crownarea*cc%nindivs
+     if (spdata(cc%species)%lifeform == FORM_GRASS) then
+        area_g(cc%layer) = area_g(cc%layer) + cc%crownarea*cc%nindivs
+     else
+        area_t(cc%layer)  = area_t(cc%layer)  + cc%crownarea*cc%nindivs
+     endif
   enddo
 
-  ! limit layer area so that it only squeezes the cohorts if the total area of
-  ! the canopies is higher than the tile area
+  ! calculate scaling factors for cohort canopies
   do k = 1,n_layers
      ! protect from zero layer area situation: this can happen if all cohorts die
      ! due to mortality or starvation. In this case n_layers is 1, of course.
@@ -2310,18 +2323,27 @@ subroutine update_derived_vegn_data(vegn, soil)
 
      if (layer_area(k)<=1) then
         if (allow_external_gaps) then
-           scale(k) = 1
+           scale_g(k) = 1 ; scale_t(k) = 1 ! no stretching or squeezing
         else
-           scale(k) = layer_area(k)
+           ! since layer_area <= 1, this is stretching canopies to fill the entire layer.
+           scale_g(k) = layer_area(k) ; scale_t(k) = layer_area(k)
         endif
      else
-        scale(k) = layer_area(k)
+        ! layer_area > 1 : squeeze canopies so that the total becomes one
+        if (tree_grass_option == TREES_SQUEEZE_GRASS) then
+           ! squeeze grasses more than trees
+           scale_g(k) = 1.0; scale_t(k) = 1.0
+           if (area_g(k)>epsilon(1.0)) scale_g(k) = max(1.0-area_t(k),reserved_grass_frac)/area_g(k)
+           if (area_t(k)>epsilon(1.0)) scale_t(k) = (1-area_g(k)*scale_g(k))/area_t(k)
+           ! calculate reciprocals to match scaling factors in other cases. This is to
+           ! preserve original answers.
+           scale_g(k) = 1.0/scale_g(k) ; scale_t(k) = 1.0/scale_t(k)
+        else
+           scale_g(k) = layer_area(k) ; scale_t(k) = layer_area(k)
+        endif
      endif
   enddo
 
-  if (is_watch_point()) then
-     write(*,*)'#### update_derived_vegn_data ####'
-  endif
   ! given that the cohort state variables are initialized, fill in
   ! the intermediate variables
   do k = 1,vegn%n_cohorts
@@ -2342,13 +2364,18 @@ subroutine update_derived_vegn_data(vegn, soil)
        ! calculate area fraction that the cohort occupies in its layer
 !       if (layer_area(cc%layer)<=0) call error_mesg('update_derived_vegn_data', &
 !          'total area of canopy layer '//string(cc%layer)//' is zero', FATAL)
-       cc%layerfrac = cc%crownarea*cc%nindivs*(1-spdata(sp)%internal_gap_frac)/scale(cc%layer)
+       if (spdata(sp)%lifeform == FORM_GRASS) then
+          scale = scale_g(cc%layer)
+       else
+          scale = scale_t(cc%layer)
+       endif
+       cc%layerfrac = cc%crownarea*cc%nindivs*(1-spdata(sp)%internal_gap_frac)/scale
        ! calculate the leaf area index based on the biomass of leaves
        ! leaf_area_from_biomass returns the total area of leaves per individual;
        ! convert it to leaf area per m2, and re-normalize to take into account
        ! stretching of canopies
        cc%leafarea = leaf_area_from_biomass(cc%bl, sp, cc%layer, cc%firstlayer)
-       cc%lai = cc%leafarea/(cc%crownarea*(1-spdata(sp)%internal_gap_frac))*scale(cc%layer)
+       cc%lai = cc%leafarea/(cc%crownarea*(1-spdata(sp)%internal_gap_frac))*scale
        if(cc%lai<min_lai) then
           cc%leafarea = 0.0
           cc%lai      = 0.0
@@ -2401,6 +2428,8 @@ subroutine update_derived_vegn_data(vegn, soil)
      call dpri('sum(layerfrac)',sum(vegn%cohorts(1:vegn%n_cohorts)%layerfrac)); write(*,*)
   endif
 
+  call check_var_range(vegn%cohorts(1:vegn%n_cohorts)%layerfrac, 0.0, 1.0, 'update_derived_vegn_data', 'layerfrac', FATAL)
+
   ! Calculate height of the canopy bottom: equals to the top of the lower layer.
   ! this code assumes that cohorts are arranged in descending order
   zbot = 0; current_layer = vegn%cohorts(vegn%n_cohorts)%layer
@@ -2427,7 +2456,7 @@ subroutine update_derived_vegn_data(vegn, soil)
      vegn%root_distance(1:num_l) = 1.0 ! the value does not matter since uptake is 0 anyway
   end where
 
-  deallocate(layer_area,scale)
+  deallocate(layer_area,area_t,area_g,scale_t,scale_g)
 end subroutine update_derived_vegn_data
 
 
@@ -2984,7 +3013,7 @@ subroutine vegn_seed_transport_lm3(seed_transport_option)
   call mpp_sum(total_seed_supply, pelist=lnd%pelist)
   call mpp_sum(total_seed_N_demand, pelist=lnd%pelist)
   call mpp_sum(total_seed_N_supply, pelist=lnd%pelist)
-  ! if either demand or supply are zeros we don't need (or can't) transport anything
+  ! if either demand or supply are zeros we do not need (or cannot) transport anything
   if (total_seed_demand==0.or.total_seed_supply==0)then
      return
   end if
@@ -3086,32 +3115,22 @@ function cohort_area_frac(vegn,test) result(frac); real :: frac
   integer :: n_layers ! number of layers in vegetation
   real, allocatable :: &
         layer_area(:), & ! area of _all_ cohorts in the layer
-        c_area(:),     & ! area of _all suitable_ cohorts in the layer
-        norm_area(:)     ! normalisation layer area
+        c_area(:)        ! area of _all suitable_ cohorts in the layer
   real :: visible  ! fraction of layer visible from top
   integer :: k, l
 
   n_layers = maxval(vegn%cohorts(:)%layer)
-  allocate(layer_area(n_layers),c_area(n_layers),norm_area(n_layers))
+  allocate(layer_area(n_layers),c_area(n_layers))
 
-  layer_area(:) = 0; c_area(:) = 0.0
-  associate(cc=>vegn%cohorts)
+  layer_area(:) = 0.0; c_area(:) = 0.0
   do k = 1, vegn%n_cohorts
-     l = cc(k)%layer
-     layer_area(l) = layer_area(l) + cc(k)%crownarea*cc(k)%nindivs
-     if (test(cc(k))) &
-         c_area(l) = c_area(l)     + cc(k)%crownarea*cc(k)%nindivs
+     associate(cc=>vegn%cohorts(k), sp=>spdata(vegn%cohorts(k)%species))
+     l = cc%layer
+     layer_area(l) = layer_area(l) + cc%layerfrac/(1-sp%internal_gap_frac)
+     if (test(cc)) &
+         c_area(l) = c_area(l)     + cc%layerfrac/(1-sp%internal_gap_frac)
+     end associate
   enddo
-  end associate
-
-  if (allow_external_gaps) then
-     norm_area(:) = max(1.0,layer_area(:))
-  else
-     ! if external gaps are not allowed, we stretch cohorts so that the entire layer area
-     ! is occupied by the vegetation canopies
-     norm_area(:) = layer_area(:)
-     layer_area(:) = 1.0 ! to disallow gaps
-  endif
 
   ! protect from zero layer area situation: this can happen if all cohorts die
   ! due to mortality or starvation. In this case n_layers is 1, of course.
@@ -3121,11 +3140,11 @@ function cohort_area_frac(vegn,test) result(frac); real :: frac
 
   visible = 1.0; frac = 0.0
   do k = 1,n_layers
-     frac = frac + visible*c_area(k)/norm_area(k)
+     frac = frac + visible*c_area(k)
      visible = visible*max(1.0-layer_area(k), 0.0)
   enddo
 
-  deallocate(layer_area,c_area,norm_area)
+  deallocate(layer_area,c_area)
 end function cohort_area_frac
 
 ! ============================================================================

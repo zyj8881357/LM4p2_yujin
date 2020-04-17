@@ -19,6 +19,7 @@ use vegn_data_mod, only : &
      BSEED, C2N_SEED, LU_NTRL, LU_PSL, LU_PST, LU_SCND, LU_PAST, LU_RANGE, N_HARV_POOLS, &
      LU_SEL_TAG, SP_SEL_TAG, NG_SEL_TAG, SCND_AGE_SEL_TAG, FORM_GRASS, &
      scnd_biomass_bins, do_ppa, N_limits_live_biomass, &
+     tree_grass_option, TREES_SQUEEZE_GRASS, TREES_TOP_GRASS, &
      do_bl_max_merge
 
 use vegn_cohort_mod, only : vegn_cohort_type, update_biomass_pools, &
@@ -680,6 +681,8 @@ subroutine vegn_relayer_cohorts_ppa (vegn)
   type(vegn_cohort_type), pointer :: cc(:),new(:)
   real    :: nindivs
   real, allocatable :: effective_height(:) ! effective height for relayering, m
+  real    :: H_tall ! top of grass/sapling layer, m
+  integer :: N_tall ! number of cohorts taller than H_tall
 
 !  write(*,*)'vegn_relayer_cohorts_ppa n_cohorts before: ', vegn%n_cohorts
 
@@ -691,6 +694,38 @@ subroutine vegn_relayer_cohorts_ppa (vegn)
   do k = 1, N0
      effective_height(k) = cc(k)%height * spdata(cc(k)%species)%layer_height_factor
   enddo
+  N_tall = N0
+
+  if(tree_grass_option == TREES_SQUEEZE_GRASS) then
+     ! In this case, cohorts below height H_tall are combined into a single layer.
+     ! find tallest grass and use its height as the top of grass/sapling layer
+     H_tall = 0.0
+     do k = 1,N0
+        if (spdata(cc(k)%species)%lifeform == FORM_GRASS) &
+             H_tall = max(H_tall,cc(k)%height) ! should we use effective height?
+     enddo
+
+     ! make sure all grasses are at the end of the cohort list
+     do k = 1,N0
+        if (spdata(cc(k)%species)%lifeform == FORM_GRASS) &
+            effective_height(k) = effective_height(k) - 9999.9999
+     enddo
+
+     ! find the number of cohorts that are above grass/sapling layer
+     N_tall=0
+     do k = 1,N0
+        if (effective_height(k) > H_tall) N_tall = N_tall+1
+     enddo
+  else if (tree_grass_option == TREES_TOP_GRASS) then
+     ! for this option, tree saplings always overtop grass, so we just make sure that
+     ! effective height of grasses is below that of any tree cohort, and then relayer
+     ! cohorts usual
+     do k = 1,N0
+        if (spdata(cc(k)%species)%lifeform == FORM_GRASS) &
+            effective_height(k) = effective_height(k) - 9999.9999
+     enddo
+  endif
+
   call rank_descending(effective_height,idx)
   deallocate(effective_height)
 
@@ -698,31 +733,42 @@ subroutine vegn_relayer_cohorts_ppa (vegn)
   ! old cohorts, plus the number of layers -- since the number of full layers is
   ! equal to the maximum number of times an input cohort can be split by a layer
   ! boundary.
-  N1 = vegn%n_cohorts + int(sum(cc(1:N0)%nindivs*cc(1:N0)%crownarea))
+  N1 = vegn%n_cohorts + int(sum(cc(1:N0)%nindivs*cc(1:N0)%crownarea)) + 1
   allocate(new(N1))
 
   ! copy cohort information to the new cohorts, splitting the old cohorts that
   ! stride the layer boundaries
-  i = 1 ; k = 1 ; L = 1 ; frac = 0.0 ; nindivs = cc(idx(k))%nindivs
-  do
-     new(i)         = cc(idx(k))
-     new(i)%nindivs = min(nindivs,(1-frac)/cc(idx(k))%crownarea)
-     new(i)%layer   = L
-     if (L==1) new(i)%firstlayer = 1
-     frac = frac+new(i)%nindivs*new(i)%crownarea
-     nindivs = nindivs - new(i)%nindivs
+  i = 0 ; L = 1
+  if (N_tall >0) then
+     k = 1 ; frac = 0.0 ; nindivs = cc(idx(k))%nindivs
+     do
+        i = i+1
+        new(i)         = cc(idx(k))
+        new(i)%nindivs = min(nindivs,(1-frac)/cc(idx(k))%crownarea)
+        new(i)%layer   = L
+        if (L==1) new(i)%firstlayer = 1
+        frac = frac+new(i)%nindivs*new(i)%crownarea
+        nindivs = nindivs - new(i)%nindivs
 
-     if (abs(nindivs*cc(idx(k))%crownarea)<tolerance) then
-       new(i)%nindivs = new(i)%nindivs + nindivs ! allocate the remainder of individuals to the last cohort
-       if (k==N0) exit ! end of loop
-       k = k+1 ; nindivs = cc(idx(k))%nindivs  ! go to the next input cohort
-     endif
+        if (abs(nindivs*cc(idx(k))%crownarea)<tolerance) then
+          new(i)%nindivs = new(i)%nindivs + nindivs ! allocate the remainder of individuals to the last cohort
+          if (k==N_tall) exit ! end of loop
+          k = k+1 ; nindivs = cc(idx(k))%nindivs  ! go to the next input cohort
+        endif
 
-     if (abs(1-frac)<tolerance) then
-       L = L+1 ; frac = 0.0              ! start new layer
-     endif
+        if (abs(1-frac)<tolerance) then
+          L = L+1 ; frac = 0.0              ! start new layer
+        endif
+     enddo
+     L = L+1 ! increment layer for cohorts shorter than H_tall
+  endif
 
+  ! process cohorts that are shorter than H0
+  do k = N_tall+1,N0
      i = i+1
+     new(i) = cc(idx(k))
+     new(i)%layer = L
+     if (L==1) new(i)%firstlayer = 1
   enddo
 
   ! replace the array of cohorts
