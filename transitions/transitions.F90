@@ -32,9 +32,8 @@ use nfu_mod, only : nfu_validtype, nfu_inq_var, nfu_get_dim_bounds, nfu_get_rec,
      nfu_get_dim, nfu_get_var, nfu_get_valid_range, nfu_is_valid
 
 use vegn_data_mod, only : &
-     N_LU_TYPES, LU_PAST, LU_CROP, LU_NTRL, LU_SCND, LU_RANGE, LU_URBN, &
-     landuse_name, landuse_longname, &
-     M_LU_TYPES, LU_IRRIG
+     N_LU_TYPES, M_LU_TYPES, LU_PAST, LU_CROP, LU_IRRIG, LU_NTRL, LU_SCND, LU_RANGE, LU_URBN, &
+     landuse_name, landuse_longname
 
 use cana_tile_mod, only : cana_tile_heat, cana_tile_stock_pe, cana_tile_carbon, new_cana_tile, merge_cana_tiles, cana_tile_type, delete_cana_tile
 use snow_tile_mod, only : snow_tile_heat, snow_tile_stock_pe
@@ -95,7 +94,7 @@ integer, parameter :: &
 ! min-n-tiles transition distribution option. ALL land use types MUST be present in this
 ! array, otherwise some transitions may be missed -- except perhaps LU_NTRL, since we
 ! assume there are no transitions to LU_NTRL
-integer, parameter :: tran_order(N_LU_TYPES) = (/LU_URBN, LU_CROP, LU_PAST, LU_RANGE, LU_SCND, LU_NTRL/)
+integer, parameter :: tran_order(M_LU_TYPES) = (/LU_URBN, LU_CROP, LU_IRRIG, LU_PAST, LU_RANGE, LU_SCND, LU_NTRL/)
 
 ! TODO: describe differences between data sets
 
@@ -2103,7 +2102,7 @@ function landuse_priority(tile, dst) result(P); real P
      ! hidx_j is the index of the hillslope tile; the higher the index the
      ! higher the tile in the hillslope
      P = tile%soil%hidx_j
-  else if (src==LU_CROP.and.dst==LU_PAST) then
+  else if ((src==LU_CROP.or.src==LU_IRRIG).and.dst==LU_PAST) then
      ! for CROP->PAST conversion, start from the top of the hill
      P = tile%soil%hidx_j
   else
