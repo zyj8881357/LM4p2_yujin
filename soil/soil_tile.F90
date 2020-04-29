@@ -197,7 +197,6 @@ type :: soil_pars_type
   real tile_hlsp_hpos   ! horizontal position of tile center along hillslope (m)
   real tile_hlsp_width  ! width of tile perpendicular to hillslope, normalized to strm width (-)
                         ! (proportional to tile area)
-!  real transm_bedrock    ! bedrock / inf-depth-wat-tab transmissivity (m^2/s, or vol wat/m/s)
   real disturb_scale    ! characteristic horizontal disturbance lengthscale within hillslope (m)
                         ! This will need to be set in transitions; otherwise, defaults to 1/2
                         ! tile_hlsp_width.
@@ -941,7 +940,6 @@ subroutine soil_data_init_0d(soil)
   soil%pars%tile_hlsp_elev = initval
   soil%pars%tile_hlsp_hpos = initval
   soil%pars%tile_hlsp_width = initval
-!  soil%pars%transm_bedrock = initval
 
   !Qmax in mgC/kg soil from Mayes et al 2012, converted to g/m3 using solid density of 2650 kg/m3
   if(clay(k) .le. 0) then
