@@ -259,7 +259,7 @@ subroutine soil_vwc_wilt_ptr(t,p)
     real,pointer::p
     p=>NULL()
     if(associated(t))then
-        if(associated(t%soil))p=>t%soil%pars%vwc_wilt
+        if(associated(t%soil))p=>t%soil%w_wilt(1)
     endif
 end subroutine
 
@@ -268,7 +268,7 @@ subroutine soil_vwc_fc_ptr(t,p)
     real,pointer::p
     p=>NULL()
     if(associated(t))then
-        if(associated(t%soil))p=>t%soil%pars%vwc_fc
+        if(associated(t%soil))p=>t%soil%w_fc(1)
     endif
 end subroutine
 

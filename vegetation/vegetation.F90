@@ -22,7 +22,6 @@ use sphum_mod, only: qscomp
 use vegn_tile_mod, only: vegn_tile_type, &
      vegn_seed_demand, vegn_seed_supply, vegn_seed_N_supply, vegn_add_bliving, &
      vegn_relayer_cohorts_ppa, vegn_mergecohorts_ppa, &
-     vegn_tile_LAI, vegn_tile_SAI, &
      cpw, clw, csw
 use vegn_accessors_mod ! use everything
 use soil_tile_mod, only: soil_tile_type, num_l, dz, &
@@ -54,14 +53,14 @@ use vegn_data_mod, only : read_vegn_data_namelist, FORM_WOODY, FORM_GRASS, &
      SEED_TRANSPORT_NONE, SEED_TRANSPORT_SPREAD, SEED_TRANSPORT_DIFFUSE, &
      c2n_N_fixer, C2N_SEED, &
      snow_masking_option, SNOW_MASKING_HEIGHT, &
+     tree_grass_option, TREES_SQUEEZE_GRASS, reserved_grass_frac, &
      phen_theta_option, PHEN_THETA_FC, PHEN_THETA_POROSITY, MAX_TILE_AGE
 use vegn_cohort_mod, only : vegn_cohort_type, &
      init_cohort_allometry_ppa, init_cohort_hydraulics, &
      update_species, update_bio_living_fraction, get_vegn_wet_frac, &
      vegn_data_cover, btotal, height_from_biomass, leaf_area_from_biomass, &
      update_cohort_root_properties
-use canopy_air_mod, only : cana_turbulence
-use soil_mod, only : soil_data_beta, get_soil_litter_C, redistribute_peat_carbon, &
+use soil_mod, only : soil_data_beta, redistribute_peat_carbon, &
      register_litter_soilc_diag_fields
 
 use cohort_io_mod, only :  read_create_cohorts, create_cohort_dimension, &
@@ -187,12 +186,6 @@ real    :: tau_smooth_ncm = 0.0 ! Time scale for ncm smoothing (low-pass
 real    :: tau_smooth_T_dorm = 10.0 ! time scale for smoothing of daily temperatures for
    ! dormancy calculations, day. Zero turns off smoothing: average temperature from
    ! will be used previous day
-real :: rav_lit_0         = 0.0 ! constant litter resistance to vapor
-real :: rav_lit_vi        = 0.0 ! litter resistance to vapor per LAI+SAI
-real :: rav_lit_fsc       = 0.0 ! litter resistance to vapor per fsc
-real :: rav_lit_ssc       = 0.0 ! litter resistance to vapor per ssc
-real :: rav_lit_deadmic   = 0.0 ! litter resistance to vapor per dead microbe C
-real :: rav_lit_bwood     = 0.0 ! litter resistance to vapor per bwood
 
 logical :: do_peat_redistribution = .FALSE.
 logical :: predefined_biomass     = .FALSE. ! if true, initialize plant biomass from predefined database
@@ -211,7 +204,6 @@ namelist /vegn_nml/ &
     xwilt_available, &
     do_biogeography, seed_transport_to_use, &
     min_Wl, min_Ws, min_lai, tau_smooth_ncm, tau_smooth_T_dorm, &
-    rav_lit_0, rav_lit_vi, rav_lit_fsc, rav_lit_ssc, rav_lit_deadmic, rav_lit_bwood,&
     do_peat_redistribution, do_intercept_melt, predefined_biomass
 
 !---- end of namelist --------------------------------------------------------
@@ -226,7 +218,7 @@ integer :: seed_transport_option = -1 ! type of requested seed transport algorit
 ! diagnostic field ids
 integer :: id_vegn_type, id_height, id_height_std, id_height_ave, &
    id_temp, id_wl, id_ws, &
-   id_lai, id_lai_var, id_lai_std, id_sai, id_leafarea, id_leaf_size, id_laii, &
+   id_lai, id_sai, id_leafarea, id_leaf_size, id_laii, &
    id_root_density, id_root_zeta, id_rs_min, id_leaf_refl, id_leaf_tran, &
    id_leaf_emis, id_snow_crit, id_stomatal, &
    id_an_op, id_an_cl,&
@@ -935,12 +927,6 @@ subroutine vegn_diag_init ( id_ug, id_band, time, id_ptid)
 
   id_lai    = register_cohort_diag_field ( module_name, 'lai',  &
        (/id_ug/), time, 'leaf area index', 'm2/m2', missing_value=-1.0)
-  id_lai_var = register_cohort_diag_field ( module_name, 'lai_var',  &
-       (/id_ug/), time, 'variance of leaf area index across tiles in grid cell', 'm4/m4', &
-       missing_value=-1.0 , opt='variance')
-  id_lai_std = register_cohort_diag_field ( module_name, 'lai_std',  &
-       (/id_ug/), time, 'standard deviation of leaf area index across tiles in grid cell', 'm2/m2', &
-       missing_value=-1.0, opt='stdev')
   id_sai    = register_cohort_diag_field ( module_name, 'sai',  &
        (/id_ug/), time, 'stem area index', 'm2/m2', missing_value=-1.0)
   id_leafarea = register_cohort_diag_field ( module_name, 'leafarea',  &
@@ -1295,7 +1281,7 @@ subroutine vegn_diag_init ( id_ug, id_band, time, id_ptid)
        time, 'Carbon Mass Flux into Atmosphere due to CO2 Emission from Fire', 'kg m-2 s-1', missing_value=-1.0, &
        standard_name='surface_upward_mass_flux_of_carbon_dioxide_expressed_as_carbon_due_to_emission_from_fires_excluding_anthropogenic_land_use_change', &
        fill_missing=.TRUE.)
-  ! we currently don't have deforestation fires, so fFire and cToFireLut are the same.
+  ! we currently do not have deforestation fires, so fFire and cToFireLut are the same.
   call add_tiled_diag_field_alias(id_fFire, cmor_name, 'cToFireLut', (/id_ug/), &
        time, 'Total carbon loss from natural and managed fire on land use tile, including deforestation fires', 'kg m-2 s-1', &
        missing_value=-1.0, standard_name='surface_upward_mass_flux_of_carbon_dioxide_expressed_as_carbon_due_to_emission_from_fires', &
@@ -1661,13 +1647,11 @@ end subroutine vegn_diffusion
 
 ! ============================================================================
 subroutine vegn_step_1 ( vegn, soil, diag, &
-        p_surf, ustar, drag_q, &
+        p_surf, drag_q, &
         SWdn, RSv, precip_l, precip_s, &
-        land_d, land_z0s, land_z0m, grnd_z0s, &
         cana_T, cana_q, cana_co2_mol, &
+        con_v_h, con_v_v, & ! conductances between canopy air and canopy
         ! output
-        con_g_h, con_g_v, & ! aerodynamic conductance between canopy air and ground, for heat and vapor flux
-        con_v_v, & ! aerodynamic conductance between canopy air and canopy
         stomatal_cond, & ! integral stomatal conductance of cohort canopy
         vegn_T, vegn_Wl, vegn_Ws, & ! temperature, water and snow mass of the canopy
         vegn_ifrac,               & ! intercepted fraction of liquid and frozen precipitation
@@ -1685,20 +1669,18 @@ subroutine vegn_step_1 ( vegn, soil, diag, &
   type(soil_tile_type), intent(in)    :: soil ! soil data
   type(diag_buff_type), intent(inout) :: diag ! diagnostic buffer
   real, intent(in) :: &
-       p_surf,    & ! surface pressure, N/m2
-       ustar,     & ! friction velocity, m/s
-       drag_q,    & ! bulk drag coefficient for specific humidity
-       SWdn(:,:), & ! downward SW radiation on top of each cohort, W/m2 (NCOHORTS,NBANDS)
-       RSv (:,:), & ! net SW radiation balance of the canopy, W/m2, (NCOHORTS,NBANDS)
+       p_surf,      & ! surface pressure, N/m2
+       drag_q,      & ! bulk drag coefficient for specific humidity
+       SWdn(:,:),   & ! downward SW radiation on top of each cohort, W/m2 (NCOHORTS,NBANDS)
+       RSv (:,:),   & ! net SW radiation balance of the canopy, W/m2, (NCOHORTS,NBANDS)
        precip_l, precip_s, & ! liquid and solid precipitation rates, kg/(m2 s)
-       land_d, land_z0s, land_z0m, & ! land displacement height and roughness, m
-       grnd_z0s, & ! roughness of ground surface (including snow effect)
-       cana_T,    & ! temperature of canopy air, deg K
-       cana_q,    & ! specific humidity of canopy air, kg/kg
-       cana_co2_mol ! co2 mixing ratio in the canopy air, mol CO2/mol dry air
+       cana_T,      & ! temperature of canopy air, deg K
+       cana_q,      & ! specific humidity of canopy air, kg/kg
+       cana_co2_mol,& ! co2 mixing ratio in the canopy air, mol CO2/mol dry air
+       con_v_h(:),  & ! aerodyn. conductance between canopy and CAS, for heat
+       con_v_v(:)     ! aerodyn. conductance between canopy and CAS, for vapor
   ! output -- coefficients of linearized expressions for fluxes
   real, intent(out), dimension(:) ::   &
-       con_v_v, & ! aerodyn. conductance between canopy and CAS, for vapor (and tracers)
        stomatal_cond, & ! integral stomatal conductance of cohort canopy
        vegn_T, vegn_Wl, vegn_Ws,& ! temperature, water and snow mass of the canopy
        vegn_ifrac, & ! intercepted fraction of liquid and frozen precipitation
@@ -1712,8 +1694,7 @@ subroutine vegn_step_1 ( vegn, soil, diag, &
        Efi0,  DEfiDTv,  DEfiDqc,  DEfiDwl,  DEfiDwf, & ! sublimation of intercepted snow
        soil_uptake_T
   real, intent(out) :: &
-       prec_g_l, prec_g_s, & ! liquid and solid precipitation reaching ground, kg/(m2 s)
-       con_g_h, con_g_v  ! aerodynamic conductance between ground and canopy air
+       prec_g_l, prec_g_s ! liquid and solid precipitation reaching ground, kg/(m2 s)
 
   ! ---- local constants
   real, parameter :: min_reported_psi = -HUGE(1.0_4) ! limit water potential that we send to diagnostics
@@ -1733,11 +1714,8 @@ subroutine vegn_step_1 ( vegn, soil, diag, &
        qvsat,     & ! sat. specific humidity at the leaf T
        DqvsatDTv, & ! derivative of qvsat w.r.t. leaf T
        rho,       & ! density of canopy air
-       gaps,      & ! fraction of gaps in the canopy, used to calculate cover
-       layer_gaps,& ! fraction of gaps in the canopy in a single layer, accumulator value
        phot_co2     ! co2 mixing ratio for photosynthesis, mol CO2/mol dry air
   real, dimension(vegn%n_cohorts) :: &
-       con_v_h, & ! aerodyn. conductance between canopy and CAS, for heat and vapor
        soil_beta, & ! relative water availability
        soil_water_supply, & ! max rate of water supply to the roots, kg/(indiv s)
        evap_demand, & ! plant evaporative demand, kg/(indiv s)
@@ -1750,14 +1728,12 @@ subroutine vegn_step_1 ( vegn, soil, diag, &
   integer :: i, current_layer, band, N
   real :: indiv2area ! conversion factor from X per indiv. to X per unit cohort area
   real :: area2indiv ! reciprocal of the indiv2area conversion factor
-  real :: rav_lit    ! litter resistance to water vapor
-  real :: litter_fast_C, litter_slow_C, litter_deadmic_C ! for rav_lit calculations
 
   cc => vegn%cohorts(1:vegn%n_cohorts) ! note that the size of cc is always N
 
   if(is_watch_point()) then
      write(*,*)'#### vegn_step_1 input ####'
-     __DEBUG3__(p_surf, ustar, drag_q)
+     __DEBUG2__(p_surf, drag_q)
      do band = 1,NBANDS
         __DEBUG1__(SWdn(:,band))
      enddo
@@ -1765,11 +1741,11 @@ subroutine vegn_step_1 ( vegn, soil, diag, &
         __DEBUG1__(RSv(:,band))
      enddo
      __DEBUG2__(precip_l, precip_s)
-     __DEBUG4__(land_d, land_z0s, land_z0m, grnd_z0s)
      __DEBUG3__(cana_T, cana_q, cana_co2_mol)
      write(*,*)'#### end of vegn_step_1 input ####'
      __DEBUG1__(cc%layer)
      __DEBUG1__(cc%species)
+     call dpri("cc%species",spdata(cc%species)%name); write(*,*)
      __DEBUG1__(cc%nindivs)
      __DEBUG1__(cc%crownarea)
      __DEBUG1__(cc%layerfrac)
@@ -1785,49 +1761,13 @@ subroutine vegn_step_1 ( vegn, soil, diag, &
   endif
   ! TODO: check array sizes
 
-  ! TODO: verify cover calculations
-
-  gaps = 1.0 ; current_layer = cc(1)%layer ; layer_gaps = 1.0
-  ! check the range of input temperature
   call check_temp_range(cc(1:vegn%n_cohorts)%Tv, 'vegn_step_1','Tv of cohort')
   do i = 1,vegn%n_cohorts
      ! calculate the fractions of intercepted precipitation
      vegn_ifrac(i) = cc(i)%cover
      ! get the lai
      vegn_lai(i)   = cc(i)%lai
-
-     ! calculate total cover
-     if (cc(i)%layer/=current_layer) then
-        gaps = gaps*layer_gaps; layer_gaps = 1.0; current_layer = cc(i)%layer
-     endif
-     layer_gaps = layer_gaps-cc(i)%layerfrac*cc(i)%cover
   enddo
-  gaps = gaps*layer_gaps ! take the last layer into account
-
-  ! calculate the aerodynamic conductance coefficients
-  call cana_turbulence(ustar, 1-gaps, &
-     cc(:)%layerfrac, cc(:)%height, cc(:)%zbot, cc(:)%lai, cc(:)%sai, cc(:)%leaf_size, &
-     land_d, land_z0m, land_z0s, grnd_z0s, &
-     ! output:
-     con_v_h, con_v_v, con_g_h, con_g_v)
-
-  ! take into account additional resistance of litter to the water vapor flux.
-  ! not a good parameterization, but just using for sensitivity analyses now.
-  ! ignores differing biomass and litter turnover rates.
-  call get_soil_litter_C(soil, litter_fast_C, litter_slow_C, litter_deadmic_C)
-  rav_lit = rav_lit_0 + rav_lit_vi * (vegn_tile_LAI(vegn)+vegn_tile_SAI(vegn)) &
-                      + rav_lit_fsc * litter_fast_C &
-                      + rav_lit_ssc * litter_slow_C &
-                      + rav_lit_deadmic * litter_deadmic_C &
-                      + rav_lit_bwood * sum(cc(:)%bwood*cc(:)%nindivs)
-  con_g_v = con_g_v/(1.0+rav_lit*con_g_v)
-
-  if(is_watch_point()) then
-     __DEBUG1__(con_v_h)
-     __DEBUG1__(con_v_v)
-     __DEBUG1__(con_g_h)
-     __DEBUG1__(con_g_v)
-  endif
 
   call soil_data_beta ( soil, vegn, soil_beta, soil_water_supply, soil_uptake_T )
   if(is_watch_point()) then
@@ -2204,12 +2144,7 @@ subroutine vegn_step_2 ( vegn, diag, &
   ! rearranged only once a year, that may not be true for part of the year
   call send_cohort_data(id_lai,     diag, c(1:N), c(1:N)%lai, weight=c(1:N)%layerfrac, op=OP_SUM)
   call send_cohort_data(id_laii,    diag, c(1:N), c(1:N)%lai, weight=c(1:N)%nindivs,   op=OP_AVERAGE)
-  call send_cohort_data(id_lai_var, diag, c(1:N), c(1:N)%lai, weight=c(1:N)%layerfrac, op=OP_SUM)
-  ! these are LAI variance and standard deviation among *tiles*, not cohorts. So the same data is sent
-  ! as for average LAI, but they are aggregated differently by the diagnostics
-  call send_cohort_data(id_lai_std, diag, c(1:N), c(1:N)%lai, weight=c(1:N)%layerfrac, op=OP_SUM)
   call send_cohort_data(id_sai,     diag, c(1:N), c(1:N)%sai, weight=c(1:N)%layerfrac, op=OP_SUM)
-!  call send_cohort_data(id_leafarea,  diag, c(1:N), c(1:N)%leafarea, weight=c(1:N)%nindivs, op=OP_SUM) -- same as LAI (checked)
   call send_cohort_data(id_leafarea, diag, c(1:N), c(1:N)%leafarea, weight=c(1:N)%nindivs, op=OP_AVERAGE)
 
   ! leaf size averaging weight is the number of leaves in cohort
@@ -2397,39 +2332,64 @@ subroutine update_derived_vegn_data(vegn, soil)
   integer :: sp ! shorthand for the vegetation species
   integer :: n_layers ! number of layers in cohort
   real, allocatable :: layer_area(:) ! total area of crowns in the layer
+  real, allocatable :: area_t(:),  area_g(:)  ! area of tree and grass crowns in the layer
+  real, allocatable :: scale_t(:), scale_g(:) ! scaling factors for tree and grass crowns in the layer
   integer :: current_layer
   real :: zbot ! height of the bottom of the canopy, m (=top of the lower layer)
   real :: VRL(num_l) ! vertical distribution of volumetric root length, m/m3
-
-  ! determine layer boundaries in the array of cohorts
-  n_layers = maxval(vegn%cohorts(:)%layer)
-  allocate (layer_area(n_layers))
-
-  ! calculate total area of canopies per layer (per unit tile area)
-  layer_area(:) = 0
-  do k = 1, vegn%n_cohorts
-     cc=>vegn%cohorts(k)
-     layer_area(cc%layer) = layer_area(cc%layer) + cc%crownarea*cc%nindivs
-  enddo
-
-  ! limit layer area so that it only squeezes the cohorts if the total area of
-  ! the canopies is higher than tile area
-  if (allow_external_gaps) then
-     do k = 1,n_layers
-        layer_area(k) = max(layer_area(k),1.0)
-     enddo
-  endif
-
-  ! protect from zero layer area situation: this can happen if all cohorts die
-  ! due to mortality or starvation. In this case n_layers is 1, of course.
-  do k = 1,n_layers
-     if (layer_area(k)<=0) layer_area(k) = 1.0
-  enddo
-
+  real :: scale
 
   if (is_watch_point()) then
      write(*,*)'#### update_derived_vegn_data ####'
   endif
+
+  ! determine layer boundaries in the array of cohorts
+  n_layers = maxval(vegn%cohorts(:)%layer)
+  allocate (layer_area(n_layers), &
+            area_t(n_layers),  area_g(n_layers), &
+            scale_t(n_layers), scale_g(n_layers) )
+
+  ! calculate total area of canopies per layer (per unit tile area)
+  layer_area(:) = 0; area_t(:) = 0; area_g(:) = 0
+  do k = 1, vegn%n_cohorts
+     cc=>vegn%cohorts(k)
+     layer_area(cc%layer) = layer_area(cc%layer) + cc%crownarea*cc%nindivs
+     if (spdata(cc%species)%lifeform == FORM_GRASS) then
+        area_g(cc%layer) = area_g(cc%layer) + cc%crownarea*cc%nindivs
+     else
+        area_t(cc%layer)  = area_t(cc%layer)  + cc%crownarea*cc%nindivs
+     endif
+  enddo
+
+  ! calculate scaling factors for cohort canopies
+  do k = 1,n_layers
+     ! protect from zero layer area situation: this can happen if all cohorts die
+     ! due to mortality or starvation. In this case n_layers is 1, of course.
+     if (layer_area(k)<=0) layer_area(k) = 1.0
+
+     if (layer_area(k)<=1) then
+        if (allow_external_gaps) then
+           scale_g(k) = 1 ; scale_t(k) = 1 ! no stretching or squeezing
+        else
+           ! since layer_area <= 1, this is stretching canopies to fill the entire layer.
+           scale_g(k) = layer_area(k) ; scale_t(k) = layer_area(k)
+        endif
+     else
+        ! layer_area > 1 : squeeze canopies so that the total becomes one
+        if (tree_grass_option == TREES_SQUEEZE_GRASS) then
+           ! squeeze grasses more than trees
+           scale_g(k) = 1.0; scale_t(k) = 1.0
+           if (area_g(k)>epsilon(1.0)) scale_g(k) = max(1.0-area_t(k),reserved_grass_frac)/area_g(k)
+           if (area_t(k)>epsilon(1.0)) scale_t(k) = (1-area_g(k)*scale_g(k))/area_t(k)
+           ! calculate reciprocals to match scaling factors in other cases. This is to
+           ! preserve original answers.
+           scale_g(k) = 1.0/scale_g(k) ; scale_t(k) = 1.0/scale_t(k)
+        else
+           scale_g(k) = layer_area(k) ; scale_t(k) = layer_area(k)
+        endif
+     endif
+  enddo
+
   ! given that the cohort state variables are initialized, fill in
   ! the intermediate variables
   do k = 1,vegn%n_cohorts
@@ -2450,13 +2410,18 @@ subroutine update_derived_vegn_data(vegn, soil)
        ! calculate area fraction that the cohort occupies in its layer
 !       if (layer_area(cc%layer)<=0) call error_mesg('update_derived_vegn_data', &
 !          'total area of canopy layer '//string(cc%layer)//' is zero', FATAL)
-       cc%layerfrac = cc%crownarea*cc%nindivs*(1-spdata(sp)%internal_gap_frac)/layer_area(cc%layer)
+       if (spdata(sp)%lifeform == FORM_GRASS) then
+          scale = scale_g(cc%layer)
+       else
+          scale = scale_t(cc%layer)
+       endif
+       cc%layerfrac = cc%crownarea*cc%nindivs*(1-spdata(sp)%internal_gap_frac)/scale
        ! calculate the leaf area index based on the biomass of leaves
        ! leaf_area_from_biomass returns the total area of leaves per individual;
        ! convert it to leaf area per m2, and re-normalize to take into account
        ! stretching of canopies
        cc%leafarea = leaf_area_from_biomass(cc%bl, sp, cc%layer, cc%firstlayer)
-       cc%lai = cc%leafarea/(cc%crownarea*(1-spdata(sp)%internal_gap_frac))*layer_area(cc%layer)
+       cc%lai = cc%leafarea/(cc%crownarea*(1-spdata(sp)%internal_gap_frac))*scale
        if(cc%lai<min_lai) then
           cc%leafarea = 0.0
           cc%lai      = 0.0
@@ -2509,6 +2474,8 @@ subroutine update_derived_vegn_data(vegn, soil)
      call dpri('sum(layerfrac)',sum(vegn%cohorts(1:vegn%n_cohorts)%layerfrac)); write(*,*)
   endif
 
+  call check_var_range(vegn%cohorts(1:vegn%n_cohorts)%layerfrac, 0.0, 1.0, 'update_derived_vegn_data', 'layerfrac', FATAL)
+
   ! Calculate height of the canopy bottom: equals to the top of the lower layer.
   ! this code assumes that cohorts are arranged in descending order
   zbot = 0; current_layer = vegn%cohorts(vegn%n_cohorts)%layer
@@ -2535,7 +2502,7 @@ subroutine update_derived_vegn_data(vegn, soil)
      vegn%root_distance(1:num_l) = 1.0 ! the value does not matter since uptake is 0 anyway
   end where
 
-  deallocate(layer_area)
+  deallocate(layer_area,area_t,area_g,scale_t,scale_g)
 end subroutine update_derived_vegn_data
 
 
@@ -3107,7 +3074,7 @@ subroutine vegn_seed_transport_lm3(seed_transport_option)
   call mpp_sum(total_seed_supply, pelist=lnd%pelist)
   call mpp_sum(total_seed_N_demand, pelist=lnd%pelist)
   call mpp_sum(total_seed_N_supply, pelist=lnd%pelist)
-  ! if either demand or supply are zeros we don't need (or can't) transport anything
+  ! if either demand or supply are zeros we do not need (or cannot) transport anything
   if (total_seed_demand==0.or.total_seed_supply==0)then
      return
   end if
@@ -3209,32 +3176,22 @@ function cohort_area_frac(vegn,test) result(frac); real :: frac
   integer :: n_layers ! number of layers in vegetation
   real, allocatable :: &
         layer_area(:), & ! area of _all_ cohorts in the layer
-        c_area(:),     & ! area of _all suitable_ cohorts in the layer
-        norm_area(:)     ! normalisation layer area
+        c_area(:)        ! area of _all suitable_ cohorts in the layer
   real :: visible  ! fraction of layer visible from top
   integer :: k, l
 
   n_layers = maxval(vegn%cohorts(:)%layer)
-  allocate(layer_area(n_layers),c_area(n_layers),norm_area(n_layers))
+  allocate(layer_area(n_layers),c_area(n_layers))
 
-  layer_area(:) = 0; c_area(:) = 0.0
-  associate(cc=>vegn%cohorts)
+  layer_area(:) = 0.0; c_area(:) = 0.0
   do k = 1, vegn%n_cohorts
-     l = cc(k)%layer
-     layer_area(l) = layer_area(l) + cc(k)%crownarea*cc(k)%nindivs
-     if (test(cc(k))) &
-         c_area(l) = c_area(l)     + cc(k)%crownarea*cc(k)%nindivs
+     associate(cc=>vegn%cohorts(k), sp=>spdata(vegn%cohorts(k)%species))
+     l = cc%layer
+     layer_area(l) = layer_area(l) + cc%layerfrac/(1-sp%internal_gap_frac)
+     if (test(cc)) &
+         c_area(l) = c_area(l)     + cc%layerfrac/(1-sp%internal_gap_frac)
+     end associate
   enddo
-  end associate
-
-  if (allow_external_gaps) then
-     norm_area(:) = max(1.0,layer_area(:))
-  else
-     ! if external gaps are not allowed, we stretch cohorts so that the entire layer area
-     ! is occupied by the vegetation canopies
-     norm_area(:) = layer_area(:)
-     layer_area(:) = 1.0 ! to disallow gaps
-  endif
 
   ! protect from zero layer area situation: this can happen if all cohorts die
   ! due to mortality or starvation. In this case n_layers is 1, of course.
@@ -3244,11 +3201,11 @@ function cohort_area_frac(vegn,test) result(frac); real :: frac
 
   visible = 1.0; frac = 0.0
   do k = 1,n_layers
-     frac = frac + visible*c_area(k)/norm_area(k)
+     frac = frac + visible*c_area(k)
      visible = visible*max(1.0-layer_area(k), 0.0)
   enddo
 
-  deallocate(layer_area,c_area,norm_area)
+  deallocate(layer_area,c_area)
 end function cohort_area_frac
 
 ! ============================================================================

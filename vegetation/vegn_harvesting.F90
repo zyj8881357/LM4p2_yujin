@@ -1140,7 +1140,7 @@ subroutine crop_seed_transport(day_of_year)
   end if
   if (total_seed_supply_C==0)then
      call error_mesg('crop_seed_transport '//string_from_time(lnd%time), &
-        'total seed C supply is zero, but demand is not:'//string(f_demand_C), NOTE)
+        'total seed C supply is zero, but demand is not:'//string(total_seed_demand_C), NOTE)
      return
   endif
 

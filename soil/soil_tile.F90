@@ -16,7 +16,8 @@ use land_data_mod, only : log_version
 use land_tile_selectors_mod, only : &
      tile_selector_type, SEL_SOIL, register_tile_selector
 use land_io_mod, only : print_netcdf_error
-use soil_carbon_mod, only : soil_carbon_option, SOILC_CORPSE, SOILC_CORPSE_N, &
+use soil_carbon_mod, only : soil_carbon_option, &
+    SOILC_CORPSE, SOILC_CORPSE_N, SOILC_CENTURY, SOILC_CENTURY_BY_LAYER, &
     soil_pool, combine_pools, init_soil_pool, poolTotals, N_C_TYPES
 use tiling_input_types_mod, only : soil_predefined_type
 use land_debug_mod, only : is_watch_point
@@ -52,9 +53,12 @@ public :: soil_data_psi_for_rh
 public :: soil_data_gw_hydraulics
 public :: soil_data_gw_hydraulics_ar5
 public :: soil_data_vwc_for_init_only
+
 public :: soil_data_init_derive_subsurf_pars
 public :: soil_data_init_derive_subsurf_pars_ar5
 public :: soil_data_init_derive_subsurf_pars_tiled
+public :: finalize_soil_data_init
+
 public :: soil_ave_temp  ! calculate average soil temeperature
 public :: soil_ave_theta0! calculate average soil moisture, pcm based on available water, zeta input
 public :: soil_ave_theta1! calculate average soil moisture, ens based on all water
@@ -62,6 +66,7 @@ public :: soil_ave_theta2! like soil_ave_theta1, but includes ice. (SSR)
 public :: soil_ave_wetness ! calculate average soil wetness
 public :: soil_theta     ! returns array of soil moisture, for all layers
 public :: soil_psi_stress ! return soil-water-stress index
+public :: get_soil_litter_C ! returns litter carbon pools
 
 ! public data
 public :: max_lev ! max number of soil layers (max dimension of arrays)
@@ -71,12 +76,9 @@ public :: zhalf ! depths of layer boundaries (m)
 public :: zfull ! depths of layer centers (m)
 
 public :: g_iso, g_vol, g_geo, g_RT
-public :: num_storage_pts
-public :: gw_zeta_s, gw_flux_table, gw_area_table
 public :: gw_scale_length, gw_scale_relief, gw_scale_soil_depth, slope_exp
-public :: num_zeta_pts, num_tau_pts
-public :: log_tau, log_zeta_s, log_rho_table, gw_scale_perm, aspect
-public :: use_alpha, z_ref, k0_macro_z, k0_macro_x, use_tau_fix
+public :: gw_scale_perm, aspect
+public :: k0_macro_x
 public :: retro_a0n1
 
 public :: psi_wilt ! wilting water potential, m
@@ -98,10 +100,8 @@ character(len=*), parameter :: module_name = 'soil_tile_mod'
 
 integer, parameter :: max_lev          = 100
 integer, parameter, public :: n_dim_soil_types = 14      ! max size of lookup table
-real,    parameter :: small            = 1.e-4
 real,    parameter :: t_ref            = 293
 real,    parameter :: g_RT             = grav / (rvgas*t_ref)
-real,    parameter :: sigma_max        = 2.2
 real,    parameter :: K_rel_min        = 1.e-12
 real,    parameter, public :: initval  = 1.e36 ! For initializing variables
 
@@ -140,10 +140,7 @@ character(16), parameter, public :: &
 
 ! ==== types =================================================================
 type :: soil_pars_type
-  real vwc_wilt
-  real vwc_fc
   real vwc_sat
-  real vlc_min
   real awc_lm2
   real k_sat_ref
   real psi_sat_ref
@@ -285,10 +282,12 @@ type :: soil_tile_type
                                      ! out of tile
    real, allocatable :: div_hlsp_NO3(:)  ! dimension (num_l) [kg N/m^2/s] net flux of nitrate out of tile
    real, allocatable :: div_hlsp_NH4(:)  ! dimension (num_l) [kg N/m^2/s] net flux of ammonium out of tile
+
+   real :: r_pores ! surface pore radius, m
 end type soil_tile_type
 
 ! ==== module data ===========================================================
-integer, public :: gw_option
+integer, public, protected :: gw_option
 
 real, public :: &
      cpw = 1952.0, & ! specific heat of water vapor at constant pressure
@@ -296,9 +295,9 @@ real, public :: &
      csw = 2106.0    ! specific heat of water (ice)
 
 !---- namelist ---------------------------------------------------------------
-character(256), public :: soil_type_file = 'INPUT/ground_type.nc'
-real    :: psi_wilt              = -150.0  ! matric head at wilting
-real, public :: comp             = 0.001  ! m^-1, dThdPsi at saturation
+character(256), public, protected :: soil_type_file = 'INPUT/ground_type.nc'
+real, protected :: psi_wilt      = -150.0  ! matric head at wilting
+real, public, protected :: comp  = 0.001  ! m^-1, dThdPsi at saturation
 real    :: K_min                 = 0.     ! absolute lower limit on hydraulic cond
                                           ! used only when use_alt[2]_soil_hydraulics
 real    :: K_max_matrix          = 1.e10
@@ -313,10 +312,10 @@ real    :: sub_layer_tc_fac      = 1.0
 real    :: z_sub_layer_min       = 0.0
 real    :: z_sub_layer_max       = 0.0
 real    :: freeze_factor         = 1.0
-real    :: aspect                = 1.0
+real, protected :: aspect        = 1.0
 real    :: zeta_mult             = 1.0  ! multiplier for root depth scale in stress index
-integer :: num_l                 = 18        ! number of soil levels
-real    :: dz(max_lev)           = (/ &
+integer, protected :: num_l      = 18        ! number of soil levels
+real,    protected :: dz(max_lev) = (/ &
     0.02, 0.04, 0.04, 0.05, 0.05, 0.1, 0.1, 0.2, 0.2, &
     0.2,   0.4,  0.4,  0.4,  0.4, 0.4,  1.,  1.,  1., &
     0.,0.,&
@@ -345,7 +344,7 @@ logical :: limit_DThDP           = .false.
 logical, protected :: retro_a0n1 = .false.
 real :: anisotropy_ratio = 1.0
 ! ---- remainder are used only for cold start ---------
-character(32), public :: soil_to_use     = 'single-tile'
+character(32), public, protected :: soil_to_use     = 'single-tile'
        ! 'multi-tile' for multiple soil types per grid cell, a tile per type
        ! 'single-tile' for geographically varying soil with single type per
        !     model grid cell [default]
@@ -361,18 +360,18 @@ character(32) :: geohydrology_to_use = 'hill_ar5'
 logical :: use_single_geo        = .false.   ! .true. for global gw res time,
                                              ! e.g., to recover MCM
 logical :: use_alpha             = .true.    ! for vertical change in soil properties
-integer, public :: soil_index_constant = 9   ! index of global constant soil,
+integer, public, protected :: soil_index_constant = 9   ! index of global constant soil,
                                              ! used when use_single_soil
 real    :: gw_res_time           = 60.*86400 ! mean groundwater residence time,
                                              ! used when use_single_geo
 real    :: rsa_exp_global        = 1.5
-real    :: gw_scale_length       = 1.0
-real    :: gw_scale_relief       = 1.0
-real    :: gw_scale_soil_depth   = 1.0
-real    :: slope_exp             = 0.0
-real    :: gw_scale_perm         = 1.0
+real, protected :: gw_scale_length  = 1.0
+real, protected :: gw_scale_relief  = 1.0
+real, protected :: gw_scale_soil_depth = 1.0
+real, protected :: slope_exp     = 0.0
+real, protected :: gw_scale_perm = 1.0
 real    :: k0_macro_z            = 0.0
-real    :: k0_macro_x            = 0.0
+real, protected :: k0_macro_x    = 0.0
 real    :: log_rho_max           = 2.0
 real    :: z_ref                 = 0.0       ! depth where [psi/k]_sat = [psi/k]_sat_ref
 real    :: geothermal_heat_flux_constant = 0.0  ! true continental average is ~0.065 W/m2
@@ -442,8 +441,7 @@ real :: dat_refl_sat_dif(n_dim_soil_types,NBANDS); data dat_refl_sat_dif &
    / 0.333, 0.333, 0.333, 0.333, 0.333, 0.333, 0.333, 0.333, 999.0, 5*0.0,      & ! visible
      0.333, 0.333, 0.333, 0.333, 0.333, 0.333, 0.333, 0.333, 999.0, 5*0.0   /     ! NIR
   !Coarse  Medium   Fine    CM     CF     MF    CMF    Peat    MCM
-integer, dimension(n_dim_soil_types), public :: &
-  input_cover_types=&
+integer, dimension(n_dim_soil_types), public, protected :: input_cover_types = &
   (/ 1,     2,     3,     4,     5,     6,     7,     8,     100,  &
      101,   102,   103,   104,   105 /)
 character(len=4), dimension(n_dim_soil_types) :: &
@@ -507,7 +505,7 @@ real, allocatable :: log_deficit_list(:)
 real, allocatable :: log_zeta_s(:)
 real, allocatable :: log_tau(:)
 
-real, dimension(31 ) :: gw_zeta_s       = &
+real, dimension(31), protected :: gw_zeta_s       = &
   (/ 1.0000000e-5, 1.5848932e-5, 2.5118864e-5, 3.9810717e-5, 6.3095737e-5, &
      1.0000000e-4, 1.5848932e-4, 2.5118864e-4, 3.9810717e-4, 6.3095737e-4, &
      1.0000000e-3, 1.5848932e-3, 2.5118864e-3, 3.9810717e-3, 6.3095737e-3, &
@@ -909,23 +907,6 @@ subroutine soil_data_init_0d(soil)
   end select
 
   ! ---- derived constant soil parameters
-  ! w_fc (field capacity) set to w at which hydraulic conductivity equals
-  ! a nominal drainage rate "rate_fc"
-  ! w_wilt set to w at which psi is psi_wilt
-  if (use_lm2_awc) then
-     soil%w_wilt(:) = 0.15
-     soil%w_fc  (:) = 0.15 + soil%pars%awc_lm2
-  else
-     soil%w_wilt(:) = soil%pars%vwc_sat &
-          *(soil%pars%psi_sat_ref/(psi_wilt*soil%alpha(:)))**(1/soil%pars%chb)
-     soil%w_fc  (:) = soil%pars%vwc_sat &
-          *(rate_fc/(soil%pars%k_sat_ref*soil%alpha(:)**2))**(1/(3+2*soil%pars%chb))
-  endif
-
-  soil%pars%vwc_wilt = soil%w_wilt(1)
-  soil%pars%vwc_fc   = soil%w_fc  (1)
-
-  soil%pars%vlc_min = soil%pars%vwc_sat*K_rel_min**(1/(3+2*soil%pars%chb))
 
   soil%z0_scalar = soil%pars%z0_momentum * exp(-k_over_B)
 
@@ -1066,23 +1047,6 @@ subroutine soil_data_init_0d_predefined(soil,tile_parameters,itile)
   end select
 
   ! ---- derived constant soil parameters
-  ! w_fc (field capacity) set to w at which hydraulic conductivity equals
-  ! a nominal drainage rate "rate_fc"
-  ! w_wilt set to w at which psi is psi_wilt
-  if (use_lm2_awc) then
-     soil%w_wilt(:) = 0.15
-     soil%w_fc  (:) = 0.15 + soil%pars%awc_lm2
-  else
-     soil%w_wilt(:) = soil%pars%vwc_sat &
-          *(soil%pars%psi_sat_ref/(psi_wilt*soil%alpha(:)))**(1/soil%pars%chb)
-     soil%w_fc  (:) = soil%pars%vwc_sat &
-          *(rate_fc/(soil%pars%k_sat_ref*soil%alpha(:)**2))**(1/(3+2*soil%pars%chb))
-  endif
-
-  soil%pars%vwc_wilt = soil%w_wilt(1)
-  soil%pars%vwc_fc   = soil%w_fc  (1)
-
-  soil%pars%vlc_min = soil%pars%vwc_sat*K_rel_min**(1/(3+2*soil%pars%chb))
 
   soil%z0_scalar = soil%pars%z0_momentum * exp(-k_over_B)
 
@@ -1145,6 +1109,46 @@ subroutine soil_data_init_0d_predefined(soil,tile_parameters,itile)
   endif
 
 end subroutine soil_data_init_0d_predefined
+
+! ============================================================================
+! finalize calculations of soil parameters. This is called after all other,
+! case-specific initialization calculations are done
+subroutine finalize_soil_data_init ( soil )
+  type(soil_tile_type), intent(inout) :: soil
+
+  real, parameter :: sfc_tension_h2o = 0.071 ! surface tension of liquid water, J/m2
+
+  integer :: l
+  real :: alpha
+  real :: psi_sat_sfc ! saturated matric water potential at the surface, m
+
+  ! w_fc (field capacity) set to w at which hydraulic conductivity equals
+  ! a nominal drainage rate "rate_fc"
+  ! w_wilt set to w at which psi is psi_wilt
+  if (use_lm2_awc) then
+     soil%w_wilt(:) = 0.15
+     soil%w_fc  (:) = 0.15 + soil%pars%awc_lm2
+  else
+     do l = 1,num_l
+!       w_fc and w_wilt were originally calculated before alpha was properly initialized;
+!       after discussion (pcm) suggested leaving it as is, e.g. because of conceptual issues
+!       with defining local values of field capacity w_fc.
+!       I can be fixed later by uncommenting the following two lines and defining extra
+!       namelist variable
+!
+!         alpha = soil%alpha(l)
+!         if (w_fc_bug) alpha = 1.0
+        alpha = 1.0
+        soil%w_wilt(l) = soil%pars%vwc_sat &
+             *(soil%pars%psi_sat_ref/(psi_wilt*alpha))**(1/soil%pars%chb)
+        soil%w_fc(l)  = soil%pars%vwc_sat &
+             *(rate_fc/(soil%pars%k_sat_ref*alpha**2))**(1/(3+2*soil%pars%chb))
+     enddo
+  endif
+  ! pore radius (should really be moved into initialization or soil properties update):
+  psi_sat_sfc = abs(soil%pars%psi_sat_ref/soil%alpha(1)) ! saturated matric water potential at the surface, m
+  soil%r_pores = 2*sfc_tension_h2o/(dens_h2o*grav*psi_sat_sfc)
+end subroutine finalize_soil_data_init
 
 ! ============================================================================
 subroutine soil_data_init_derive_subsurf_pars ( soil )
@@ -2277,5 +2281,27 @@ real function soil_tile_nitrogen (soil)
      soil_tile_nitrogen = 0.0
   end select
 end function soil_tile_nitrogen
+
+! ============================================================================
+! given soil tile, returns carbon content of various components of litter
+subroutine get_soil_litter_C(soil, litter_fast_C, litter_slow_C, litter_deadmic_C)
+  type(soil_tile_type), intent(in)  :: soil
+  real, intent(out) :: &
+     litter_fast_C,    & ! fast litter carbon, [kgC/m2]
+     litter_slow_C,    & ! slow litter carbon, [kgC/m2]
+     litter_deadmic_C    ! mass of dead microbes in litter, [kgC/m2]
+
+  select case(soil_carbon_option)
+  case(SOILC_CENTURY, SOILC_CENTURY_BY_LAYER)
+     litter_fast_C    = soil%fast_soil_C(1)
+     litter_slow_C    = soil%slow_soil_C(1)
+     litter_deadmic_C = 0.0
+  case(SOILC_CORPSE, SOILC_CORPSE_N)
+     call poolTotals(soil%litter(LEAF),fastC=litter_fast_C,slowC=litter_slow_C,deadMicrobeC=litter_deadmic_C)
+  case default
+     call error_mesg('get_soil_litter_C','The value of soil_carbon_option is invalid. This should never happen. Contact developer.',FATAL)
+  end select
+end subroutine get_soil_litter_C
+
 
 end module soil_tile_mod

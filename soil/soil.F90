@@ -25,7 +25,7 @@ use soil_tile_mod, only : num_l, dz, zfull, zhalf, &
      soil_tile_type, read_soil_data_namelist, &
      soil_data_radiation, soil_data_thermodynamics, &
      soil_data_hydraulic_properties, soil_data_psi_for_rh, &
-     soil_data_gw_hydraulics, soil_data_gw_hydraulics_ar5, &
+     soil_data_gw_hydraulics, soil_data_gw_hydraulics_ar5, finalize_soil_data_init, &
      soil_data_vwc_for_init_only, &
      soil_data_init_derive_subsurf_pars, &
      soil_data_init_derive_subsurf_pars_ar5, &
@@ -105,7 +105,6 @@ public :: soil_step_3
 public :: soil_data_beta
 
 public :: Dsdt
-public :: get_soil_litter_C
 public :: active_root_N_uptake
 public :: myc_scavenger_N_uptake
 public :: myc_miner_N_uptake
@@ -570,15 +569,13 @@ subroutine soil_init (predefined_tiles, id_ug,id_band,id_zfull,id_ptid)
           FATAL)
   endif
 
-  ! Assemble initial water table depth for grid cell
-  !if (predefined_tiles) then
-  ! init_wtdep = 0.0
-  ! do while(loop_over_tiles(ce,tile,k=k,l=ll))
-  !   if (.not.associated(tile%soil)) cycle
-  !   call set_current_point(ll,k)
-  ! end do
-  !endif
+  ce = first_elmt(land_tile_map)
+  do while(loop_over_tiles(ce,tile))
+      if (.not.associated(tile%soil)) cycle
+      call finalize_soil_data_init(tile%soil)
+  end do
 
+  ! -------- initialize soil state --------
   ! Call calculate_wt_init outside tile loop so that it is done once per hillslope
   if (init_wtdep .gt. 0. .and. gw_option == GW_TILED) then
      call calculate_wt_init(init_wtdep)
@@ -590,7 +587,6 @@ subroutine soil_init (predefined_tiles, id_ug,id_band,id_zfull,id_ptid)
      call read_field( coldstart_datafile, 'WETMASK', wetmask, interp='bilinear' )
   end if
 
-  ! -------- initialize soil state --------
   ce = first_elmt(land_tile_map, ls=lnd%ls) ! Use global indices here because element indices
                                             ! needed.
   do while(loop_over_tiles(ce,tile,k=k,l=ll))
@@ -1826,6 +1822,10 @@ subroutine soil_step_1 ( soil, vegn, diag, &
      __DEBUG1__(soil%pars%psi_sat_ref)
      __DEBUG1__(soil%pars%chb)
      __DEBUG1__(soil%pars%vwc_sat)
+     do l = 1,num_l
+        write(*,'(i2.2,x)',advance='NO') l
+        __DEBUG3__(soil%w_wilt(l),soil%w_fc(l), soil%alpha(l))
+     enddo
 !     do l = 1,N_LITTER_POOLS
 !        call debug_pool(soil%litter(l), trim(l_shortname(l))//'_litter')
 !     enddo
@@ -1938,7 +1938,7 @@ end subroutine soil_step_1
   type(vegn_tile_type), intent(in)    :: vegn
   type(diag_buff_type), intent(inout) :: diag
   real, intent(in) :: & ! ZMS assign tentative annotations below with "??"
-       soil_subl     ! ?? solution for soil surface sublimation [mm/s]
+       soil_subl        ! fraction of water vapor flux that comes from sublimation, unitless [0,1]
   real, intent(in) :: &
        snow_lprec, & ! ?? solid / liquid throughfall infiltrating the snow [kg/m2/s]
        snow_hlprec, & ! ?? heat associated with snow_lprec [W/m^2]
@@ -4722,27 +4722,6 @@ subroutine tracer_leaching_with_litter(diag, soilc, leaflitter, woodlitter,&
   call send_tile_data(id_total_NH4_div_loss, total_NH4_div/delta_time, diag)
 
 end subroutine tracer_leaching_with_litter
-
-! ============================================================================
-! given soil tile, returns carbon content of various components of litter
-subroutine get_soil_litter_C(soil, litter_fast_C, litter_slow_C, litter_deadmic_C)
-  type(soil_tile_type), intent(in)  :: soil
-  real, intent(out) :: &
-     litter_fast_C,    & ! fast litter carbon, [kgC/m2]
-     litter_slow_C,    & ! slow litter carbon, [kgC/m2]
-     litter_deadmic_C    ! mass of dead microbes in litter, [kgC/m2]
-
-  select case(soil_carbon_option)
-  case(SOILC_CENTURY, SOILC_CENTURY_BY_LAYER)
-     litter_fast_C    = soil%fast_soil_C(1)
-     litter_slow_C    = soil%slow_soil_C(1)
-     litter_deadmic_C = 0.0
-  case(SOILC_CORPSE, SOILC_CORPSE_N)
-     call poolTotals(soil%litter(LEAF),fastC=litter_fast_C,slowC=litter_slow_C,deadMicrobeC=litter_deadmic_C)
-  case default
-     call error_mesg('get_soil_litter_C','The value of soil_carbon_option is invalid. This should never happen. Contact developer.',FATAL)
-  end select
-end subroutine get_soil_litter_C
 
 ! ============================================================================
 ! Nitrogen uptake from the rhizosphere by roots (active transport across root-soil interface)

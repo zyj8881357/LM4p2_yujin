@@ -54,7 +54,7 @@ character(len=*), parameter :: module_name = 'glacier'
 
 !---- namelist ---------------------------------------------------------------
 logical :: lm2                   = .true.  ! *** CODE WORKS ONLY FOR .TRUE. !!! ****
-logical :: conserve_glacier_mass = .true.
+logical, public, protected :: conserve_glacier_mass = .true.
 character(len=16):: albedo_to_use = ''  ! or 'brdf-params'
 real    :: init_temp            = 260.       ! cold-start glac T
 real    :: init_w               = 150.       ! cold-start w(l)/dz(l)
@@ -252,8 +252,7 @@ end subroutine glac_radiation
 ! to surface, delivering linearization of surface ground heat flux.
 subroutine glac_step_1 ( glac, &
                          glac_T, glac_rh, glac_liq, glac_ice, glac_subl, &
-                         glac_tf, glac_G0, &
-                         glac_DGDT, conserve_glacier_mass_out )
+                         glac_tf, glac_G0, glac_DGDT )
   type(glac_tile_type),intent(inout) :: glac
   real, intent(out) :: &
        glac_T, &
@@ -261,7 +260,6 @@ subroutine glac_step_1 ( glac, &
        glac_tf, & ! freezing temperature of glacier, degK
        glac_G0, &
        glac_DGDT
-  logical, intent(out) :: conserve_glacier_mass_out
 
   ! ---- local vars
   real                   :: bbb, denom, dt_e
@@ -272,9 +270,6 @@ subroutine glac_step_1 ( glac, &
 ! in preparation for implicit energy balance, determine various measures
 ! of water availability, so that vapor fluxes will not exceed mass limits
 ! ----------------------------------------------------------------------------
-
-  conserve_glacier_mass_out = conserve_glacier_mass
-
   if(is_watch_point()) then
     write(*,*) 'checkpoint gs1 a'
     write(*,*) 'mask    ',  .TRUE.

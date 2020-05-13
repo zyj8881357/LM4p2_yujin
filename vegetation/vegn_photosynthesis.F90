@@ -91,13 +91,16 @@ real :: lai_eps = 1e-5 ! threshold for switching to linear approximation for Ag_
 character(32) :: water_stress_to_use = 'lm3' ! type of water stress formulation:
    ! 'lm3', 'plant-hydraulics', or 'none'
 logical :: hydraulics_repair = .TRUE.
+logical :: light_saber_lai_eq_bug = .FALSE. ! if true, restores the light saber bug
+   ! where calculations of photosynthesis increment always assumed that the extra LAI
+   ! is light limited
 
 namelist /photosynthesis_nml/ &
     photosynthesis_to_use, Tresponse_to_use, photosynthesis_during_senescence, &
     Kok_effect, &
     co2_to_use_for_photosynthesis, co2_for_photosynthesis, &
     lai_eps, &
-    water_stress_to_use, hydraulics_repair
+    water_stress_to_use, hydraulics_repair, light_saber_lai_eq_bug
 
 contains
 
@@ -452,7 +455,7 @@ subroutine gs_Leuning(rad_top, rad_net, tl, ds, lai, leaf_age, &
   real, parameter :: light_crit = 0
 
   ! new average computations
-  real :: lai_eq;
+  real :: lai_eq, lai_eq0
   real, parameter :: rad_phot = 0.0000046 ! PAR conversion factor of J -> mol of quanta
   real :: light_top;
   real :: par_net;
@@ -655,8 +658,8 @@ subroutine gs_Leuning(rad_top, rad_net, tl, ds, lai, leaf_age, &
            dum2=min(f2,f3)
 
            ! find LAI level at which rubisco limited rate is equal to light limited rate
-           lai_eq = -log(dum2/(kappa*sp%alpha_phot*light_top))/kappa;
-           lai_eq = min(max(0.0,lai_eq),lai) ! limit lai_eq to physically possible range
+           lai_eq0 = -log(dum2/(kappa*sp%alpha_phot*light_top))/kappa
+           lai_eq = min(max(0.0,lai_eq0),lai) ! limit lai_eq to physically possible range
 
            ! gross photosynthesis for light-limited part of the canopy
            if (lai>lai_eps) then
@@ -688,8 +691,9 @@ subroutine gs_Leuning(rad_top, rad_net, tl, ds, lai, leaf_age, &
            !if (isnan(anbar) .eq. .True.)anbar = 0.0
 
            !#### MODIFIED BY PPG 2017-12-07
-           newleaf_light=light_top*(exp(-kappa*lai)-exp(-kappa*(lai+delta_lai)))
-           if (lai+delta_lai>lai_eq) then
+           if (light_saber_lai_eq_bug) lai_eq0 = lai_eq
+           if (lai+delta_lai>lai_eq0) then
+              newleaf_light=light_top*(exp(-kappa*lai)-exp(-kappa*(lai+delta_lai)))
               Ag_newleaf= spdata(pft)%alpha_phot * (ci-capgam)/(ci+2.*capgam) * newleaf_light
            else
               Ag_newleaf = dum2*delta_lai
@@ -710,9 +714,9 @@ subroutine gs_Leuning(rad_top, rad_net, tl, ds, lai, leaf_age, &
         dum2=min(f2,f3);
         if (ci>capgam) then
            ! find LAI level at which rubisco limited rate is equal to light limited rate
-           lai_eq=-log(dum2*(ci+2.*capgam)/(ci-capgam)/ &
+           lai_eq0 =-log(dum2*(ci+2.*capgam)/(ci-capgam)/ &
                        (sp%alpha_phot*light_top*kappa))/kappa;
-           lai_eq = min(max(0.0,lai_eq),lai) ! limit lai_eq to physically possible range
+           lai_eq = min(max(0.0,lai_eq0),lai) ! limit lai_eq to physically possible range
 
            ! gross photosynthesis for light-limited part of the canopy
            if (lai>lai_eps) then
@@ -744,8 +748,9 @@ subroutine gs_Leuning(rad_top, rad_net, tl, ds, lai, leaf_age, &
            !if (isnan(anbar) .eq. .True.)anbar = 0.0
 
            !#### Modified by PPG 2017-12-07
-           newleaf_light=light_top*(exp(-kappa*lai)-exp(-kappa*(lai+delta_lai)))
-           if (lai+delta_lai>lai_eq) then
+           if (light_saber_lai_eq_bug) lai_eq0 = lai_eq
+           if (lai+delta_lai>lai_eq0) then
+              newleaf_light=light_top*(exp(-kappa*lai)-exp(-kappa*(lai+delta_lai)))
               Ag_newleaf= spdata(pft)%alpha_phot * (ci-capgam)/(ci+2.*capgam) * newleaf_light
            else
               Ag_newleaf = dum2*delta_lai

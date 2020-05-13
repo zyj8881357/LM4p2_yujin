@@ -245,7 +245,7 @@ subroutine update_cana_tracers(tile, l, tr_flux, dfdtr, &
   real, intent(in) :: con_g ! aerodynamic conductance between canopy air and ground for tracers
   real, intent(in) :: con_v_v(:) ! aerodynamic conductance between canopy air and canopy
           ! for tracers, by cohort, per unit area occupied by cohort
-  real, intent(in) :: stomatal_cond(:) ! integral stomatal conductance of each cohort 
+  real, intent(in) :: stomatal_cond(:) ! integral stomatal conductance of each cohort
           ! canopy (that is, multiplied by LAI), for water vapor, m/s
 
   integer :: tr      ! tracer index

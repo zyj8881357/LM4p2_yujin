@@ -32,7 +32,7 @@ use vegn_data_mod, only : spdata, nspecies, do_ppa, soil_carbon_depth_scale, C2B
      ALLOM_EW, ALLOM_EW1, ALLOM_HML, LU_CROP, &
      NSC_TARGET_FROM_BLMAX, NSC_TARGET_FROM_CANOPY_BLMAX, NSC_TARGET_FROM_BSW, &
      SEED_TRANSPORT_NONE, SEED_TRANSPORT_SPREAD, SEED_TRANSPORT_DIFFUSE, &
-     min_lai_pheno, nsc_starv_frac, nsc_target_option, &
+     agf_bs, min_lai_pheno, nsc_starv_frac, nsc_target_option, &
      myc_scav_C_efficiency, myc_mine_C_efficiency, N_fixer_C_efficiency, N_limits_live_biomass, &
      excess_stored_N_leakage_rate, min_N_stress, &
      c2n_N_fixer, et_myc, smooth_N_uptake_C_allocation, N_fix_Tdep_Houlton, &
@@ -46,7 +46,7 @@ use vegn_util_mod, only : kill_plants_ppa, add_seedlings_ppa
 use vegn_harvesting_mod, only : allow_weeds_on_crops
 use soil_carbon_mod, only: N_C_TYPES, C_FAST, C_SLOW, C_MIC, soil_carbon_option, &
     SOILC_CENTURY, SOILC_CENTURY_BY_LAYER, SOILC_CORPSE, SOILC_CORPSE_N, &
-    add_litter, deadmic_slow_frac, debug_pool
+    add_litter, deadmic_slow_frac
 use soil_util_mod, only: add_soil_carbon, add_root_litter, add_root_exudates
 use soil_mod, only: Dsdt, active_root_N_uptake, myc_scavenger_N_uptake, myc_miner_N_uptake
 
@@ -477,7 +477,7 @@ subroutine  update_mycorrhizae(cc, soilT, &
 
   N_fixation=N_fixation-cc%nfix_N*(1-et_myc/N_fixer_turnover_time*dt_fast_yr)
   cc%nfix_C = cc%nfix_C + Nfix_growth - cc%nfix_C/N_fixer_turnover_time*dt_fast_yr
-  cc%nfix_N = cc%nfix_N/c2n_N_fixer
+  cc%nfix_N = cc%nfix_C/c2n_N_fixer
   cc%nfix_C_reservoir = cc%nfix_C_reservoir - Nfix_growth/N_fixer_C_efficiency
   ! d_Nfix_N_reservoir = d_Nfix_N_reservoir - Nfix_growth/c2n_mycorrhizae
 
