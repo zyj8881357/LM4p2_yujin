@@ -114,7 +114,7 @@ character(len=*), parameter :: module_name = 'river_mod'
       ! compute the area of lakes.
   logical :: stop_on_mask_mismatch = .TRUE. ! if set to false, then the data mismatches (mmismatch
       ! of land and river masks, and discharges in pouints where there is no ocean) are reported,
-      ! but don't cause the abort of the program.
+      ! but do not cause the abort of the program.
   ! ZMS
   logical :: tracers_from_runoff = .false. ! if true, use runoff_c(:,:,num_phys+1:num_species)
           ! rather than source concentration and flux files
@@ -497,8 +497,8 @@ subroutine river_tracers_init()
  if(.not.fm_dump_list(trtable, recursive=.TRUE.)) &
     call mpp_error(NOTE, 'river_mod: Cannot dump field list "'//trtable//'"')
 
- ! allocating more space than absolutely necessary, in case water, and "physical
- ! tracers" (ice and heat) are not present in the user-supplied tracer table
+ ! allocating more space than absolutely necessary, in case water, and "physical"
+ ! tracers (ice and heat) are not present in the user-supplied tracer table
  allocate(trdata(0:m+num_phys))
  ! initialize some parameters of the pre-defined species (water and "physical" tracres)
  trdata(0)%name = 'h2o'; trdata(0)%longname = 'h2o mass'
@@ -689,7 +689,7 @@ end subroutine print_river_tracer_data
           discharge_c(:,:,i_species) = runoff_c(:,:,i_species)*lnd%sg_landfrac
     enddo
 
-    ! don't send negatives or insignificant values to ocean. put them in the sink instead.
+    ! do not send negatives or insignificant values to ocean. put them in the sink instead.
     ! this code does not seem necessary, and default discharge_tol value should be used.
     discharge_sink = 0.0
     where (discharge_l.le.discharge_tol)
@@ -1098,7 +1098,6 @@ end subroutine print_river_tracer_data
        call save_restart(river_restart)
        call free_restart_type(river_restart)
     else
-
        filename = 'RESTART/'//trim(timestamp)//'river.res.nc'
 
        call write_data(filename,'storage', River%storage(isc:iec,jsc:jec), domain)
@@ -1108,11 +1107,9 @@ end subroutine print_river_tracer_data
        do tr = 1, num_species
            call write_data(filename,'storage_'//trdata(tr)%name,River%storage_c(isc:iec,jsc:jec,tr), domain)
            call write_data(filename,'disch2ocn_'//trdata(tr)%name,discharge2ocean_next_c(isc:iec,jsc:jec,tr), domain)
-           call write_data(filename,'run_stor_'//trdata(tr)%name,River%run_stor_c(isc:iec,jsc:jec,tr), domain)
        end do
        call write_data(filename,'Omean', River%outflowmean, domain)
        call write_data(filename,'depth', River%depth, domain)
-
        ! to reproduce across mid-day restarts
        call write_data(filename,'nstep',River%nstep,domain)
        call write_data(filename,'run_stor', River%run_stor(isc:iec,jsc:jec), domain)
@@ -1267,8 +1264,8 @@ end subroutine print_river_tracer_data
     end do
     end do
 
-    !if (nerrors>0.and.stop_on_mask_mismatch) call mpp_error(FATAL,&
-    !    'get_river_data: river/land mask-related mismatch detected during river data initialization')
+    if (nerrors>0.and.stop_on_mask_mismatch) call mpp_error(FATAL,&
+        'get_river_data: river/land mask-related mismatch detected during river data initialization')
 
     call read_data(river_src_file, 'basin', River%basinid, domain)
     where (River%basinid >0)
@@ -1914,4 +1911,4 @@ contains
 
 end program river_solo
 
-#endif test_river_solo
+#endif
