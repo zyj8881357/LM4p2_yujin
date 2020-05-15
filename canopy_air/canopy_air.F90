@@ -667,7 +667,7 @@ end function evap_resistance_litter
 !     are dominated by diffusion. Water Resources Research, 49, No.3, 1602–1610,
 !     doi:10.1002/wrcr.20166.
 real function soil_evap_sv_resistance(soil) result(r_sv)
-  type(soil_tile_type), intent(inout) :: soil ! soil properties and parameters
+  type(soil_tile_type), intent(in) :: soil ! soil properties and parameters
 
   real, parameter :: gam = 1.73e-5 ! unit conversion constant (Haghighi et al. 2013) eq(13)
 

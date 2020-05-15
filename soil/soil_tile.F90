@@ -1773,7 +1773,7 @@ end subroutine soil_data_thermodynamics
 ! richards equation for full column. note that psi_for_rh is not passed.
 subroutine soil_data_hydraulic_properties (soil, vlc, vsc, &
                     psi, DThDP, K_z, K_x, DKDP, DPsi_min, DPsi_max  )
-  type(soil_tile_type),        intent(inout) :: soil
+  type(soil_tile_type),        intent(in) :: soil
   real,                        intent(in),  dimension(:) :: vlc, vsc
   real,                        intent(out), dimension(:) :: &
       psi, DThDP, K_z, K_x, DKDP
@@ -1794,9 +1794,9 @@ subroutine soil_data_hydraulic_properties (soil, vlc, vsc, &
   endif
 
   ! For use in hillslope model (account for anisotropy...)
-  soil%hyd_cond_horz(1:num_l) = K_x(1:num_l)
-  where (soil%ws > 0. .or. soil%wl <= 0.) soil%hyd_cond_horz = epsln
-  if (all(DThDP==0.)) soil%hyd_cond_horz(:) = epsln ! Will be "stiff"
+!   soil%hyd_cond_horz(1:num_l) = K_x(1:num_l)
+!   where (soil%ws > 0. .or. soil%wl <= 0.) soil%hyd_cond_horz = epsln
+!   if (all(DThDP==0.)) soil%hyd_cond_horz(:) = epsln ! Will be "stiff"
   ! Set some limits to the hydraulic conductivity for the model (If not it will crash for steep slopes unless the time step is very small)
   !print*,soil%hyd_cond_horz
   !where (soil%hyd_cond_horz .gt. 0.001)soil%hyd_cond_horz = 0.001
