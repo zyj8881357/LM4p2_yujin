@@ -2013,7 +2013,7 @@ subroutine soil_data_hydraulics_alt3 (soil, vlc, vsc, &
     K_z(l) = min(K_z(l), K_max_matrix)
     K_x(l) = anisotropy_ratio*K_z(l)
     !Set constraints
-    if (K_x(l) .gt. 0.01)K_x(l) = 0.01
+    !if (K_x(l) .gt. 0.01)K_x(l) = 0.01
     !if (K_x(l) .gt. 1.0)K_x(l) = 1.0!0.1
     f_psi = min(max(1.-psi(l)/Psat,0.),1.)
     K_z(l) = K_z(l) + f_psi * soil%k_macro_z(l)
