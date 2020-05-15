@@ -640,7 +640,6 @@ subroutine gs_Leuning(rad_top, rad_net, tl, ds, lai, leaf_age, &
   Ag_rb=0.;
   Ag=0.;
   anbar=-Resp/lai;
-  !if (isnan(anbar) .eq. .True.)anbar = 0.0
   gsbar=b;
   Ag_newleaf = 0.0
   Ag_uninhib = 0.0
@@ -688,7 +687,6 @@ subroutine gs_Leuning(rad_top, rad_net, tl, ds, lai, leaf_age, &
 
            An=Ag-Resp;
            anbar=An/lai;
-           !if (isnan(anbar) .eq. .True.)anbar = 0.0
 
            !#### MODIFIED BY PPG 2017-12-07
            if (light_saber_lai_eq_bug) lai_eq0 = lai_eq
@@ -745,7 +743,6 @@ subroutine gs_Leuning(rad_top, rad_net, tl, ds, lai, leaf_age, &
 
            An=Ag-Resp;
            anbar=An/lai;
-           !if (isnan(anbar) .eq. .True.)anbar = 0.0
 
            !#### Modified by PPG 2017-12-07
            if (light_saber_lai_eq_bug) lai_eq0 = lai_eq

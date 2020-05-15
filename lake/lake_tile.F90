@@ -1,6 +1,8 @@
 module lake_tile_mod
 #include <fms_platform.h>
 
+#include "../shared/debug.inc"
+
 use mpp_domains_mod, only : &
      domain2d, mpp_get_compute_domain, mpp_pass_sg_to_ug
 
@@ -390,29 +392,29 @@ subroutine init_lake_data_0d_predefined(lake,lake_predefined,itile)
   lake%pars%z0_momentum_ice   = lake_predefined%z0_momentum_ice(itile)
 
   if (is_watch_point()) then
-   print*,'lake parameters'
-   print*,'connected_to_next: ',lake%pars%connected_to_next
-   print*,'whole_area: ',lake%pars%whole_area
-   print*,'depth_sill: ',lake%pars%depth_sill
-   print*,'backwater: ',lake%pars%backwater
-   print*,'backwater_1: ',lake%pars%backwater_1
-   print*,'width_sill: ',lake%pars%width_sill
-   print*,'w_sat o:',dat_w_sat(k),' n:',lake%pars%w_sat
-   print*,'awc_lm2 o:',dat_awc_lm2(k),' n:',lake%pars%awc_lm2
-   print*,'k_sat_ref o:',dat_k_sat_ref(k),' n:',lake%pars%k_sat_ref
-   print*,'psi_sat_ref o:',dat_psi_sat_ref(k),' n:',lake%pars%psi_sat_ref
-   print*,'chb o:',dat_chb(k),' n:',lake%pars%chb
-   print*,'alpha o:',1.0,' n:',lake%pars%alpha
-   print*,'heat_capacity_ref o:',dat_heat_capacity_ref(k),' n:',lake%pars%heat_capacity_ref
-   print*,'thermal_cond_ref o:',dat_thermal_cond_ref(k),' n:',lake%pars%thermal_cond_ref
-   print*,'refl_dry_dir o:',dat_refl_dry_dir(k,:),' n:',lake%pars%refl_dry_dir
-   print*,'refl_dry_dif o:',dat_refl_dry_dif(k,:),' n:',lake%pars%refl_dry_dif
-   print*,'refl_sat_dir o:',dat_refl_sat_dir(k,:),' n:',lake%pars%refl_sat_dir
-   print*,'refl_sat_dif o:',dat_refl_sat_dif(k,:),' n:',lake%pars%refl_sat_dif
-   print*,'emis_dry o:',dat_emis_dry(k),' n:',lake%pars%emis_dry
-   print*,'emis_sat o:',dat_emis_sat(k),' n:',lake%pars%emis_sat
-   print*,'z0_momentum o:',dat_z0_momentum(k),' n:',lake%pars%z0_momentum
-   print*,'z0_momentum_ice o:',dat_z0_momentum_ice(k),'n:',lake%pars%z0_momentum_ice
+     write(*,*)'#### lake parameters ####'
+     call dpri('connected_to_next:',lake%pars%connected_to_next); write(*,*)
+     call dpri('whole_area:',lake%pars%whole_area); write(*,*)
+     call dpri('depth_sill:',lake%pars%depth_sill); write(*,*)
+     call dpri('backwater:',lake%pars%backwater); write(*,*)
+     call dpri('backwater_1:',lake%pars%backwater_1); write(*,*)
+     call dpri('width_sill:',lake%pars%width_sill); write(*,*)
+     call dpri('w_sat o:',dat_w_sat(k));                         call dpri('n:',lake%pars%w_sat); write(*,*)
+     call dpri('awc_lm2 o:',dat_awc_lm2(k));                     call dpri('n:',lake%pars%awc_lm2); write(*,*)
+     call dpri('k_sat_ref o:',dat_k_sat_ref(k));                 call dpri('n:',lake%pars%k_sat_ref); write(*,*)
+     call dpri('psi_sat_ref o:',dat_psi_sat_ref(k));             call dpri('n:',lake%pars%psi_sat_ref); write(*,*)
+     call dpri('chb o:',dat_chb(k));                             call dpri('n:',lake%pars%chb); write(*,*)
+     call dpri('alpha o:',1.0);                                  call dpri('n:',lake%pars%alpha); write(*,*)
+     call dpri('heat_capacity_ref o:',dat_heat_capacity_ref(k)); call dpri('n:',lake%pars%heat_capacity_ref); write(*,*)
+     call dpri('thermal_cond_ref o:',dat_thermal_cond_ref(k));   call dpri('n:',lake%pars%thermal_cond_ref); write(*,*)
+     call dpri('refl_dry_dir o:',dat_refl_dry_dir(k,:));         call dpri('n:',lake%pars%refl_dry_dir); write(*,*)
+     call dpri('refl_dry_dif o:',dat_refl_dry_dif(k,:));         call dpri('n:',lake%pars%refl_dry_dif); write(*,*)
+     call dpri('refl_sat_dir o:',dat_refl_sat_dir(k,:));         call dpri('n:',lake%pars%refl_sat_dir); write(*,*)
+     call dpri('refl_sat_dif o:',dat_refl_sat_dif(k,:));         call dpri('n:',lake%pars%refl_sat_dif); write(*,*)
+     call dpri('emis_dry o:',dat_emis_dry(k));                   call dpri('n:',lake%pars%emis_dry); write(*,*)
+     call dpri('emis_sat o:',dat_emis_sat(k));                   call dpri('n:',lake%pars%emis_sat); write(*,*)
+     call dpri('z0_momentum o:',dat_z0_momentum(k));             call dpri('n:',lake%pars%z0_momentum); write(*,*)
+     call dpri('z0_momentum_ice o:',dat_z0_momentum_ice(k));     call dpri('n:',lake%pars%z0_momentum_ice); write(*,*)
   endif
 
   lake%pars%rsa_exp           = rsa_exp_global

@@ -1,6 +1,8 @@
 module soil_tile_mod
 #include <fms_platform.h>
 
+#include "../shared/debug.inc"
+
 #ifdef INTERNAL_FILE_NML
 use mpp_mod, only: input_nml_file
 #else
@@ -1065,47 +1067,47 @@ subroutine soil_data_init_0d_predefined(soil,tile_parameters,itile)
 
   !Print out the parameter values
   if (is_watch_point()) then
-   print*,'vwc_sat',soil%pars%vwc_sat
-   print*,'awc_lm2',soil%pars%awc_lm2
-   print*,'k_sat_ref',soil%pars%k_sat_ref
-   print*,'psi_sat_ref',soil%pars%psi_sat_ref
-   print*,'chb',soil%pars%chb
-   print*,'heat_capacity_dry',soil%pars%heat_capacity_dry
-   print*,'thermal_cond_dry',soil%pars%thermal_cond_dry
-   print*,'thermal_cond_sat',soil%pars%thermal_cond_sat
-   print*,'thermal_cond_exp',soil%pars%thermal_cond_exp
-   print*,'thermal_cond_scale',soil%pars%thermal_cond_scale
-   print*,'thermal_cond_weight',soil%pars%thermal_cond_weight
-   print*,'refl_dry_dir',soil%pars%refl_dry_dir
-   print*,'refl_dry_dif',soil%pars%refl_dry_dif
-   print*,'refl_sat_dir',soil%pars%refl_sat_dir
-   print*,'refl_sat_dif',soil%pars%refl_sat_dif
-   print*,'emis_dry',soil%pars%emis_dry
-   print*,'emis_sat',soil%pars%emis_sat
-   print*,'z0_momentum',soil%pars%z0_momentum
-   print*,'tfreeze',soil%pars%tfreeze
-   print*,'rsa_exp',soil%pars%rsa_exp
-   print*,'tau_groundwater',soil%pars%tau_groundwater
-   print*,'hillslope_length',soil%pars%hillslope_length
-   print*,'hillslope_zeta_bar',soil%pars%hillslope_zeta_bar
-   print*,'hillslope_relief',soil%pars%hillslope_relief
-   print*,'soil_e_depth',soil%pars%soil_e_depth
-   print*,'hillslope_a',soil%pars%hillslope_a
-   print*,'hillslope_n',soil%pars%hillslope_n
-   print*,'k_sat_gw',soil%pars%k_sat_gw
-   print*,'microtopo',soil%pars%microtopo
-   print*,'storage_index',soil%pars%storage_index
-   print*,'alpha',soil%alpha
-   print*,'fast_soil_C',soil%fast_soil_C
-   print*,'slow_soil_C',soil%slow_soil_C
-   print*,'asoil_in',soil%asoil_in
-   print*,'fsc_in',soil%fsc_in
-   print*,'ssc_in',soil%ssc_in
-   print*,'tile_hlsp_length',soil%pars%tile_hlsp_length
-   print*,'tile_hlsp_slope',soil%pars%tile_hlsp_slope
-   print*,'tile_hlsp_elev',soil%pars%tile_hlsp_elev
-   print*,'tile_hlsp_hpos',soil%pars%tile_hlsp_hpos
-   print*,'tile_hlsp_width',soil%pars%tile_hlsp_width
+     call dpri('vwc_sat',soil%pars%vwc_sat); write(*,*)
+     call dpri('awc_lm2',soil%pars%awc_lm2); write(*,*)
+     call dpri('k_sat_ref',soil%pars%k_sat_ref); write(*,*)
+     call dpri('psi_sat_ref',soil%pars%psi_sat_ref); write(*,*)
+     call dpri('chb',soil%pars%chb); write(*,*)
+     call dpri('heat_capacity_dry',soil%pars%heat_capacity_dry); write(*,*)
+     call dpri('thermal_cond_dry',soil%pars%thermal_cond_dry); write(*,*)
+     call dpri('thermal_cond_sat',soil%pars%thermal_cond_sat); write(*,*)
+     call dpri('thermal_cond_exp',soil%pars%thermal_cond_exp); write(*,*)
+     call dpri('thermal_cond_scale',soil%pars%thermal_cond_scale); write(*,*)
+     call dpri('thermal_cond_weight',soil%pars%thermal_cond_weight); write(*,*)
+     call dpri('refl_dry_dir',soil%pars%refl_dry_dir); write(*,*)
+     call dpri('refl_dry_dif',soil%pars%refl_dry_dif); write(*,*)
+     call dpri('refl_sat_dir',soil%pars%refl_sat_dir); write(*,*)
+     call dpri('refl_sat_dif',soil%pars%refl_sat_dif); write(*,*)
+     call dpri('emis_dry',soil%pars%emis_dry); write(*,*)
+     call dpri('emis_sat',soil%pars%emis_sat); write(*,*)
+     call dpri('z0_momentum',soil%pars%z0_momentum); write(*,*)
+     call dpri('tfreeze',soil%pars%tfreeze); write(*,*)
+     call dpri('rsa_exp',soil%pars%rsa_exp); write(*,*)
+     call dpri('tau_groundwater',soil%pars%tau_groundwater); write(*,*)
+     call dpri('hillslope_length',soil%pars%hillslope_length); write(*,*)
+     call dpri('hillslope_zeta_bar',soil%pars%hillslope_zeta_bar); write(*,*)
+     call dpri('hillslope_relief',soil%pars%hillslope_relief); write(*,*)
+     call dpri('soil_e_depth',soil%pars%soil_e_depth); write(*,*)
+     call dpri('hillslope_a',soil%pars%hillslope_a); write(*,*)
+     call dpri('hillslope_n',soil%pars%hillslope_n); write(*,*)
+     call dpri('k_sat_gw',soil%pars%k_sat_gw); write(*,*)
+     call dpri('microtopo',soil%pars%microtopo); write(*,*)
+     call dpri('storage_index',soil%pars%storage_index); write(*,*)
+     call dpri('alpha',soil%alpha); write(*,*)
+     call dpri('fast_soil_C',soil%fast_soil_C); write(*,*)
+     call dpri('slow_soil_C',soil%slow_soil_C); write(*,*)
+     call dpri('asoil_in',soil%asoil_in); write(*,*)
+     call dpri('fsc_in',soil%fsc_in); write(*,*)
+     call dpri('ssc_in',soil%ssc_in); write(*,*)
+     call dpri('tile_hlsp_length',soil%pars%tile_hlsp_length); write(*,*)
+     call dpri('tile_hlsp_slope',soil%pars%tile_hlsp_slope); write(*,*)
+     call dpri('tile_hlsp_elev',soil%pars%tile_hlsp_elev); write(*,*)
+     call dpri('tile_hlsp_hpos',soil%pars%tile_hlsp_hpos); write(*,*)
+     call dpri('tile_hlsp_width',soil%pars%tile_hlsp_width); write(*,*)
   endif
 
 end subroutine soil_data_init_0d_predefined

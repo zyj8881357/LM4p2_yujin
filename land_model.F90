@@ -96,7 +96,7 @@ use land_tile_io_mod, only: land_restart_type, &
      init_land_restart, open_land_restart, save_land_restart, free_land_restart, &
      add_tile_data, add_int_tile_data, get_tile_data, &
      field_exists, print_netcdf_error
-use land_tile_diag_mod, only : OP_AVERAGE, OP_SUM, OP_STD, cmor_name, tile_diag_init, tile_diag_end, &
+use land_tile_diag_mod, only : cmor_name, tile_diag_init, tile_diag_end, &
      register_tiled_diag_field, send_tile_data, dump_tile_diag_fields, &
      add_tiled_diag_field_alias, register_cohort_diag_field, send_cohort_data, &
      set_default_diag_filter, register_tiled_area_fields, send_global_land_diag, &
@@ -116,8 +116,7 @@ use hillslope_mod, only: retrieve_hlsp_indices, save_hlsp_restart, hlsp_end, &
                          read_hlsp_namelist, hlsp_init, hlsp_config_check
 use hillslope_hydrology_mod, only: hlsp_hydrology_1, hlsp_hydro_init
 use hillslope_mod, only: hlsp_init_predefined
-use vegn_data_mod, only : LU_CROP, LU_PAST, LU_NTRL, LU_SCND, LU_URBN, &
-    SP_C4GRASS, SP_C3GRASS, SP_TEMPDEC, SP_TROPICAL, SP_EVERGR
+use vegn_data_mod, only : LU_CROP, LU_PAST, LU_NTRL, LU_SCND, LU_URBN
 use hdf5
 use predefined_tiles_mod, only: land_cover_cold_start_0d_predefined_tiles,&
                                 open_database_predefined_tiles,&
@@ -318,7 +317,7 @@ integer, allocatable :: id_runf_tr(:), id_dis_tr(:)
 integer :: id_sftlf, id_sftgif
 integer :: id_pcp, id_prra, id_prveg, id_tran, id_evspsblveg, id_evspsblsoi, id_nbp, &
            id_snw, id_snd, id_snc, id_lwsnl, id_snm, id_tws, id_sweLut, id_cLand, &
-           id_hflsLut, id_rlusLut, id_rsusLut, id_tslsiLut, id_netAtmosLandCO2Flux, &
+           id_hflsLut, id_rlusLut, id_rsusLut, id_tslsiLut, &
            id_hfdsn, &
            id_ec, id_eow, id_esn, id_et, id_nLand
 ! various fractions
@@ -2762,7 +2761,6 @@ subroutine update_land_model_fast_0d ( tile, l,itile, N, land2cplr, &
   endif
   if (id_tslsiLut>0) &
       call send_tile_data(id_tslsiLut, (tile%lwup/stefan)**0.25,      tile%diag)
-  call send_tile_data(id_netAtmosLandCO2Flux,  -vegn_fco2*mol_C/mol_co2, tile%diag)
 
   !Tile variables
   call send_tile_data(id_transp_tile,vegn_uptk,tile%diag)
