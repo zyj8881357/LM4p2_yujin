@@ -26,10 +26,6 @@ type :: lake_predefined_type
  real,allocatable,dimension(:) :: backwater
  real,allocatable,dimension(:) :: backwater_1
  real,allocatable,dimension(:) :: rsa_exp         ! riparian source-area exponent
- real,allocatable,dimension(:) :: nrsv
- real,allocatable,dimension(:) :: rsv_cap
- real,allocatable,dimension(:) :: rsv_depth
- real,allocatable,dimension(:) :: rsv_area
 
 end type lake_predefined_type
 
@@ -73,10 +69,10 @@ type :: soil_predefined_type
  real,allocatable,dimension(:) :: dat_thermal_cond_exp
  real,allocatable,dimension(:) :: dat_thermal_cond_scale
  real,allocatable,dimension(:) :: dat_thermal_cond_weight
- real,allocatable,dimension(:,:) :: dat_refl_dry_dir 
+ real,allocatable,dimension(:,:) :: dat_refl_dry_dir
  real,allocatable,dimension(:,:) :: dat_refl_dry_dif
- real,allocatable,dimension(:,:) :: dat_refl_sat_dir 
- real,allocatable,dimension(:,:) :: dat_refl_sat_dif 
+ real,allocatable,dimension(:,:) :: dat_refl_sat_dir
+ real,allocatable,dimension(:,:) :: dat_refl_sat_dif
  real,allocatable,dimension(:) :: dat_emis_dry
  real,allocatable,dimension(:) :: dat_emis_sat
  real,allocatable,dimension(:) :: dat_z0_momentum

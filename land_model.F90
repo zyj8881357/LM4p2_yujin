@@ -518,11 +518,11 @@ subroutine land_model_init &
   call soil_init(predefined_tiles,id_ug,id_band,id_zfull,id_ptid)
   call hlsp_hydro_init(id_ug,id_zfull,id_ptid) ! Must be called after soil_init
   call vegn_init(id_ug, id_band, id_cellarea, id_ptid, predefined_tiles)
-  if (predefined_tiles) then
-     call lake_init_predefined(id_ug)
-  else
+  !if (predefined_tiles) then
+  !   call lake_init_predefined(id_ug)
+  !else
      call lake_init(id_ug)
-  endif
+  !endif
   call glac_init ( id_ug )
   call snow_init ()
   call cana_init ( id_ug )
