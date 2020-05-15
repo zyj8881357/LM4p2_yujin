@@ -448,11 +448,11 @@ subroutine vegn_init( id_ug, id_band, id_cellarea, id_ptid, predefined_tiles )
           call get_cohort_data(restart2,'leaf_age',cohort_leaf_age_ptr)
      call get_cohort_data(restart2, 'npp_prev_day', cohort_npp_previous_day_ptr)
      ! for reproducibility across mid-day restarts
-     if (field_exists(restart2,'carbon_gain')) then
-        call get_cohort_data(restart2, 'carbon_gain', cohort_carbon_gain_ptr)
-        call get_cohort_data(restart2, 'bwood_gain', cohort_bwood_gain_ptr)
-        call get_cohort_data(restart2, 'npp_prev_day_acm', cohort_npp_previous_day_tmp_ptr)
-     endif
+!      if (field_exists(restart2,'carbon_gain')) then
+!         call get_cohort_data(restart2, 'carbon_gain', cohort_carbon_gain_ptr)
+!         call get_cohort_data(restart2, 'bwood_gain', cohort_bwood_gain_ptr)
+!         call get_cohort_data(restart2, 'npp_prev_day_acm', cohort_npp_previous_day_tmp_ptr)
+!      endif
 
      call get_cohort_data(restart2, 'npp_prev_day', cohort_npp_previous_day_ptr )
 
@@ -1517,9 +1517,9 @@ subroutine save_vegn_restart(tile_dim_length,timestamp)
   enddo
 
   ! for reproducibility across mid-day restarts
-  call add_cohort_data(restart2,'carbon_gain',cohort_carbon_gain_ptr, 'carbon gain during a day', 'kgC/m2')
-  call add_cohort_data(restart2,'bwood_gain',cohort_bwood_gain_ptr, 'wood gain during a day', 'kgC/m2')
-  call add_cohort_data(restart2,'npp_prev_day_acm', cohort_npp_previous_day_tmp_ptr, 'cumulative sum of NPP for average values','kg C/(m2 year)')
+!   call add_cohort_data(restart2,'carbon_gain',cohort_carbon_gain_ptr, 'carbon gain during a day', 'kgC/m2')
+!   call add_cohort_data(restart2,'bwood_gain',cohort_bwood_gain_ptr, 'wood gain during a day', 'kgC/m2')
+!   call add_cohort_data(restart2,'npp_prev_day_acm', cohort_npp_previous_day_tmp_ptr, 'cumulative sum of NPP for average values','kg C/(m2 year)')
 
   call add_int_tile_data(restart2,'landuse',vegn_landuse_ptr,'vegetation land use type')
   call add_tile_data(restart2,'age_since_disturbance',vegn_age_since_disturbance_ptr,'time since last disturbance', 'yr')

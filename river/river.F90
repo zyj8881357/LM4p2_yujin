@@ -388,15 +388,15 @@ contains
            if (field_exist(filename,'depth',domain)) then
               id_restart = register_restart_field(river_restart,'river.res.nc','depth', River%depth, domain, mandatory=.false.)
            endif
-           if (field_exist(filename,'nstep',domain)) then
-              ! to reproduce across mid-day restarts
-              id_restart = register_restart_field(river_restart,'river.res.nc','nstep', River%nstep, domain)
-              id_restart = register_restart_field(river_restart,'river.res.nc','run_stor', River%run_stor, domain)
-              do i_species = 1, num_species
-                 id_restart = register_restart_field(river_restart,'river.res.nc','run_stor_'//trdata(i_species)%name, &
-                              River%run_stor_c(:,:,i_species),domain)
-              enddo
-           endif
+!            if (field_exist(filename,'nstep',domain)) then
+!               ! to reproduce across mid-day restarts
+!               id_restart = register_restart_field(river_restart,'river.res.nc','nstep', River%nstep, domain)
+!               id_restart = register_restart_field(river_restart,'river.res.nc','run_stor', River%run_stor, domain)
+!               do i_species = 1, num_species
+!                  id_restart = register_restart_field(river_restart,'river.res.nc','run_stor_'//trdata(i_species)%name, &
+!                               River%run_stor_c(:,:,i_species),domain)
+!               enddo
+!            endif
            call restore_state(river_restart)
            call free_restart_type(river_restart)
         else
@@ -429,14 +429,14 @@ contains
            else
                 ! call mpp_error(WARNING, 'river_init : "depth" is not present in '//trim(filename))
            endif
-           if (field_exist(filename,'nstep',domain)) then
-              ! to reproduce across mid-day restarts
-              call read_data(filename,'nstep', River%nstep, domain)
-              call read_data(filename,'run_stor', River%run_stor(isc:iec,jsc:jec), domain)
-              do i_species = 1, num_species
-                  call read_data(filename,'run_stor_'//trdata(i_species)%name,River%run_stor_c(isc:iec,jsc:jec,i_species), domain)
-              end do
-           endif
+!            if (field_exist(filename,'nstep',domain)) then
+!               ! to reproduce across mid-day restarts
+!               call read_data(filename,'nstep', River%nstep, domain)
+!               call read_data(filename,'run_stor', River%run_stor(isc:iec,jsc:jec), domain)
+!               do i_species = 1, num_species
+!                   call read_data(filename,'run_stor_'//trdata(i_species)%name,River%run_stor_c(isc:iec,jsc:jec,i_species), domain)
+!               end do
+!            endif
         endif
     else
         call mpp_error(NOTE, 'river_init : cold start, set data to 0')
@@ -1089,12 +1089,12 @@ end subroutine print_river_tracer_data
        id_restart = register_restart_field(river_restart,trim(timestamp)//'river.res.nc','Omean', River%outflowmean, domain)
        id_restart = register_restart_field(river_restart,trim(timestamp)//'river.res.nc','depth', River%depth, domain, mandatory=.false.)
        ! to reproduce across mid-day restarts
-       id_restart = register_restart_field(river_restart,trim(timestamp)//'river.res.nc','nstep', River%nstep, domain)
-       id_restart = register_restart_field(river_restart,trim(timestamp)//'river.res.nc','run_stor', River%run_stor, domain)
-       do tr = 1, num_species
-          id_restart = register_restart_field(river_restart,trim(timestamp)//'river.res.nc','run_stor_'//trdata(tr)%name, &
-                       River%run_stor_c(:,:,tr),domain)
-       enddo
+!        id_restart = register_restart_field(river_restart,trim(timestamp)//'river.res.nc','nstep', River%nstep, domain)
+!        id_restart = register_restart_field(river_restart,trim(timestamp)//'river.res.nc','run_stor', River%run_stor, domain)
+!        do tr = 1, num_species
+!           id_restart = register_restart_field(river_restart,trim(timestamp)//'river.res.nc','run_stor_'//trdata(tr)%name, &
+!                        River%run_stor_c(:,:,tr),domain)
+!        enddo
        call save_restart(river_restart)
        call free_restart_type(river_restart)
     else
@@ -1111,11 +1111,11 @@ end subroutine print_river_tracer_data
        call write_data(filename,'Omean', River%outflowmean, domain)
        call write_data(filename,'depth', River%depth, domain)
        ! to reproduce across mid-day restarts
-       call write_data(filename,'nstep',River%nstep,domain)
-       call write_data(filename,'run_stor', River%run_stor(isc:iec,jsc:jec), domain)
-       do tr = 1, num_species
-           call write_data(filename,'run_stor_'//trdata(tr)%name,River%run_stor_c(isc:iec,jsc:jec,tr), domain)
-       end do
+!        call write_data(filename,'nstep',River%nstep,domain)
+!        call write_data(filename,'run_stor', River%run_stor(isc:iec,jsc:jec), domain)
+!        do tr = 1, num_species
+!            call write_data(filename,'run_stor_'//trdata(tr)%name,River%run_stor_c(isc:iec,jsc:jec,tr), domain)
+!        end do
     endif
 
   end subroutine save_river_restart
