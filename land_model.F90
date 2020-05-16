@@ -1260,8 +1260,8 @@ subroutine update_land_model_fast ( cplr2land, land2cplr )
   if (face==lnd%sg_face.and.(lnd%is<=iwatch.and.iwatch<=lnd%ie).and.&
                             (lnd%js<=jwatch.and.jwatch<=lnd%je).and.&
                             is_watch_time()) then
-     __DEBUG1__(runoff_sg(iwatch,jwatch))
-     __DEBUG1__(runoff_c_sg(iwatch,jwatch,:))
+!     __DEBUG1__(runoff_sg(iwatch,jwatch))
+!     __DEBUG1__(runoff_c_sg(iwatch,jwatch,:))
   endif
 
   !--- update river state
@@ -1531,6 +1531,16 @@ subroutine update_land_model_fast_0d ( tile, l,itile, N, land2cplr, &
   ! that come from outside of this subroutine.
   call send_tile_data(id_e_res_1, tile%e_res_1, tile%diag)
   call send_tile_data(id_e_res_2, tile%e_res_2, tile%diag)
+
+  if(is_watch_point()) then
+     write(*,*)'#### input data to update_land_model_fast_0d ####'
+     __DEBUG4__(atmos_T, precip_l, precip_s, atmos_wind)
+     __DEBUG3__(ISa_dn_dir, ISa_dn_dif, ILa_dn)
+     __DEBUG3__(ustar, drag_q, p_surf)
+     __DEBUG2__(Ha0,DHaDTc)
+     __DEBUG1__(tr_flux)
+     __DEBUG1__(dfdtr)
+  endif
 
   ! sanity checks of some input values
   call check_var_range(precip_l,  0.0, 1.0,        'land model input', 'precip_l',    WARNING)
@@ -3564,14 +3574,14 @@ subroutine update_land_bc_fast (tile, N, l,k, land2cplr, is_init)
 
   if(is_watch_point()) then
      write(*,*)'#### update_land_bc_fast ### output ####'
-     write(*,*)'land2cplr%mask',land2cplr%mask(l,k)
-     write(*,*)'land2cplr%tile_size',land2cplr%tile_size(l,k)
-     write(*,*)'land2cplr%t_surf',land2cplr%t_surf(l,k)
-     write(*,*)'land2cplr%t_ca',land2cplr%t_ca(l,k)
-     write(*,*)'land2cplr%albedo',land2cplr%albedo(l,k)
-     write(*,*)'land2cplr%rough_mom',land2cplr%rough_mom(l,k)
-     write(*,*)'land2cplr%rough_heat',land2cplr%rough_heat(l,k)
-     write(*,*)'land2cplr%tr',land2cplr%tr(l,k,:)
+     call dpri('land2cplr%mask',land2cplr%mask(l,k));             write(*,*)
+     call dpri('land2cplr%tile_size',land2cplr%tile_size(l,k));   write(*,*)
+     call dpri('land2cplr%t_surf',land2cplr%t_surf(l,k));         write(*,*)
+     call dpri('land2cplr%t_ca',land2cplr%t_ca(l,k));             write(*,*)
+     call dpri('land2cplr%albedo',land2cplr%albedo(l,k));         write(*,*)
+     call dpri('land2cplr%rough_mom',land2cplr%rough_mom(l,k));   write(*,*)
+     call dpri('land2cplr%rough_heat',land2cplr%rough_heat(l,k)); write(*,*)
+     call dpri('land2cplr%tr',land2cplr%tr(l,k,:));               write(*,*)
      write(*,*)'#### update_land_bc_fast ### end of output ####'
   endif
 

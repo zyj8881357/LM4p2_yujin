@@ -1007,7 +1007,7 @@ subroutine vegn_hydraulics(soil, vegn, cc, p_surf, cana_T, cana_q, gb, gs0, fdry
         __DEBUG1__(gamma_l)
         __DEBUG3__(delta_pl, delta_px, delta_pr)
         __DEBUG3__(cc%psi_l, cc%psi_x, cc%psi_r)
-        __DEBUG1__(w_scale)
+   !     __DEBUG1__(w_scale)
      endif
   endif
 
