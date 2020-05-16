@@ -2576,11 +2576,14 @@ end subroutine soil_step_1
      enddo
      do l = 1, num_l
         write(*,'(i2.2,x)',advance='NO')l
-        __DEBUG3__(vsc(l),psi(l),dz(l))
+        __DEBUG4__(K_x(l),vsc(l),psi(l),dz(l))
      enddo
      __DEBUG1__(lrunf_bf)
-     call dpri('tau_gw',soil%pars%tau_groundwater); write(*,*)
-     __DEBUG1__(dens_h2o)
+     call dpri('tau_gw',soil%pars%tau_groundwater)
+     call dpri('hlsp_relief',soil%pars%hillslope_relief)
+     call dpri('hlsp_length',soil%pars%hillslope_length)
+     write(*,*)
+!     __DEBUG1__(dens_h2o)
   endif
 
   wl_before(1:num_l) = soil%wl(1:num_l)

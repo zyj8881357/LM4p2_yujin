@@ -1,5 +1,7 @@
 module land_debug_mod
 
+use ieee_arithmetic
+
 #ifdef INTERNAL_FILE_NML
 use mpp_mod, only: input_nml_file
 #else
@@ -68,7 +70,7 @@ interface set_current_point
    module procedure set_current_point_ug
 end interface set_current_point
 
-! conservation tolerances for use across the code. This module doesn't use
+! conservation tolerances for use across the code. This module does not use
 ! them, just serves as a convenient place to share them across all land code
 public :: water_cons_tol
 public :: carbon_cons_tol, nitrogen_cons_tol
@@ -165,7 +167,7 @@ subroutine land_debug_init()
   mosaic_tile_sg = ntiles*mpp_pe()/mpp_npes() + 1  ! assumption
 
   ! set number of threads and allocate by-thread arrays
-    max_threads = 1
+  max_threads = 1
 !$  max_threads = OMP_GET_MAX_THREADS()
   allocate(curr_i(max_threads),curr_j(max_threads),curr_k(max_threads),curr_l(max_threads))
   allocate(current_debug_level(max_threads))
@@ -330,7 +332,7 @@ end subroutine get_watch_point
 
 ! ============================================================================
 ! checks if the temperature within reasonable range, and prints a message
-! if it isn't
+! if it is not
 subroutine check_temp_range_0d(temp, tag, varname)
   real, intent(in) :: temp ! temperature to check
   character(*), intent(in) :: tag ! tag to print
@@ -349,7 +351,7 @@ end subroutine check_temp_range_1d
 
 ! ============================================================================
 ! checks if the value is within specified range, and prints a message
-! if it isn't
+! if it is not
 subroutine check_var_range_0d(value, lo, hi, tag, varname, severity)
   real        , intent(in) :: value    ! value to check
   real        , intent(in) :: lo,hi    ! lower and upper bounds of acceptable range
@@ -366,20 +368,20 @@ subroutine check_var_range_0d(value, lo, hi, tag, varname, severity)
 
   if (severity<0) return
 
-  if(lo<=value.and.value<=hi) then
-     return
-  else
-     thread = 1
-!$   thread = OMP_GET_THREAD_NUM()+1
-     call get_date(lnd%time,y,mo,d,h,m,s)
-     call get_current_coordinates(thread, lon, lat, face)
-
-     write(message,'(a,g23.16,2(x,a,f9.4),4(x,a,i4),x,a,i4.4,2("-",i2.2),x,i2.2,2(":",i2.2))')&
-          trim(varname)//' out of range: value=', value, 'at lon=',lon, 'lat=',lat, &
-          'i=',curr_i(thread),'j=',curr_j(thread),'tile=',curr_k(thread),'face=',face, &
-          'time=',y,mo,d,h,m,s
-     call error_mesg(trim(tag),message,severity)
+  if(ieee_is_finite(value)) then
+      if(lo<=value.and.value<=hi) return
   endif
+
+  thread = 1
+!$   thread = OMP_GET_THREAD_NUM()+1
+  call get_date(lnd%time,y,mo,d,h,m,s)
+  call get_current_coordinates(thread, lon, lat, face)
+
+  write(message,'(a,g23.16,2(x,a,f9.4),4(x,a,i4),x,a,i4.4,2("-",i2.2),x,i2.2,2(":",i2.2))')&
+       trim(varname)//' out of range: value=', value, 'at lon=',lon, 'lat=',lat, &
+       'i=',curr_i(thread),'j=',curr_j(thread),'tile=',curr_k(thread),'face=',face, &
+       'time=',y,mo,d,h,m,s
+  call error_mesg(trim(tag),message,severity)
 end subroutine check_var_range_0d
 
 
@@ -402,20 +404,19 @@ subroutine check_var_range_1d(value, lo, hi, tag, varname, severity)
   if (severity<0) return
 
   do i = 1,size(value)
-     if(lo<=value(i).and.value(i)<=hi) then
-        cycle
-     else
-        thread = 1
-!$      thread = OMP_GET_THREAD_NUM()+1
-        call get_date(lnd%time,y,mo,d,h,m,s)
-        call get_current_coordinates(thread, lon, lat, face)
-        write(message,'(a,g23.16,2(x,a,f9.4),4(x,a,i4),x,a,i4.4,2("-",i2.2),x,i2.2,2(":",i2.2))')&
-             trim(varname)//'('//trim(string(i))//')'//' out of range: value=', value(i),&
-             'at lon=',lon, 'lat=',lat, &
-             'i=',curr_i(thread),'j=',curr_j(thread),'tile=',curr_k(thread),'face=',face, &
-             'time=',y,mo,d,h,m,s
-        call error_mesg(trim(tag),message,severity)
+     if(ieee_is_finite(value(i))) then
+        if(lo<=value(i).and.value(i)<=hi) cycle
      endif
+     thread = 1
+!$   thread = OMP_GET_THREAD_NUM()+1
+     call get_date(lnd%time,y,mo,d,h,m,s)
+     call get_current_coordinates(thread, lon, lat, face)
+     write(message,'(a,g23.16,2(x,a,f9.4),4(x,a,i4),x,a,i4.4,2("-",i2.2),x,i2.2,2(":",i2.2))')&
+          trim(varname)//'('//trim(string(i))//')'//' out of range: value=', value(i),&
+          'at lon=',lon, 'lat=',lat, &
+          'i=',curr_i(thread),'j=',curr_j(thread),'tile=',curr_k(thread),'face=',face, &
+          'time=',y,mo,d,h,m,s
+     call error_mesg(trim(tag),message,severity)
   enddo
 end subroutine check_var_range_1d
 

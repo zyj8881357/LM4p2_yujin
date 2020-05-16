@@ -1911,7 +1911,7 @@ subroutine vegn_fire_fn_GDPpc(vegn,GDPpc,popD,fire_fn_GDPpc_NF,fire_fn_GDPpc_BA)
 
     if (is_watch_point()) then
        write(*,*) '######## vegn_fire_fn_GDPpc ########'
-       __DEBUG2__(GDPpc_k,popD)
+       ! __DEBUG2__(GDPpc_k,popD)
        __DEBUG2__(fire_fn_GDPpc_NF, fire_fn_GDPpc_BA)
     endif
 end subroutine vegn_fire_fn_GDPpc
