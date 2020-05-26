@@ -14,7 +14,7 @@ use land_debug_mod,  only : is_watch_point, is_watch_cell, set_current_point, &
      heat_cons_tol, nitrogen_cons_tol, check_var_range, land_error_message
 use vegn_data_mod,   only : do_ppa, nat_mortality_splits_tiles, spdata, agf_bs, &
      FORM_GRASS, FORM_WOODY, LEAF_OFF, DBH_mort, A_mort, B_mort, cold_mort, treeline_mort, &
-     treeline_base_T, treeline_thresh_T, treeline_season_length, &
+     treeline_base_T, treeline_thresh_T, treeline_season_length, treeline_season_snow_limited, &
      COLD_INTOLERANT, WARM_INTOLERANT
 use land_tile_diag_mod, only : set_default_diag_filter, register_tiled_diag_field, send_tile_data
 use vegn_tile_mod,   only : vegn_tile_type, vegn_relayer_cohorts_ppa, vegn_tile_bwood, &
@@ -394,7 +394,8 @@ subroutine vegn_nat_mortality_ppa ( )
      ts = first_elmt(land_tile_map)
      do while (loop_over_tiles(ts,t0))
         if (.not.associated(t0%vegn)) cycle ! do nothing for non-vegetated tiles
-        if (t0%vegn%tc_daily > treeline_base_T.and..not.snow_active(t0%snow)) then
+        if (treeline_season_snow_limited.and.snow_active(t0%snow)) cycle ! do not count days with snow on ground
+        if (t0%vegn%tc_daily > treeline_base_T) then
            ! accumulate average T over growing season, for treeline/mortality calculations
            t0%vegn%treeline_T_accum = t0%vegn%treeline_T_accum + t0%vegn%tc_daily
            t0%vegn%treeline_N_accum = t0%vegn%treeline_N_accum + 1
