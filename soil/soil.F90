@@ -298,7 +298,7 @@ integer :: id_mrlsl, id_mrsfl, id_mrsll, id_mrsol, id_mrso, id_mrsos, id_mrlso, 
     id_nSoil, id_nLitter, id_nLitterCwd, id_nMineral, id_nMineralNH4, id_nMineralNO3
 
 ! diag of irrigation-ralted variables
-integer :: id_irr_demand, id_irr_area_input, id_irr_area_real
+integer :: id_irr_demand, id_irr_area_input, id_irr_area_real, id_root_theta
 integer :: id_soil_area, id_soil_frac
 
 ! variables for CMOR/CMIP diagnostic calculations
@@ -1246,6 +1246,8 @@ subroutine soil_diag_init(id_ug,id_band,id_zfull)
        lnd%time, 'irrigated area from input data', 'm2',  missing_value=-100.0 ) 
   id_irr_area_real = register_tiled_diag_field ( module_name, 'irr_area_real', axes(1:1), &
        lnd%time, 'real irrigated area', 'm2',  missing_value=-100.0 ) 
+  id_root_theta = register_tiled_diag_field ( module_name, 'root_theta', axes(1:1), &
+       lnd%time, 'soil_theta in 95% depth of root zone', '-',  missing_value=-100.0 )
 
   id_soil_area = register_tiled_diag_field ( module_name, 'soil_area', axes(1:1), &
        lnd%time, 'soil area', 'm2',  missing_value=-100.0 )  
@@ -4923,6 +4925,7 @@ subroutine irrigation_deficit()
   real :: percentile = 0.95   
   integer, save :: n = 0  ! fast time step with each slow time step   
   real,dimension(lnd%ls:lnd%le) :: atots
+  real :: tot_wl_v, tot_v, root_theta
 !----------------------------------------------------
 
  !if (.not. use_irrigation_routine) return
@@ -4943,7 +4946,7 @@ subroutine irrigation_deficit()
      do while(loop_over_tiles(ce,tile,k=k))
        if (.not.associated(tile%soil)) cycle
        soil => tile%soil
-       vegn => tile%vegn   
+       vegn => tile%vegn         
        !update soil%irr_demand_ac, soil%irr_area2frac_input, soil%irr_area2frac_real only when n == num_fast_calls    
        IF(n == num_fast_calls) THEN 
          if(vegn%landuse == LU_IRRIG) then
@@ -4979,9 +4982,25 @@ subroutine irrigation_deficit()
          soil%irr_area2frac_real = irr_area_temp / tile%frac !m2 
        ENDIF
 
+       ! for output of root_theta
+       tot_wl_v = 0.; tot_v = 0.
+       do i = 1, vegn%n_cohorts 
+         depth_ave = -log(1.-percentile)*vegn%cohorts(i)%root_zeta !m
+         if(depth_ave<=0.) cycle 
+         theta_test = soil_ave_theta3(soil, depth_ave, layer) !1
+         tot_wl_v = tot_wl_v + theta_test*sum(dz(1:layer))*vegn%cohorts(i)%layerfrac
+         tot_v = tot_v + sum(dz(1:layer))*vegn%cohorts(i)%layerfrac
+       enddo  
+       if(tot_v>0.)then
+         root_theta = tot_wl_v/tot_v     
+       else
+         root_theta = soil_ave_theta3(soil, 0.1, layer)
+       endif
+       
        call send_tile_data(id_irr_demand, soil%irr_demand_ac/(num_fast_calls*delta_time), tile%diag) !kg/(m2 s)
        call send_tile_data(id_irr_area_input, soil%irr_area2frac_input * atots(l), tile%diag)       
        call send_tile_data(id_irr_area_real, soil%irr_area2frac_real * atots(l), tile%diag)
+       call send_tile_data(id_root_theta, root_theta, tile%diag)
      enddo
  enddo   
 
