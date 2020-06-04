@@ -470,10 +470,10 @@ subroutine land_model_init &
           'reading NetCDF restart "'//trim(restart_file_name)//'"',&
           NOTE)
      ! read map of tiles -- retrieve information from
-     if (predefined_tiles .eq. .False.) then
-      call land_cover_warm_start(restart)
-     else if (predefined_tiles .eq. .True.) then
-      call land_cover_warm_start_predefined(restart)
+     if (predefined_tiles) then
+        call land_cover_warm_start_predefined(restart)
+     else
+        call land_cover_warm_start(restart)
      endif
      ! initialize land model data
      if (field_exists(restart, 'lwup'   )) call get_tile_data(restart,'lwup',   land_lwup_ptr)
@@ -1082,8 +1082,8 @@ subroutine land_cover_warm_start_predefined(restart)
 
  type(land_restart_type), intent(in) :: restart
  ! ---- local vars
- integer, allocatable :: pid(:),i_index(:),j_index(:),l_index(:),faces(:),itiles(:),vegn(:)
- integer, allocatable :: pid_sd(:),i_index_sd(:),j_index_sd(:),l_index_sd(:),faces_sd(:),vegn_sd(:)
+ integer, allocatable :: pid(:),i_index(:),j_index(:),l_index(:),faces(:),vegn(:)
+ integer, allocatable :: pid_sd(:),i_index_sd(:),j_index_sd(:),l_index_sd(:),faces_sd(:),vegn_sd(:),tidx(:)
  real,    allocatable :: frac(:) ! fraction of land covered by tile
  real,    allocatable :: frac_sd(:) ! fraction of land covered by tile
  integer :: ntiles    ! total number of land tiles in the input file
@@ -1091,25 +1091,42 @@ subroutine land_cover_warm_start_predefined(restart)
  integer :: i,j,k,it,nt,face,first,last,g,l
  integer :: itt
  integer(hid_t) :: h5id
- type(land_tile_type), pointer :: tile
+ integer :: ncid
+ integer :: dimids(1) ! id of tile dimension
+ character(NF_MAX_NAME) :: tile_dim_name ! name of the tile dimension and respective variable
 
- ntiles = size(restart%tidx)
- allocate(pid(ntiles),i_index(ntiles),j_index(ntiles),l_index(ntiles),&
-          faces(ntiles),vegn(ntiles),frac(ntiles))
-
- !call read_compressed(restart%basename,'frac',frac,domain=lnd%domain, timelevel=1)
- !call read_compressed(restart%basename,'vegn',vegn,domain=lnd%domain, timelevel=1)
- !call read_compressed(restart%basename,'pid',pid,domain=lnd%domain, timelevel=1)
- !call read_compressed(restart%basename,'is',is,domain=lnd%domain, timelevel=1)
- !call read_compressed(restart%basename,'js',js,domain=lnd%domain, timelevel=1)
- !call read_compressed(restart%basename,'face',faces,domain=lnd%domain, timelevel=1)
- call fms_io_unstructured_read(restart%basename, "frac", frac, lnd%ug_domain, timelevel=1)
- call fms_io_unstructured_read(restart%basename, "vegn", vegn, lnd%ug_domain, timelevel=1)
- call fms_io_unstructured_read(restart%basename, "pid", pid, lnd%ug_domain, timelevel=1)
- call fms_io_unstructured_read(restart%basename, "i_index", i_index, lnd%ug_domain, timelevel=1)
- call fms_io_unstructured_read(restart%basename, "j_index", j_index, lnd%ug_domain, timelevel=1)
- call fms_io_unstructured_read(restart%basename, "l_index", l_index, lnd%ug_domain, timelevel=1)
- call fms_io_unstructured_read(restart%basename, "face", faces, lnd%ug_domain, timelevel=1)
+ if (new_land_io) then
+    ntiles = size(restart%tidx)
+    allocate(pid(ntiles),i_index(ntiles),j_index(ntiles),l_index(ntiles),&
+             faces(ntiles),vegn(ntiles),frac(ntiles),tidx(ntiles))
+    call fms_io_unstructured_read(restart%basename, "frac", frac, lnd%ug_domain, timelevel=1)
+    call fms_io_unstructured_read(restart%basename, "vegn", vegn, lnd%ug_domain, timelevel=1)
+    call fms_io_unstructured_read(restart%basename, "pid", pid, lnd%ug_domain, timelevel=1)
+    call fms_io_unstructured_read(restart%basename, "i_index", i_index, lnd%ug_domain, timelevel=1)
+    call fms_io_unstructured_read(restart%basename, "j_index", j_index, lnd%ug_domain, timelevel=1)
+    call fms_io_unstructured_read(restart%basename, "l_index", l_index, lnd%ug_domain, timelevel=1)
+    call fms_io_unstructured_read(restart%basename, "face", faces, lnd%ug_domain, timelevel=1)
+    tidx(:)=restart%tidx(:)
+ else
+    __NF_ASRT__(nf_open(restart%filename,NF_NOWRITE,ncid))
+    __NF_ASRT__(nfu_inq_var(ncid,'frac',id=id_frac,varsize=ntiles,dimids=dimids))
+    allocate(pid(ntiles),i_index(ntiles),j_index(ntiles),l_index(ntiles),&
+             faces(ntiles),vegn(ntiles),frac(ntiles),tidx(ntiles))
+    ! get the name of the fist (and only) dimension of the variable 'frac' -- this
+    ! is supposed to be the compressed dimension, and associated variable will
+    ! hold the compressed indices
+    __NF_ASRT__(nfu_inq_dim(ncid,dimids(1),name=tile_dim_name))
+    ! get the variables
+    __NF_ASRT__(nfu_get_var(ncid,'frac',frac))
+    __NF_ASRT__(nfu_get_var(ncid,'vegn',vegn))
+    __NF_ASRT__(nfu_get_var(ncid,'pid',pid))
+    __NF_ASRT__(nfu_get_var(ncid,'i_index',i_index))
+    __NF_ASRT__(nfu_get_var(ncid,'j_index',j_index))
+    __NF_ASRT__(nfu_get_var(ncid,'l_index',l_index))
+    __NF_ASRT__(nfu_get_var(ncid,'face',faces))
+    __NF_ASRT__(nfu_get_var(ncid,tile_dim_name,tidx))
+    __NF_ASRT__(nf_close(ncid))
+ endif
 
  ! Open access to model input database
  call open_database_predefined_tiles(h5id,lnd)
@@ -1117,7 +1134,7 @@ subroutine land_cover_warm_start_predefined(restart)
  !Calculate the number of tiles in the subdomain
  ntiless = 0
  do it = 1,ntiles
-  k = restart%tidx(it)
+  k = tidx(it)
   if (k<0) cycle ! skip negative indices
   !i = modulo(k,lnd%nlon)+1; k = k/lnd%nlon
   !j = modulo(k,lnd%nlat)+1; k = k/lnd%nlat
@@ -1135,7 +1152,7 @@ subroutine land_cover_warm_start_predefined(restart)
            vegn_sd(ntiless),frac_sd(ntiless),l_index_sd(ntiless))
   itt = 1
   do it = 1,ntiles
-   k = restart%tidx(it)
+   k = tidx(it)
    if (k<0) cycle ! skip negative indices
    !i = modulo(k,lnd%nlon)+1; k = k/lnd%nlon
    !j = modulo(k,lnd%nlat)+1; k = k/lnd%nlat
@@ -1183,7 +1200,7 @@ subroutine land_cover_warm_start_predefined(restart)
    endif
   enddo
   !deallocate the subset
-  deallocate(pid_sd, i_index_sd, j_index_sd, faces_sd, vegn_sd, frac_sd, l_index_sd)
+  deallocate(pid_sd, i_index_sd, j_index_sd, faces_sd, vegn_sd, frac_sd, l_index_sd, tidx)
  endif
 
  ! Close access to model input database
@@ -5256,8 +5273,7 @@ DEFINE_TAG_ACCESSOR(soil)
 DEFINE_TAG_ACCESSOR(vegn)
 
 #define DEFINE_PID_ACCESSOR(x) subroutine tile_ ## x ## _ptr(t,p);\
-type(land_tile_type),pointer::t;integer,pointer::p;p=>NULL();if(associated(t))\
-then;if (associated(t)) p=>t%x;endif;\
+type(land_tile_type),pointer::t;integer,pointer::p;p=>NULL();if (associated(t)) p=>t%x;\
 end subroutine
 
 DEFINE_PID_ACCESSOR(pid)
