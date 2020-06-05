@@ -152,10 +152,6 @@ type :: land_tile_type
    integer :: tag = 0   ! defines type of the tile
    real    :: frac      ! fractional tile area, dimensionless
    integer :: pid       ! parent id of the tile
-   integer :: i_index
-   integer :: j_index
-   integer :: l_index
-   integer :: face
    real :: ttype
    real :: dws_prec(12)
    real :: dws_srad(12)
@@ -600,10 +596,6 @@ function land_tile_ctor_predefined(frac,glac,lake,soil,vegn,tag,htag_j,htag_k,&
   tile%frac = 0.0 ; if(present(frac)) tile%frac = frac
   tile%tag  = 0   ; if(present(tag))  tile%tag  = tag
   tile%pid = 0; if(present(pid)) tile%pid = pid
-  tile%i_index = 0; if(present(i_index)) tile%i_index = i_index
-  tile%j_index = 0; if(present(j_index)) tile%j_index = j_index
-  tile%l_index = 0; if(present(l_index)) tile%l_index = l_index
-  tile%face = 0; if(present(face)) tile%face = face
   tile%ttype = 0; if(present(ttype)) tile%ttype = ttype
   tile%dws_srad = 1; if(present(dws_srad)) tile%dws_srad = dws_srad
   tile%dws_prec = 1; if(present(dws_prec)) tile%dws_prec = dws_prec

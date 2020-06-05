@@ -759,10 +759,6 @@ subroutine land_model_restart(timestamp)
   call add_int_tile_data(restart,'soil',soil_tag_ptr,'tag of soil tiles')
   call add_int_tile_data(restart,'vegn',vegn_tag_ptr,'tag of vegetation tiles')
   call add_int_tile_data(restart,'pid',tile_pid_ptr,'parent id of the tiles')
-  call add_int_tile_data(restart,'i_index',tile_i_index_ptr,'i index of the cell')
-  call add_int_tile_data(restart,'j_index',tile_j_index_ptr,'j index of the cell')
-  call add_int_tile_data(restart,'l_index',tile_l_index_ptr,'l index of the cell')
-  call add_int_tile_data(restart,'face',tile_face_ptr,'face of the cell')
   ! write the upward long-wave flux
   call add_tile_data(restart,'lwup',land_lwup_ptr,'upward long-wave flux')
   ! write energy residuals
@@ -5255,9 +5251,5 @@ type(land_tile_type),pointer::t;integer,pointer::p;p=>NULL();if (associated(t)) 
 end subroutine
 
 DEFINE_PID_ACCESSOR(pid)
-DEFINE_PID_ACCESSOR(i_index)
-DEFINE_PID_ACCESSOR(j_index)
-DEFINE_PID_ACCESSOR(l_index)
-DEFINE_PID_ACCESSOR(face)
 
 end module land_model_mod
