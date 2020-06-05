@@ -1097,20 +1097,17 @@ subroutine land_cover_warm_start_predefined(restart)
 
  if (new_land_io) then
     ntiles = size(restart%tidx)
-    allocate(pid(ntiles),i_index(ntiles),j_index(ntiles),l_index(ntiles),&
+    allocate(pid(ntiles),&
              faces(ntiles),vegn(ntiles),frac(ntiles),tidx(ntiles))
     call fms_io_unstructured_read(restart%basename, "frac", frac, lnd%ug_domain, timelevel=1)
     call fms_io_unstructured_read(restart%basename, "vegn", vegn, lnd%ug_domain, timelevel=1)
     call fms_io_unstructured_read(restart%basename, "pid", pid, lnd%ug_domain, timelevel=1)
-    call fms_io_unstructured_read(restart%basename, "i_index", i_index, lnd%ug_domain, timelevel=1)
-    call fms_io_unstructured_read(restart%basename, "j_index", j_index, lnd%ug_domain, timelevel=1)
-    call fms_io_unstructured_read(restart%basename, "l_index", l_index, lnd%ug_domain, timelevel=1)
     call fms_io_unstructured_read(restart%basename, "face", faces, lnd%ug_domain, timelevel=1)
     tidx(:)=restart%tidx(:)
  else
     __NF_ASRT__(nf_open(restart%filename,NF_NOWRITE,ncid))
     __NF_ASRT__(nfu_inq_var(ncid,'frac',id=id_frac,varsize=ntiles,dimids=dimids))
-    allocate(pid(ntiles),i_index(ntiles),j_index(ntiles),l_index(ntiles),&
+    allocate(pid(ntiles),&
              faces(ntiles),vegn(ntiles),frac(ntiles),tidx(ntiles))
     ! get the name of the fist (and only) dimension of the variable 'frac' -- this
     ! is supposed to be the compressed dimension, and associated variable will
@@ -1120,9 +1117,6 @@ subroutine land_cover_warm_start_predefined(restart)
     __NF_ASRT__(nfu_get_var(ncid,'frac',frac))
     __NF_ASRT__(nfu_get_var(ncid,'vegn',vegn))
     __NF_ASRT__(nfu_get_var(ncid,'pid',pid))
-    __NF_ASRT__(nfu_get_var(ncid,'i_index',i_index))
-    __NF_ASRT__(nfu_get_var(ncid,'j_index',j_index))
-    __NF_ASRT__(nfu_get_var(ncid,'l_index',l_index))
     __NF_ASRT__(nfu_get_var(ncid,'face',faces))
     __NF_ASRT__(nfu_get_var(ncid,tile_dim_name,tidx))
     __NF_ASRT__(nf_close(ncid))
@@ -1136,13 +1130,8 @@ subroutine land_cover_warm_start_predefined(restart)
  do it = 1,ntiles
   k = tidx(it)
   if (k<0) cycle ! skip negative indices
-  !i = modulo(k,lnd%nlon)+1; k = k/lnd%nlon
-  !j = modulo(k,lnd%nlat)+1; k = k/lnd%nlat
   g = modulo(k,lnd%nlon*lnd%nlat)+1
-  !if (i<lnd%is.or.i>lnd%ie) cycle
-  !if (j<lnd%js.or.j>lnd%je) cycle
   if (g<lnd%gs.or.g>lnd%ge) cycle
-  k = k + 1
   ntiless = ntiless + 1
  enddo
 
@@ -1154,17 +1143,13 @@ subroutine land_cover_warm_start_predefined(restart)
   do it = 1,ntiles
    k = tidx(it)
    if (k<0) cycle ! skip negative indices
-   !i = modulo(k,lnd%nlon)+1; k = k/lnd%nlon
-   !j = modulo(k,lnd%nlat)+1; k = k/lnd%nlat
    g = modulo(k,lnd%nlon*lnd%nlat)+1
    if (g<lnd%gs.or.g>lnd%ge) cycle
-   !if (i<lnd%is.or.i>lnd%ie) cycle
-   ! if (j<lnd%js.or.j>lnd%je) cycle
-   k = k + 1
    pid_sd(itt) = pid(it)
-   i_index_sd(itt) = i_index(it)
-   j_index_sd(itt) = j_index(it)
-   l_index_sd(itt) = l_index(it)
+   l = lnd%l_index(g)
+   i_index_sd(itt) = lnd%i_index(l)
+   j_index_sd(itt) = lnd%j_index(l)
+   l_index_sd(itt) = l
    faces_sd(itt) = faces(it)
    vegn_sd(itt) = vegn(it)
    frac_sd(itt) = frac(it)
@@ -1206,7 +1191,7 @@ subroutine land_cover_warm_start_predefined(restart)
  ! Close access to model input database
  call close_database_predefined_tiles(h5id)
 
- deallocate(pid, i_index, j_index, faces, vegn, frac, l_index)
+ deallocate(pid, faces, vegn, frac)
 
 end subroutine land_cover_warm_start_predefined
 
