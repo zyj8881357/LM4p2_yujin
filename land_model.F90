@@ -1082,8 +1082,8 @@ subroutine land_cover_warm_start_predefined(restart)
 
  type(land_restart_type), intent(in) :: restart
  ! ---- local vars
- integer, allocatable :: pid(:),i_index(:),j_index(:),l_index(:),faces(:),vegn(:)
- integer, allocatable :: pid_sd(:),i_index_sd(:),j_index_sd(:),l_index_sd(:),faces_sd(:),vegn_sd(:),tidx(:)
+ integer, allocatable :: pid(:),i_index(:),j_index(:),l_index(:),vegn(:)
+ integer, allocatable :: pid_sd(:),i_index_sd(:),j_index_sd(:),l_index_sd(:),vegn_sd(:),tidx(:)
  real,    allocatable :: frac(:) ! fraction of land covered by tile
  real,    allocatable :: frac_sd(:) ! fraction of land covered by tile
  integer :: ntiles    ! total number of land tiles in the input file
@@ -1097,18 +1097,15 @@ subroutine land_cover_warm_start_predefined(restart)
 
  if (new_land_io) then
     ntiles = size(restart%tidx)
-    allocate(pid(ntiles),&
-             faces(ntiles),vegn(ntiles),frac(ntiles),tidx(ntiles))
+    allocate(pid(ntiles),vegn(ntiles),frac(ntiles),tidx(ntiles))
     call fms_io_unstructured_read(restart%basename, "frac", frac, lnd%ug_domain, timelevel=1)
     call fms_io_unstructured_read(restart%basename, "vegn", vegn, lnd%ug_domain, timelevel=1)
     call fms_io_unstructured_read(restart%basename, "pid", pid, lnd%ug_domain, timelevel=1)
-    call fms_io_unstructured_read(restart%basename, "face", faces, lnd%ug_domain, timelevel=1)
     tidx(:)=restart%tidx(:)
  else
     __NF_ASRT__(nf_open(restart%filename,NF_NOWRITE,ncid))
     __NF_ASRT__(nfu_inq_var(ncid,'frac',id=id_frac,varsize=ntiles,dimids=dimids))
-    allocate(pid(ntiles),&
-             faces(ntiles),vegn(ntiles),frac(ntiles),tidx(ntiles))
+    allocate(pid(ntiles),vegn(ntiles),frac(ntiles),tidx(ntiles))
     ! get the name of the fist (and only) dimension of the variable 'frac' -- this
     ! is supposed to be the compressed dimension, and associated variable will
     ! hold the compressed indices
@@ -1117,7 +1114,6 @@ subroutine land_cover_warm_start_predefined(restart)
     __NF_ASRT__(nfu_get_var(ncid,'frac',frac))
     __NF_ASRT__(nfu_get_var(ncid,'vegn',vegn))
     __NF_ASRT__(nfu_get_var(ncid,'pid',pid))
-    __NF_ASRT__(nfu_get_var(ncid,'face',faces))
     __NF_ASRT__(nfu_get_var(ncid,tile_dim_name,tidx))
     __NF_ASRT__(nf_close(ncid))
  endif
@@ -1137,7 +1133,7 @@ subroutine land_cover_warm_start_predefined(restart)
 
  if (ntiless .gt. 0)then
   !Extract the info for the subdomain
-  allocate(pid_sd(ntiless),i_index_sd(ntiless),j_index_sd(ntiless),faces_sd(ntiless),&
+  allocate(pid_sd(ntiless),i_index_sd(ntiless),j_index_sd(ntiless),&
            vegn_sd(ntiless),frac_sd(ntiless),l_index_sd(ntiless))
   itt = 1
   do it = 1,ntiles
@@ -1150,7 +1146,6 @@ subroutine land_cover_warm_start_predefined(restart)
    i_index_sd(itt) = lnd%i_index(l)
    j_index_sd(itt) = lnd%j_index(l)
    l_index_sd(itt) = l
-   faces_sd(itt) = faces(it)
    vegn_sd(itt) = vegn(it)
    frac_sd(itt) = frac(it)
    itt = itt + 1
@@ -1160,7 +1155,6 @@ subroutine land_cover_warm_start_predefined(restart)
   i = i_index_sd(1)
   j = j_index_sd(1)
   l = l_index_sd(1)
-  face = faces_sd(1)
   first = 1
   last = 0
   do itt = 1,ntiless
@@ -1168,30 +1162,29 @@ subroutine land_cover_warm_start_predefined(restart)
     !Create all the tiles for this cell
     last = itt
     call land_cover_warm_start_0d_predefined_tiles(land_tile_map(l),lnd,l,h5id,&
-         pid_sd(first:last),vegn_sd(first:last),i,j,face)
-   else if ((i_index_sd(itt+1) .ne. i) .or. (j_index_sd(itt+1) .ne. j) .or. (faces_sd(itt+1) .ne. face))then
+         pid_sd(first:last),vegn_sd(first:last),i,j)
+   else if ((i_index_sd(itt+1) .ne. i) .or. (j_index_sd(itt+1) .ne. j))then
     last = itt
     !Create all the tiles for this cell
     call land_cover_warm_start_0d_predefined_tiles(land_tile_map(l),lnd,l,h5id,&
-         pid_sd(first:last),vegn_sd(first:last),i,j,face)
+         pid_sd(first:last),vegn_sd(first:last),i,j)
     !Update the parameters
     first = itt+1
     i = i_index_sd(first)
     j = j_index_sd(first)
     l = l_index_sd(first)
-    face = faces_sd(first)
    else
     last = last + 1
    endif
   enddo
   !deallocate the subset
-  deallocate(pid_sd, i_index_sd, j_index_sd, faces_sd, vegn_sd, frac_sd, l_index_sd, tidx)
+  deallocate(pid_sd, i_index_sd, j_index_sd, vegn_sd, frac_sd, l_index_sd, tidx)
  endif
 
  ! Close access to model input database
  call close_database_predefined_tiles(h5id)
 
- deallocate(pid, faces, vegn, frac)
+ deallocate(pid, vegn, frac)
 
 end subroutine land_cover_warm_start_predefined
 

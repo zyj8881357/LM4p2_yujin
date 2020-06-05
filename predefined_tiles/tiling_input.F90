@@ -287,14 +287,14 @@ subroutine land_cover_cold_start_0d_predefined_tiles(tiles,lnd,l,h5id)
 end subroutine
 
 subroutine land_cover_warm_start_0d_predefined_tiles(tiles,lnd,l,h5id,warm_tiles,warm_vegn,&
-           i_index,j_index,face)
+           i_index,j_index)
 
   type(land_tile_list_type),intent(inout) :: tiles
   integer, intent(in) :: l,warm_tiles(:),warm_vegn(:)
   integer(hid_t), intent(in) :: h5id
   type(land_state_type),intent(inout) :: lnd
   type(land_tile_type), pointer :: tile
-  integer :: itile,tid,i_index,j_index,face,status
+  integer :: itile,tid,i_index,j_index,status
   integer(hid_t) :: varid,grpid,dimid,cell_grpid,cellid,dstid,cid,dsid
   integer :: max_npt,k,warm_tile
   real :: lat,lon,t0,t1
