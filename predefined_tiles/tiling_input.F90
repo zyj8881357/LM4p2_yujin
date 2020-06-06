@@ -236,10 +236,10 @@ subroutine land_cover_cold_start_0d_predefined_tiles(tiles,lnd,l,h5id)
     case(1)
       tile => new_land_tile_glac(                           &
                 tile_parameters%metadata%frac(itile),       &
-                tid,                                        &
-                tile_parameters%glacier,                    &
-                tid,                                        &
-                tile_parameters%metadata%tile(itile)+1,     &
+                tid,                                        & ! glac = kind of glacier
+                tile_parameters%glacier,                    & ! parameters
+                tid,                                        & ! itile
+                tile_parameters%metadata%tile(itile)+1,     & ! pid
                 tile_parameters%metadata%dws_prec(itile,:), &
                 tile_parameters%metadata%dws_srad(itile,:), &
                 tile_parameters%metadata%dws_tavg(itile,:)  &
@@ -286,31 +286,34 @@ subroutine land_cover_cold_start_0d_predefined_tiles(tiles,lnd,l,h5id)
 
 end subroutine
 
-subroutine land_cover_warm_start_0d_predefined_tiles(tiles,lnd,l,h5id,warm_tiles,warm_vegn,&
-           i_index,j_index)
+subroutine land_cover_warm_start_0d_predefined_tiles(lnd, h5id, tiles, l, &
+  lidx, frac, pid, vegn)
 
-  type(land_tile_list_type),intent(inout) :: tiles
-  integer, intent(in) :: l,warm_tiles(:),warm_vegn(:)
-  integer(hid_t), intent(in) :: h5id
-  type(land_state_type),intent(inout) :: lnd
+  type(land_state_type)     , intent(inout) :: lnd     ! land geometry and indexing information
+  integer(hid_t)            , intent(in)    :: h5id    ! input data set handle
+  type(land_tile_list_type) , intent(inout) :: tiles   ! list of tiles to insert new tiles into
+  integer                   , intent(in)    :: l       ! index of current point
+  integer                   , intent(in)    :: lidx(:) ! l-indices indices of input data
+  real                      , intent(in)    :: frac(:) ! fractions of tiles
+  integer                   , intent(in)    :: pid (:) ! "parent IDs" of tiles
+  integer                   , intent(in)    :: vegn(:) ! vegetation flags of tiles
+
   type(land_tile_type), pointer :: tile
-  integer :: itile,tid,i_index,j_index,status
-  integer(hid_t) :: varid,grpid,dimid,cell_grpid,cellid,dstid,cid,dsid
-  integer :: max_npt,k,warm_tile
-  real :: lat,lon,t0,t1
-  real,allocatable,dimension(:) :: tmp
+  integer :: itile,tid,i_index,j_index,status,max_npt,k
+  integer(hid_t) :: dstid,cid
   type(tile_parameters_type) :: tile_parameters
   type(c_ptr) :: buf_ptr
   integer(size_t) :: buf_len
-  character(kind=c_char),allocatable,dimension(:),target :: image_ptr
+  character(kind=c_char),allocatable,target :: image_ptr(:)
+!   real :: lat,lon
 
   i_index = lnd%i_index(l)
   j_index = lnd%j_index(l)
-  lon = 180.0*lnd%ug_lon(l)/pi
-  lat = 180.0*lnd%ug_lat(l)/pi
 
   !Print out the current lat and lon
-  !print*,"Initializing: ",lat,lon
+!   lon = 180.0*lnd%ug_lon(l)/pi
+!   lat = 180.0*lnd%ug_lat(l)/pi
+!   print*,"Initializing: ",lat,lon
 
   !Retrieve buffer and buffer length of desired group (I/O core)
   call load_group_into_memory(lnd%ug_face,i_index,j_index,h5id,buf_ptr,buf_len,image_ptr)
@@ -322,62 +325,55 @@ subroutine land_cover_warm_start_0d_predefined_tiles(tiles,lnd,l,h5id,warm_tiles
   call h5gopen_f(dstid,'data',cid,status)
   !call check_h5err(status)
 
-  !Metadata
   call retrieve_metadata(tile_parameters,cid)
-
-  !Soil parameters
   call retrieve_soil_parameters(tile_parameters,cid)
-
-  !Lake parameters
   call retrieve_lake_parameters(tile_parameters,cid)
-
-  !Glacier parameters
   call retrieve_glacier_parameters(tile_parameters,cid)
 
-  !Create the tiles
-  do warm_tile = 1,size(warm_tiles)
-   itile = warm_tiles(warm_tile)
-   if (tile_parameters%metadata%frac(itile) .eq. 0.0)cycle
-   tid = tile_parameters%metadata%tid(itile)
-   select case (tile_parameters%metadata%ttype(itile))
-    case(1)
-      tile => new_land_tile_glac(                           &
-                tile_parameters%metadata%frac(itile),       &
-                tid,                                        &
-                tile_parameters%glacier,                    &
-                tid,                                        &
-                tile_parameters%metadata%tile(itile)+1,     &
-                tile_parameters%metadata%dws_prec(itile,:), &
-                tile_parameters%metadata%dws_srad(itile,:), &
-                tile_parameters%metadata%dws_tavg(itile,:)  &
-            )
-    case(2)
-      tile => new_land_tile_lake(                           &
-                tile_parameters%metadata%frac(itile),       &
-                tid,                                        &
-                tile_parameters%lake,                       &
-                tid,                                        &
-                tile_parameters%metadata%tile(itile)+1,     &
-                tile_parameters%metadata%dws_prec(itile,:), &
-                tile_parameters%metadata%dws_srad(itile,:), &
-                tile_parameters%metadata%dws_tavg(itile,:)  &
-            )
-    case(3)
-      tile => new_land_tile_soil(                           &
-                tile_parameters%metadata%frac(itile),       &
-                1,                                          &
-                warm_vegn(warm_tile),                       &
-                tile_parameters%soil,                       &
-                tid,                                        &
-                tile_parameters%metadata%tile(itile)+1,     &
-                tile_parameters%metadata%dws_prec(itile,:), &
-                tile_parameters%metadata%dws_srad(itile,:), &
-                tile_parameters%metadata%dws_tavg(itile,:), &
-                tile_parameters%soil%hidx_j(tid),           &
-                tile_parameters%soil%hidx_k(tid)            &
-            )
-   end select
-   call insert(tile,tiles)
+  ! Create the tiles
+  do k = 1,size(frac)
+     if (lidx(k)/=l) cycle ! skip all tiles that do not belong to the current point
+     itile = pid(k)
+     tid = tile_parameters%metadata%tid(itile)
+     select case (tile_parameters%metadata%ttype(itile))
+     case(1)
+       tile => new_land_tile_glac(                           &
+                 frac(k),                                    & ! area fraction
+                 tid,                                        & ! kind of glacier
+                 tile_parameters%glacier,                    & ! glacier parameters
+                 tid,                                        & ! itile
+                 tile_parameters%metadata%tile(itile)+1,     & ! pid
+                 tile_parameters%metadata%dws_prec(itile,:), &
+                 tile_parameters%metadata%dws_srad(itile,:), &
+                 tile_parameters%metadata%dws_tavg(itile,:)  &
+             )
+     case(2)
+       tile => new_land_tile_lake(                           &
+                 frac(k),                                    & ! area fraction
+                 tid,                                        & ! kind of lake
+                 tile_parameters%lake,                       & ! lake parameters
+                 tid,                                        & ! itile
+                 tile_parameters%metadata%tile(itile)+1,     & ! pid
+                 tile_parameters%metadata%dws_prec(itile,:), &
+                 tile_parameters%metadata%dws_srad(itile,:), &
+                 tile_parameters%metadata%dws_tavg(itile,:)  &
+             )
+     case(3)
+       tile => new_land_tile_soil(                           &
+                 frac(k),                                    & ! area fraction
+                 1,                                          & ! kind of soil tile
+                 vegn(k),                                    & ! kind of vegn tile
+                 tile_parameters%soil,                       & ! soil parameters
+                 tid,                                        & ! itile
+                 tile_parameters%metadata%tile(itile)+1,     & ! pid
+                 tile_parameters%metadata%dws_prec(itile,:), &
+                 tile_parameters%metadata%dws_srad(itile,:), &
+                 tile_parameters%metadata%dws_tavg(itile,:), &
+                 tile_parameters%soil%hidx_j(tid),           &
+                 tile_parameters%soil%hidx_k(tid)            &
+             )
+    end select
+    call insert(tile,tiles)
   enddo
 
   !Close access to the grid cell's group
@@ -391,7 +387,7 @@ subroutine land_cover_warm_start_0d_predefined_tiles(tiles,lnd,l,h5id,warm_tiles
   !lnd%max_npt = tile_parameters%metadata%ntile!tile_parameters%metadata%max_npt(1)
   !lnd%max_npt = tile_parameters%metadata%max_npt(1)
 
-end subroutine
+end subroutine land_cover_warm_start_0d_predefined_tiles
 
 subroutine retrieve_metadata(tile_parameters,cid)
 

@@ -1078,16 +1078,15 @@ subroutine land_cover_warm_start_predefined(restart)
 
  type(land_restart_type), intent(in) :: restart
  ! ---- local vars
- integer, allocatable :: pid(:),i_index(:),j_index(:),l_index(:),vegn(:)
- integer, allocatable :: pid_sd(:),i_index_sd(:),j_index_sd(:),l_index_sd(:),vegn_sd(:),tidx(:)
+ integer, allocatable :: tidx(:),pid(:),vegn(:)
  real,    allocatable :: frac(:) ! fraction of land covered by tile
+ integer, allocatable :: pid_sd(:),l_index_sd(:),vegn_sd(:)
  real,    allocatable :: frac_sd(:) ! fraction of land covered by tile
  integer :: ntiles    ! total number of land tiles in the input file
- integer :: ntiless
- integer :: i,j,k,it,nt,face,first,last,g,l
- integer :: itt
- integer(hid_t) :: h5id
- integer :: ncid
+ integer :: ntiless   ! number of tiles in the local domain
+ integer :: k,it,g,l, itt
+ integer(hid_t) :: h5id ! input database handle
+ integer :: ncid      ! netcdf ID of the restart file
  integer :: dimids(1) ! id of tile dimension
  character(NF_MAX_NAME) :: tile_dim_name ! name of the tile dimension and respective variable
 
@@ -1128,59 +1127,39 @@ subroutine land_cover_warm_start_predefined(restart)
  enddo
 
  if (ntiless .gt. 0)then
-  !Extract the info for the subdomain
-  allocate(pid_sd(ntiless),i_index_sd(ntiless),j_index_sd(ntiless),&
-           vegn_sd(ntiless),frac_sd(ntiless),l_index_sd(ntiless))
-  itt = 1
-  do it = 1,ntiles
-   k = tidx(it)
-   if (k<0) cycle ! skip negative indices
-   g = modulo(k,lnd%nlon*lnd%nlat)+1
-   if (g<lnd%gs.or.g>lnd%ge) cycle
-   pid_sd(itt) = pid(it)
-   l = lnd%l_index(g)
-   i_index_sd(itt) = lnd%i_index(l)
-   j_index_sd(itt) = lnd%j_index(l)
-   l_index_sd(itt) = l
-   vegn_sd(itt) = vegn(it)
-   frac_sd(itt) = frac(it)
-   itt = itt + 1
-  enddo
+    ! Extract the info for the subdomain
+    allocate(pid_sd(ntiless),vegn_sd(ntiless),frac_sd(ntiless),l_index_sd(ntiless))
+    itt = 1
+    do it = 1,ntiles
+       k = tidx(it)
+       if (k<0) cycle ! skip negative indices
+       g = modulo(k,lnd%nlon*lnd%nlat)+1
+       if (g<lnd%gs.or.g>lnd%ge) cycle
+       l_index_sd(itt) = lnd%l_index(g)
+       pid_sd(itt) = pid(it)
+       vegn_sd(itt) = vegn(it)
+       frac_sd(itt) = frac(it)
+       itt = itt + 1
+    enddo
 
-  ! Create tiles
-  i = i_index_sd(1)
-  j = j_index_sd(1)
-  l = l_index_sd(1)
-  first = 1
-  last = 0
-  do itt = 1,ntiless
-   if (itt+1 .gt. ntiless)then
-    !Create all the tiles for this cell
-    last = itt
-    call land_cover_warm_start_0d_predefined_tiles(land_tile_map(l),lnd,l,h5id,&
-         pid_sd(first:last),vegn_sd(first:last),i,j)
-   else if ((i_index_sd(itt+1) .ne. i) .or. (j_index_sd(itt+1) .ne. j))then
-    last = itt
-    !Create all the tiles for this cell
-    call land_cover_warm_start_0d_predefined_tiles(land_tile_map(l),lnd,l,h5id,&
-         pid_sd(first:last),vegn_sd(first:last),i,j)
-    !Update the parameters
-    first = itt+1
-    i = i_index_sd(first)
-    j = j_index_sd(first)
-    l = l_index_sd(first)
-   else
-    last = last + 1
-   endif
-  enddo
-  !deallocate the subset
-  deallocate(pid_sd, i_index_sd, j_index_sd, vegn_sd, frac_sd, l_index_sd, tidx)
+    do l=lnd%ls,lnd%le
+       ! We pass in the information for the entire domain, but within the subroutine,
+       ! data for specific point l are selected, and the tiles are created for that point
+       ! only. To the best of my understanding, the motivation is to optimize i/o, because
+       ! it is easier/faster to retrieve the information for a point from the data base,
+       ! compared to doing it repeatedly for each tile (ot tile PID)
+       call land_cover_warm_start_0d_predefined_tiles( lnd, h5id, &
+            land_tile_map(l), l, &
+            l_index_sd, frac_sd, pid_sd, vegn_sd)
+    enddo
+    !deallocate the subset
+    deallocate(pid_sd, vegn_sd, frac_sd, l_index_sd)
  endif
 
  ! Close access to model input database
  call close_database_predefined_tiles(h5id)
 
- deallocate(pid, vegn, frac)
+ deallocate(pid, vegn, frac, tidx)
 
 end subroutine land_cover_warm_start_predefined
 
