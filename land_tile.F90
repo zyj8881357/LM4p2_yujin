@@ -151,7 +151,7 @@ type :: land_tile_type
 
    integer :: tag = 0   ! defines type of the tile
    real    :: frac      ! fractional tile area, dimensionless
-   integer :: pid       ! parent id of the tile
+   integer :: pid = 1   ! parent id of the tile
    real :: ttype
    real :: dws_prec(12)
    real :: dws_srad(12)
@@ -787,6 +787,9 @@ function land_tiles_can_be_merged(tile1,tile2) result (answer)
             (associated(tile1%snow).eqv.associated(tile2%snow)).and. &
             (associated(tile1%cana).eqv.associated(tile2%cana)).and. &
             (associated(tile1%vegn).eqv.associated(tile2%vegn))
+
+   ! tiles with different parent ids cannot be merged
+   answer = answer.and.(tile1%pid == tile2%pid)
 
    if (answer.and.associated(tile1%glac)) &
       answer = answer.and.glac_tiles_can_be_merged(tile1%glac,tile2%glac)
