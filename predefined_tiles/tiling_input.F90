@@ -5,6 +5,7 @@ module predefined_tiles_mod
  use constants_mod     , only : pi
  use fms_mod, only : error_mesg, FATAL, WARNING, NOTE
  use land_data_mod, only: land_state_type,atmos_land_boundary_type
+ use land_debug_mod, only : land_error_message
  use vegn_cohort_mod, only : vegn_cohort_type
  use land_tile_mod, only : first_elmt, insert, &
                            new_land_tile_glac, new_land_tile_lake, new_land_tile_soil
@@ -178,33 +179,27 @@ end subroutine open_image_file
 
 subroutine land_cover_cold_start_0d_predefined_tiles(tiles,lnd,l,h5id)
 
-  type(land_tile_list_type),intent(inout) :: tiles
-  integer, intent(in) :: l
-  integer(hid_t), intent(in) :: h5id
-  type(land_state_type),intent(inout) :: lnd
+  type(land_tile_list_type) , intent(inout) :: tiles   ! list of tiles to insert new tiles into
+  type(land_state_type)     , intent(inout) :: lnd     ! land geometry and indexing information
+  integer                   , intent(in)    :: l       ! unstructured grid index of current gridcell
+  integer(hid_t)            , intent(in)    :: h5id    ! input data set handle
+
   type(land_tile_type), pointer :: tile
   integer :: itile,tid,i_index,j_index,status
-  !integer :: parent_id = 0
-  integer(hid_t) :: varid,grpid,dimid,cell_grpid,cellid,dstid,cid,dsid
-  !real*8 :: h5tmp(1,1)
-  !integer(hsize_t) :: dims(2),maxdims(2)
-  !character(100) :: cellid_string
-  real :: lat,lon,t0,t1
-  real,allocatable,dimension(:) :: tmp
+  integer(hid_t) :: dstid,cid
   type(tile_parameters_type) :: tile_parameters
-  !integer :: memrank
-  !integer(hsize_t) :: dimsm(2),count(2),offset(2)
-  !integer(hid_t) :: memid,fapl
   type(c_ptr) :: buf_ptr
   integer(size_t) :: buf_len
   character(kind=c_char),allocatable,dimension(:),target :: image_ptr
+!   real :: lat,lon
 
   i_index = lnd%i_index(l)
   j_index = lnd%j_index(l)
-  lon = 180.0*lnd%ug_lon(l)/pi
-  lat = 180.0*lnd%ug_lat(l)/pi
+
   !Print out the current lat and lon
-  !print*,"Initializing: ",lat,lon
+!   lon = 180.0*lnd%ug_lon(l)/pi
+!   lat = 180.0*lnd%ug_lat(l)/pi
+!   print*,"Initializing: ",lat,lon
 
   !Retrieve buffer and buffer length of desired group (I/O core)
   call load_group_into_memory(lnd%ug_face,i_index,j_index,h5id,buf_ptr,buf_len,image_ptr)
@@ -218,60 +213,55 @@ subroutine land_cover_cold_start_0d_predefined_tiles(tiles,lnd,l,h5id)
 
   !Metadata
   call retrieve_metadata(tile_parameters,cid)
-
-  !Soil parameters
   call retrieve_soil_parameters(tile_parameters,cid)
-
-  !Lake parameters
   call retrieve_lake_parameters(tile_parameters,cid)
-
-  !Glacier parameters
   call retrieve_glacier_parameters(tile_parameters,cid)
 
   !Create the tiles
   do itile = 1,tile_parameters%metadata%ntile
-   if (tile_parameters%metadata%frac(itile) .eq. 0.0)cycle
-   tid = tile_parameters%metadata%tid(itile)
-   select case (tile_parameters%metadata%ttype(itile))
-    case(1)
-      tile => new_land_tile_glac(                           &
-                tile_parameters%metadata%frac(itile),       &
-                tid,                                        & ! glac = kind of glacier
-                tile_parameters%glacier,                    & ! parameters
-                tid,                                        & ! itile
-                tile_parameters%metadata%tile(itile)+1,     & ! pid
-                tile_parameters%metadata%dws_prec(itile,:), &
-                tile_parameters%metadata%dws_srad(itile,:), &
-                tile_parameters%metadata%dws_tavg(itile,:)  &
-            )
-    case(2)
-      tile => new_land_tile_lake(                           &
-                tile_parameters%metadata%frac(itile),       &
-                tid,                                        &
-                tile_parameters%lake,                       &
-                tid,                                        &
-                tile_parameters%metadata%tile(itile)+1,     &
-                tile_parameters%metadata%dws_prec(itile,:), &
-                tile_parameters%metadata%dws_srad(itile,:), &
-                tile_parameters%metadata%dws_tavg(itile,:)  &
-            )
-    case(3)
-      tile => new_land_tile_soil(                           &
-                tile_parameters%metadata%frac(itile),       &
-                1,                                          &
-                tile_parameters%soil%vegn(tid),             &
-                tile_parameters%soil,                       &
-                tid,                                        &
-                tile_parameters%metadata%tile(itile)+1,     &
-                tile_parameters%metadata%dws_prec(itile,:), &
-                tile_parameters%metadata%dws_srad(itile,:), &
-                tile_parameters%metadata%dws_tavg(itile,:), &
-                tile_parameters%soil%hidx_j(tid),           &
-                tile_parameters%soil%hidx_k(tid)            &
-            )
-  end select
-
-   call insert(tile,tiles)
+     if (tile_parameters%metadata%frac(itile) .eq. 0.0)cycle
+     tid = tile_parameters%metadata%tid(itile)
+     select case (tile_parameters%metadata%ttype(itile))
+     case(1)
+        tile => new_land_tile_glac(                           &
+                  tile_parameters%metadata%frac(itile),       & ! land area fraction
+                  tid,                                        & ! kind (tag) of glacier tile
+                  tile_parameters%glacier,                    & ! collection of glacier parameter arrays
+                  tid,                                        & ! itile -- index in glacier parameters
+                  tile_parameters%metadata%tile(itile)+1,     & ! pid
+                  tile_parameters%metadata%dws_prec(itile,:), &
+                  tile_parameters%metadata%dws_srad(itile,:), &
+                  tile_parameters%metadata%dws_tavg(itile,:)  &
+              )
+     case(2)
+        tile => new_land_tile_lake(                           &
+                  tile_parameters%metadata%frac(itile),       & ! land area fraction
+                  tid,                                        & ! kind (tag) of lake tile
+                  tile_parameters%lake,                       & ! collection of lake parameter arrays
+                  tid,                                        & ! itile  -- index in lake parameters
+                  tile_parameters%metadata%tile(itile)+1,     & ! pid
+                  tile_parameters%metadata%dws_prec(itile,:), &
+                  tile_parameters%metadata%dws_srad(itile,:), &
+                  tile_parameters%metadata%dws_tavg(itile,:)  &
+              )
+     case(3)
+        tile => new_land_tile_soil(                           &
+                  tile_parameters%metadata%frac(itile),       & ! land area fraction
+                  1,                                          & ! kind (tag) of soil tile
+                  tile_parameters%soil%vegn(tid),             & ! kind (tag) of vegn tile
+                  tile_parameters%soil,                       & ! collection of soil parameter arrays
+                  tid,                                        & ! itile  -- index in soil parameters
+                  tile_parameters%metadata%tile(itile)+1,     & ! pid
+                  tile_parameters%metadata%dws_prec(itile,:), &
+                  tile_parameters%metadata%dws_srad(itile,:), &
+                  tile_parameters%metadata%dws_tavg(itile,:), &
+                  tile_parameters%soil%hidx_j(tid),           &
+                  tile_parameters%soil%hidx_k(tid)            &
+              )
+     case default
+         call land_error_message('land_cover_cold_start_0d_predefined_tiles: unknow tile type',FATAL)
+     end select
+     call insert(tile,tiles)
   enddo
 
   !Close access to the grid cell's group
@@ -284,7 +274,7 @@ subroutine land_cover_cold_start_0d_predefined_tiles(tiles,lnd,l,h5id)
   lnd%max_npt = max(lnd%max_npt,tile_parameters%metadata%ntile)
   !lnd%max_npt = tile_parameters%metadata%ntile!tile_parameters%metadata%max_npt(1)
 
-end subroutine
+end subroutine land_cover_cold_start_0d_predefined_tiles
 
 subroutine land_cover_warm_start_0d_predefined_tiles(lnd, h5id, tiles, l, &
   lidx, frac, pid, vegn)
@@ -292,7 +282,7 @@ subroutine land_cover_warm_start_0d_predefined_tiles(lnd, h5id, tiles, l, &
   type(land_state_type)     , intent(inout) :: lnd     ! land geometry and indexing information
   integer(hid_t)            , intent(in)    :: h5id    ! input data set handle
   type(land_tile_list_type) , intent(inout) :: tiles   ! list of tiles to insert new tiles into
-  integer                   , intent(in)    :: l       ! index of current point
+  integer                   , intent(in)    :: l       ! unstructured grid index of current gridcell
   integer                   , intent(in)    :: lidx(:) ! l-indices indices of input data
   real                      , intent(in)    :: frac(:) ! fractions of tiles
   integer                   , intent(in)    :: pid (:) ! "parent IDs" of tiles
@@ -337,43 +327,45 @@ subroutine land_cover_warm_start_0d_predefined_tiles(lnd, h5id, tiles, l, &
      tid = tile_parameters%metadata%tid(itile)
      select case (tile_parameters%metadata%ttype(itile))
      case(1)
-       tile => new_land_tile_glac(                           &
-                 frac(k),                                    & ! area fraction
-                 tid,                                        & ! kind of glacier
-                 tile_parameters%glacier,                    & ! glacier parameters
-                 tid,                                        & ! itile
-                 tile_parameters%metadata%tile(itile)+1,     & ! pid
-                 tile_parameters%metadata%dws_prec(itile,:), &
-                 tile_parameters%metadata%dws_srad(itile,:), &
-                 tile_parameters%metadata%dws_tavg(itile,:)  &
-             )
+        tile => new_land_tile_glac(                           &
+                  frac(k),                                    & ! land area fraction
+                  tid,                                        & ! kind (tag) of glacier tile
+                  tile_parameters%glacier,                    & ! collection of glacier parameter arrays
+                  tid,                                        & ! itile -- index in glacier parameters
+                  pid(k),                                     & ! pid
+                  tile_parameters%metadata%dws_prec(itile,:), &
+                  tile_parameters%metadata%dws_srad(itile,:), &
+                  tile_parameters%metadata%dws_tavg(itile,:)  &
+              )
      case(2)
-       tile => new_land_tile_lake(                           &
-                 frac(k),                                    & ! area fraction
-                 tid,                                        & ! kind of lake
-                 tile_parameters%lake,                       & ! lake parameters
-                 tid,                                        & ! itile
-                 tile_parameters%metadata%tile(itile)+1,     & ! pid
-                 tile_parameters%metadata%dws_prec(itile,:), &
-                 tile_parameters%metadata%dws_srad(itile,:), &
-                 tile_parameters%metadata%dws_tavg(itile,:)  &
-             )
+        tile => new_land_tile_lake(                           &
+                  frac(k),                                    & ! land area fraction
+                  tid,                                        & ! kind (tag) of lake tile
+                  tile_parameters%lake,                       & ! collection of lake parameter arrays
+                  tid,                                        & ! itile  -- index in lake parameters
+                  pid(k),                                     & ! pid
+                  tile_parameters%metadata%dws_prec(itile,:), &
+                  tile_parameters%metadata%dws_srad(itile,:), &
+                  tile_parameters%metadata%dws_tavg(itile,:)  &
+              )
      case(3)
-       tile => new_land_tile_soil(                           &
-                 frac(k),                                    & ! area fraction
-                 1,                                          & ! kind of soil tile
-                 vegn(k),                                    & ! kind of vegn tile
-                 tile_parameters%soil,                       & ! soil parameters
-                 tid,                                        & ! itile
-                 tile_parameters%metadata%tile(itile)+1,     & ! pid
-                 tile_parameters%metadata%dws_prec(itile,:), &
-                 tile_parameters%metadata%dws_srad(itile,:), &
-                 tile_parameters%metadata%dws_tavg(itile,:), &
-                 tile_parameters%soil%hidx_j(tid),           &
-                 tile_parameters%soil%hidx_k(tid)            &
-             )
-    end select
-    call insert(tile,tiles)
+        tile => new_land_tile_soil(                           &
+                  frac(k),                                    & ! land area fraction
+                  1,                                          & ! kind (tag) of soil tile
+                  vegn(k),                                    & ! kind (tag) of vegn tile
+                  tile_parameters%soil,                       & ! collection of soil parameter arrays
+                  tid,                                        & ! itile  -- index in soil parameters
+                  pid(k),                                     & ! pid
+                  tile_parameters%metadata%dws_prec(itile,:), &
+                  tile_parameters%metadata%dws_srad(itile,:), &
+                  tile_parameters%metadata%dws_tavg(itile,:), &
+                  tile_parameters%soil%hidx_j(tid),           &
+                  tile_parameters%soil%hidx_k(tid)            &
+              )
+     case default
+         call land_error_message('land_cover_cold_start_0d_predefined_tiles: unknow tile type',FATAL)
+     end select
+     call insert(tile,tiles)
   enddo
 
   !Close access to the grid cell's group
