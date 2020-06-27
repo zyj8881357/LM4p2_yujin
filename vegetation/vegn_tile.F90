@@ -29,6 +29,7 @@ use soil_tile_mod, only : max_lev, N_LITTER_POOLS
 
 use soil_carbon_mod, only : soil_carbon_option, SOILC_CORPSE_N
 
+use predefined_tiles_mod, only : use_predefined_landuse
 use tiling_input_types_mod, only : soil_predefined_type
 
 implicit none
@@ -89,7 +90,7 @@ character(len=*), parameter :: tagname     = '$Name$'
 type :: vegn_tile_type
    integer :: tag ! kind of the tile
    integer :: landuse = LU_NTRL
-   integer :: irrigation = 0 ! 0=no irrigation/1=irrigation
+   ! integer :: irrigation = 0 ! 0=no irrigation/1=irrigation
    real :: predefined_br,predefined_bsw,predefined_bwood,predefined_bl !for predefined values for the tile
 
    integer :: n_cohorts = 0
@@ -254,8 +255,12 @@ function vegn_tile_ctor_predefined(tile_parameters,itile) result(ptr)
   ptr%drop_seed_C(:) = 0.0 ; ptr%drop_seed_N(:) = 0.0
 
   ptr%tag                   = tile_parameters%vegn(itile)
-  ptr%landuse               = tile_parameters%landuse(itile)
-  ptr%irrigation            = tile_parameters%irrigation(itile)
+  if (use_predefined_landuse) then
+     ptr%landuse               = tile_parameters%landuse(itile)
+     ! perhaps predefined irrigation need its own switch in the future? It isn't
+     ! used or relevant in current code, so it is commented out
+     ! ptr%irrigation            = tile_parameters%irrigation(itile)
+  endif
   ptr%predefined_bwood      = tile_parameters%bwood(itile)
   ptr%predefined_br         = tile_parameters%br(itile)
   ptr%predefined_bsw        = tile_parameters%bsw(itile)
