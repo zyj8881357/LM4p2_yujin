@@ -1,32 +1,36 @@
 module predefined_tiles_mod
 
- use hdf5
- use,intrinsic :: iso_c_binding
- use constants_mod     , only : pi
- use fms_mod, only : error_mesg, FATAL, WARNING, NOTE
- use land_data_mod, only: land_state_type,atmos_land_boundary_type
- use land_debug_mod, only : land_error_message
- use vegn_cohort_mod, only : vegn_cohort_type
- use land_tile_mod, only : first_elmt, insert, &
-                           new_land_tile_glac, new_land_tile_lake, new_land_tile_soil
- use land_tile_mod, only : land_tile_list_type,land_tile_type,&
-                           land_tile_enum_type
- use tiling_input_types_mod, only : tile_parameters_type,lake_predefined_type
- use tiling_input_types_mod, only : glacier_predefined_type,soil_predefined_type
- use tiling_input_types_mod, only : metadata_predefined_type
- use time_manager_mod, only : time_type,get_date
- use time_interp_mod, only : time_interp
+use hdf5
+use, intrinsic :: iso_c_binding
+use constants_mod, only : pi
+use fms_mod, only : error_mesg, FATAL
+use land_data_mod, only: land_state_type,atmos_land_boundary_type
+use land_debug_mod, only : land_error_message
+use land_tile_mod, only : insert, new_land_tile_glac, new_land_tile_lake, new_land_tile_soil
+use land_tile_mod, only : land_tile_list_type, land_tile_type
+use tiling_input_types_mod, only : tile_parameters_type, metadata_predefined_type, &
+       lake_predefined_type, glacier_predefined_type, soil_predefined_type
+use time_manager_mod, only : get_date
 
- implicit none
+implicit none
+private
 
- interface get_parameter_data
+! ==== public interfaces =====================================================
+public :: open_database_predefined_tiles
+public :: close_database_predefined_tiles
+public :: land_cover_cold_start_0d_predefined_tiles
+public :: land_cover_warm_start_0d_predefined_tiles
+public :: downscale_atmos
+! ==== end of public interfaces ==============================================
+
+interface get_parameter_data
    module procedure get_parameter_data_1d_integer
    module procedure get_parameter_data_1d_real
    module procedure get_parameter_data_2d_integer
    module procedure get_parameter_data_2d_real
- end interface
+end interface
 
-contains
+contains ! -=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-
 
 subroutine check_h5err(status)
     integer, intent(in) :: status
@@ -34,11 +38,9 @@ subroutine check_h5err(status)
     if (status .lt. 0) then
         call error_mesg('tiling_input', 'HDF5 error detected: ', FATAL)
     end if
-
 end subroutine
 
 subroutine open_database_predefined_tiles(h5id,lnd)
-
   type(land_state_type),intent(in) :: lnd
   integer(hid_t), intent(out) :: h5id
   integer :: status
@@ -264,7 +266,7 @@ subroutine land_cover_cold_start_0d_predefined_tiles(tiles,lnd,l,h5id)
      call insert(tile,tiles)
   enddo
 
-  !Close access to the grid cell's group
+  !Close access to the grid cell group
   call h5gclose_f(cid,status)
   !call check_h5err(status)
   call h5fclose_f(dstid,status)
