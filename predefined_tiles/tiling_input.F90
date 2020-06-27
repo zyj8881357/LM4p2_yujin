@@ -1,10 +1,10 @@
-module predefined_tiles_mod
+module predefined_tiles_input_mod
 
 use hdf5
 use, intrinsic :: iso_c_binding
 use constants_mod, only : pi
 use fms_mod, only : error_mesg, FATAL
-use land_data_mod, only: land_state_type,atmos_land_boundary_type
+use land_data_mod, only : land_state_type, atmos_land_boundary_type, log_version
 use land_debug_mod, only : land_error_message
 use land_tile_mod, only : insert, new_land_tile_glac, new_land_tile_lake, new_land_tile_soil
 use land_tile_mod, only : land_tile_list_type, land_tile_type
@@ -23,6 +23,12 @@ public :: land_cover_warm_start_0d_predefined_tiles
 public :: downscale_atmos
 ! ==== end of public interfaces ==============================================
 
+! ==== module constants ======================================================
+character(len=*), parameter :: module_name = 'predefined_tiles_input_mod'
+#include "../shared/version_variable.inc"
+
+
+! ==== interfaces ======================================================
 interface get_parameter_data
    module procedure get_parameter_data_1d_integer
    module procedure get_parameter_data_1d_real
@@ -827,4 +833,4 @@ subroutine downscale_atmos(tile,cplr2land,l,k,lnd)
 
 end subroutine
 
-end module predefined_tiles_mod
+end module predefined_tiles_input_mod

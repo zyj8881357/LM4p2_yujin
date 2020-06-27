@@ -113,21 +113,16 @@ use stock_constants_mod, only: ISTOCK_WATER, ISTOCK_HEAT, ISTOCK_SALT
 use nitrogen_sources_mod, only : nitrogen_sources_init, nitrogen_sources_end, &
      update_nitrogen_sources, nitrogen_sources
 use hillslope_mod, only: retrieve_hlsp_indices, save_hlsp_restart, hlsp_end, &
-                         read_hlsp_namelist, hlsp_init, hlsp_config_check
+                         read_hlsp_namelist, hlsp_init, hlsp_config_check, &
+                         hlsp_init_predefined
 use hillslope_hydrology_mod, only: hlsp_hydrology_1, hlsp_hydro_init
-use hillslope_mod, only: hlsp_init_predefined
-use vegn_data_mod, only : LU_CROP, LU_PAST, LU_NTRL, LU_SCND, LU_URBN
 use hdf5
-use predefined_tiles_mod, only: land_cover_cold_start_0d_predefined_tiles,&
-                                open_database_predefined_tiles,&
-                                close_database_predefined_tiles,&
-                                land_cover_warm_start_0d_predefined_tiles,&
-                                downscale_atmos
-use fms_io_mod,      only: fms_io_unstructured_read
-use mpp_domains_mod, only: domainUG
-use mpp_domains_mod, only: mpp_get_UG_compute_domain
-use mpp_domains_mod, only: mpp_get_UG_domain_grid_index
-use diag_axis_mod,   only: diag_axis_add_attribute
+use predefined_tiles_mod, only : read_predefined_tiles_namelist, &
+    use_predefined_tiles, downscale_surface_meteorology
+use predefined_tiles_input_mod, only : &
+    open_database_predefined_tiles, close_database_predefined_tiles, &
+    land_cover_cold_start_0d_predefined_tiles, land_cover_warm_start_0d_predefined_tiles, &
+    downscale_atmos
 
 implicit none
 private
@@ -191,11 +186,6 @@ character(16) :: nearest_point_search = 'global' ! specifies where to look for
               ! nearest points for missing data, "global" or "face"
 logical :: print_remapping = .FALSE. ! if true, full land cover remapping
               ! information is printed on the cold start
-logical :: predefined_tiles= .FALSE. ! If true, the tiles for each grid cell for
-              ! each grid cell are read from an external file
-logical,public :: downscale_surface_meteorology = .FALSE. ! If true, the downscaling weights in
-              ! the input database will be used to downscale prec and sw
-              ! (could be eventually be used for others as well...)
 integer :: layout(2) = (/0,0/)
 integer :: io_layout(2) = (/0,0/)
 integer :: npes_io_group = 0
@@ -242,8 +232,7 @@ namelist /land_model_nml/ use_old_conservation_equations, &
                           tau_snow_T_adj, prohibit_negative_canopy_water, max_canopy_water_steps, &
                           nearest_point_search, print_remapping, &
                           layout, io_layout, npes_io_group, mask_table, &
-                          reset_to_ntrl, &
-                          predefined_tiles, downscale_surface_meteorology
+                          reset_to_ntrl
 ! ---- end of namelist -------------------------------------------------------
 
 logical  :: module_is_initialized = .FALSE.
@@ -449,6 +438,7 @@ subroutine land_model_init &
   ! Also, some of them register diagnostic sub-sampling selectors, so they better
   ! be after land_tile_diag_init
   call read_land_io_namelist()
+  call read_predefined_tiles_namelist()
   call read_soil_namelist()
   call read_hlsp_namelist() ! Must be called after read_soil_namelist
   call read_vegn_namelist()
@@ -470,7 +460,7 @@ subroutine land_model_init &
           'reading NetCDF restart "'//trim(restart_file_name)//'"',&
           NOTE)
      ! read map of tiles -- retrieve information from
-     if (predefined_tiles) then
+     if (use_predefined_tiles) then
         call land_cover_warm_start_predefined(restart)
      else
         call land_cover_warm_start(restart)
@@ -483,7 +473,7 @@ subroutine land_model_init &
      ! initialize map of tiles -- construct it by combining tiles
      ! from component models
      call error_mesg('land_model_init','cold-starting land cover map',NOTE)
-     if (predefined_tiles) then
+     if (use_predefined_tiles) then
         call land_cover_cold_start_predefined()
      else
         call land_cover_cold_start()
@@ -509,14 +499,14 @@ subroutine land_model_init &
   if ( id_sftlf > 0 )  used = send_data(id_sftlf,lnd%ug_landfrac*100, lnd%time)
 
   ! [7] initialize individual sub-models
-  if (predefined_tiles) then
+  if (use_predefined_tiles) then
      call hlsp_init_predefined(id_ug) ! Must be called before soil_init
   else
      call hlsp_init(id_ug) ! Must be called before soil_init
   endif
-  call soil_init(predefined_tiles,id_ug,id_band,id_zfull,id_ptid)
+  call soil_init(id_ug,id_band,id_zfull,id_ptid)
   call hlsp_hydro_init(id_ug,id_zfull,id_ptid) ! Must be called after soil_init
-  call vegn_init(id_ug, id_band, id_cellarea, id_ptid, predefined_tiles)
+  call vegn_init(id_ug, id_band, id_cellarea, id_ptid)
   !if (predefined_tiles) then
   !   call lake_init_predefined(id_ug)
   !else

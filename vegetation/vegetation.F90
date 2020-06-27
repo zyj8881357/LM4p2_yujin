@@ -88,6 +88,8 @@ use soil_carbon_mod, only : soil_carbon_option, SOILC_CORPSE, SOILC_CORPSE_N, &
      cull_cohorts
 use vegn_util_mod, only: kill_small_cohorts_ppa
 
+use predefined_tiles_mod, only : use_predefined_tiles, use_predefined_biomass
+
 implicit none
 private
 
@@ -188,7 +190,6 @@ real    :: tau_smooth_T_dorm = 10.0 ! time scale for smoothing of daily temperat
    ! will be used previous day
 
 logical :: do_peat_redistribution = .FALSE.
-logical :: predefined_biomass     = .FALSE. ! if true, initialize plant biomass from predefined database
 
 namelist /vegn_nml/ &
     init_Wl, init_Ws, init_Tv, cpw, clw, csw, &
@@ -204,7 +205,7 @@ namelist /vegn_nml/ &
     xwilt_available, &
     do_biogeography, seed_transport_to_use, &
     min_Wl, min_Ws, min_lai, tau_smooth_ncm, tau_smooth_T_dorm, &
-    do_peat_redistribution, do_intercept_melt, predefined_biomass
+    do_peat_redistribution, do_intercept_melt
 
 !---- end of namelist --------------------------------------------------------
 
@@ -336,12 +337,11 @@ end subroutine read_vegn_namelist
 
 ! ============================================================================
 ! initialize vegetation
-subroutine vegn_init( id_ug, id_band, id_cellarea, id_ptid, predefined_tiles )
+subroutine vegn_init( id_ug, id_band, id_cellarea, id_ptid)
   integer,intent(in) :: id_ug   !<Unstructured axis id.
   integer,intent(in) :: id_band ! ID of spectral band axis
   integer,intent(in) :: id_cellarea ! ID of cell area diag field, for cell measures
   integer,intent(in) :: id_ptid ! ID of parent tile axis
-  logical,intent(in) :: predefined_tiles
 
   ! ---- local vars
   type(land_tile_enum_type)     :: ce    ! current tile list element
@@ -658,17 +658,17 @@ subroutine vegn_init( id_ug, id_band, id_cellarea, id_ptid, predefined_tiles )
         cc%Ws = init_Ws
         cc%Tv = init_Tv
 
-        if (predefined_tiles .and. predefined_biomass)then
-         !Initialize biomass components from predefined data
-         cc%bl      = tile%vegn%bl
-         cc%br      = tile%vegn%br
-         cc%bsw     = tile%vegn%bsw
-         cc%bwood   = tile%vegn%bwood
+        if (use_predefined_tiles .and. use_predefined_biomass) then
+           !Initialize biomass components from predefined data
+           cc%bl      = tile%vegn%predefined_bl
+           cc%br      = tile%vegn%predefined_br
+           cc%bsw     = tile%vegn%predefined_bsw
+           cc%bwood   = tile%vegn%predefined_bwood
         else
-         cc%bl      = init_cohort_bl(n)
-         cc%br      = init_cohort_br(n)
-         cc%bsw     = init_cohort_bsw(n)
-         cc%bwood   = init_cohort_bwood(n)
+           cc%bl      = init_cohort_bl(n)
+           cc%br      = init_cohort_br(n)
+           cc%bsw     = init_cohort_bsw(n)
+           cc%bwood   = init_cohort_bwood(n)
         endif
         cc%blv     = init_cohort_blv(n)
         cc%bseed   = init_cohort_bseed(n)
@@ -760,7 +760,7 @@ subroutine vegn_init( id_ug, id_band, id_cellarea, id_ptid, predefined_tiles )
   call vegn_fire_init(id_ug, id_cellarea, delta_time, lnd%time)
 
   ! initialize vegetation diagnostic fields
-  if (predefined_tiles) then
+  if (use_predefined_tiles) then
    call vegn_diag_init (id_ug, id_band, lnd%time , id_ptid)
   else
    call vegn_diag_init (id_ug, id_band, lnd%time )

@@ -20,6 +20,7 @@ use tracer_manager_mod, only: NO_TRACER
 
 use land_constants_mod, only : NBANDS, BAND_VIS, BAND_NIR, seconds_per_year
 use land_numerics_mod, only : tridiag
+use predefined_tiles_mod, only : use_predefined_tiles
 use soil_tile_mod, only : num_l, dz, zfull, zhalf, &
      GW_LM2, GW_LINEAR, GW_HILL_AR5, GW_HILL, GW_TILED, &
      soil_tile_type, read_soil_data_namelist, &
@@ -362,10 +363,7 @@ end subroutine read_soil_namelist
 
 ! ============================================================================
 ! initialize soil model
-subroutine soil_init (predefined_tiles, id_ug,id_band,id_zfull,id_ptid)
-  logical,intent(in)  :: predefined_tiles !<If true, this subroutine assumes that
-        ! the distribution of basic soil parameters is set from external data set,
-        ! and only initializes derived soil properties
+subroutine soil_init (id_ug,id_band,id_zfull,id_ptid)
   integer,intent(in)  :: id_ug    !<Unstructured axis id.
   integer,intent(in)  :: id_band  !<ID of spectral band axis
   integer,intent(in)  :: id_ptid  !<ID of tile axis
@@ -414,7 +412,7 @@ subroutine soil_init (predefined_tiles, id_ug,id_band,id_zfull,id_ptid)
       call error_mesg ('soil_init','River tracer for DOC not found: leached DOC goes directly to the atmosphere as CO2 to maintain carbon conservation.', NOTE)
 
   ! -------- initialize soil model diagnostic fields
-  if (predefined_tiles) then
+  if (use_predefined_tiles) then
    call soil_diag_init(id_ug,id_band,id_zfull,id_ptid)
   else
    call soil_diag_init(id_ug,id_band,id_zfull)
@@ -592,14 +590,14 @@ subroutine soil_init (predefined_tiles, id_ug,id_band,id_zfull,id_ptid)
   do while(loop_over_tiles(ce,tile,k=k,l=ll))
      if (.not.associated(tile%soil)) cycle
      call set_current_point(ll,k)
-     if (init_wtdep .gt. 0. .or. predefined_tiles)then
+     if (init_wtdep .gt. 0. .or. use_predefined_tiles)then
         if (.not. use_coldstart_wtt_data) then
-           if (horiz_init_wt .and. gw_option == GW_TILED .and. predefined_tiles .eq. .False.) then
+           if (horiz_init_wt .and. gw_option == GW_TILED .and. use_predefined_tiles .eq. .False.) then
               call horiz_wt_depth_to_init(tile%soil, prev_elmt(ce), local_wt_depth)
               ! Note: if restart_exists, then this function returns dummy local_wt_depth == 0.
               ! prev_elmt(ce) passed because indices will be needed.
               psi = zfull(1:num_l) - local_wt_depth
-           else if (gw_option == GW_TILED .and. predefined_tiles .eq. .True. .and. predefined_wtd) then
+           else if (gw_option == GW_TILED .and. use_predefined_tiles .and. predefined_wtd) then
               if (isnan(tile%soil%pars%iwtd)) tile%soil%pars%iwtd = 0.1
               !print*,tile%soil%pars%iwtd
               psi = zfull(1:num_l) - tile%soil%pars%iwtd
@@ -612,7 +610,7 @@ subroutine soil_init (predefined_tiles, id_ug,id_band,id_zfull,id_ptid)
            else
               drypoint = .true.
            end if
-           if (gw_option == GW_TILED .and. predefined_tiles .eq. .False.) then
+           if (gw_option == GW_TILED .and. use_predefined_tiles .eq. .False.) then
               call horiz_wt_depth_to_init(tile%soil, prev_elmt(ce), local_wt_depth, dry=drypoint)
               psi = zfull(1:num_l) - local_wt_depth
            else if (drypoint) then

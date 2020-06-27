@@ -90,7 +90,7 @@ type :: vegn_tile_type
    integer :: tag ! kind of the tile
    integer :: landuse = LU_NTRL
    integer :: irrigation = 0 ! 0=no irrigation/1=irrigation
-   real :: br,bsw,bwood,bl !for predefined values for the tile
+   real :: predefined_br,predefined_bsw,predefined_bwood,predefined_bl !for predefined values for the tile
 
    integer :: n_cohorts = 0
    type(vegn_cohort_type), pointer :: cohorts(:)=>NULL()
@@ -253,13 +253,13 @@ function vegn_tile_ctor_predefined(tile_parameters,itile) result(ptr)
   allocate(ptr%drop_seed_C(0:nspecies-1), ptr%drop_seed_N(0:nspecies-1))
   ptr%drop_seed_C(:) = 0.0 ; ptr%drop_seed_N(:) = 0.0
 
-  ptr%tag = tile_parameters%vegn(itile)
-  ptr%landuse = tile_parameters%landuse(itile)
-  ptr%irrigation = tile_parameters%irrigation(itile)
-  ptr%bwood = tile_parameters%bwood(itile)
-  ptr%br = tile_parameters%br(itile)
-  ptr%bsw = tile_parameters%bsw(itile)
-  ptr%bl = tile_parameters%bl(itile)
+  ptr%tag                   = tile_parameters%vegn(itile)
+  ptr%landuse               = tile_parameters%landuse(itile)
+  ptr%irrigation            = tile_parameters%irrigation(itile)
+  ptr%predefined_bwood      = tile_parameters%bwood(itile)
+  ptr%predefined_br         = tile_parameters%br(itile)
+  ptr%predefined_bsw        = tile_parameters%bsw(itile)
+  ptr%predefined_bl         = tile_parameters%bl(itile)
 
 end function vegn_tile_ctor_predefined
 
