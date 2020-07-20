@@ -683,6 +683,8 @@ subroutine vegn_relayer_cohorts_ppa (vegn)
   real, allocatable :: effective_height(:) ! effective height for relayering, m
   real    :: H_tall ! top of grass/sapling layer, m
   integer :: N_tall ! number of cohorts taller than H_tall
+  real    :: frac_short ! fraction of tile area occupied by canopies of cohorts
+                    ! shorter than H_tall
 
 !  write(*,*)'vegn_relayer_cohorts_ppa n_cohorts before: ', vegn%n_cohorts
 
@@ -694,7 +696,7 @@ subroutine vegn_relayer_cohorts_ppa (vegn)
   do k = 1, N0
      effective_height(k) = cc(k)%height * spdata(cc(k)%species)%layer_height_factor
   enddo
-  N_tall = N0
+  N_tall = N0; frac_short = 0.0
 
   if(tree_grass_option == TREES_SQUEEZE_GRASS) then
      ! In this case, cohorts below height H_tall are combined into a single layer.
@@ -712,9 +714,13 @@ subroutine vegn_relayer_cohorts_ppa (vegn)
      enddo
 
      ! find the number of cohorts that are above grass/sapling layer
-     N_tall=0
+     N_tall=0; frac_short=0.0
      do k = 1,N0
-        if (effective_height(k) > H_tall) N_tall = N_tall+1
+        if (effective_height(k) > H_tall) then
+            N_tall = N_tall+1
+        else
+            frac_short = frac_short + cc(k)%nindivs*cc(k)%crownarea
+        endif
      enddo
   else if (tree_grass_option == TREES_TOP_GRASS) then
      ! for this option, tree saplings always overtop grass, so we just make sure that
@@ -760,7 +766,9 @@ subroutine vegn_relayer_cohorts_ppa (vegn)
           L = L+1 ; frac = 0.0              ! start new layer
         endif
      enddo
-     L = L+1 ! increment layer for cohorts shorter than H_tall
+     if (frac+frac_short>1+tolerance) then
+        L = L+1 ! increment layer for cohorts shorter than H_tall
+     endif
   endif
 
   ! process cohorts that are shorter than H0
