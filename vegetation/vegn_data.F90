@@ -158,7 +158,7 @@ public :: &
     cold_month_threshold, scnd_biomass_bins, &
     sai_cover, snow_masking_option, &
     sai_rad, sai_rad_nosnow, min_lai_pheno, &
-    treeline_thresh_T, treeline_base_T, treeline_season_length, &
+    treeline_thresh_T, treeline_base_T, treeline_season_length, treeline_season_snow_limited, &
     phen_theta_option, phen_ev1, phen_ev2, cmc_eps, &
     b0_growth, tau_seed, min_cohort_nindivs, &
     DBH_mort, A_mort, B_mort, cold_mort, treeline_mort, nsc_starv_frac, &
@@ -527,6 +527,8 @@ real, protected :: cmc_eps = 0.01 ! value of w/w_max for transition to linear fu
 real, protected :: treeline_base_T   = Tfreeze + 0.9 ! base temperature for growing season calculations for tree line, degK
 real, protected :: treeline_thresh_T = Tfreeze + 6.4 ! threshold temperature for tree line, degK
 real, protected :: treeline_season_length = 94.0     ! minimum season length for the trees to survive
+logical, protected :: treeline_season_snow_limited = .TRUE. ! if true, days with snow on the ground
+                ! are excluded from active season.
 ! Weng, 7/25/2011
 ! for understory mortality rate is calculated as:
 ! deathrate = mortrate_d_u * ( 1 + A * exp(B*(DBH_mort-DBH))/(1 + exp(B*(DBH_mort-DBH)))
@@ -585,7 +587,7 @@ namelist /vegn_data_nml/ &
   fsc_pool_spending_time, ssc_pool_spending_time, harvest_spending_time, &
   T_transp_min, &
   phen_theta_to_use, phen_ev1, phen_ev2, &
-  treeline_base_T, treeline_thresh_T, treeline_season_length, &
+  treeline_base_T, treeline_thresh_T, treeline_season_length, treeline_season_snow_limited, &
   scnd_biomass_bins, scnd_age_bins, &
   sai_rad, sai_rad_nosnow, sai_cover, snow_masking_to_use, min_lai_pheno, &
   ! PPA-related namelist values
