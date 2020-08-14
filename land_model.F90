@@ -47,8 +47,8 @@ use lake_mod, only : read_lake_namelist, lake_init, lake_init_predefined, lake_e
 use soil_mod, only : read_soil_namelist, soil_init, soil_end, soil_get_sfc_temp, &
      soil_radiation, soil_step_1, soil_step_2, soil_step_3, save_soil_restart, &
      ! moved here to eliminate circular dependencies with hillslope mods:
-     soil_cover_cold_start, retrieve_soil_tags, soil_hlsp_diag, &
-     irrigation_deficit, irrigation_deficit_evap, soil_area_diag
+     soil_cover_cold_start, retrieve_soil_tags, &
+     irrigation_deficit, soil_area_diag
 use soil_carbon_mod, only : read_soil_carbon_namelist, N_C_TYPES, soil_carbon_option, &
     SOILC_CORPSE_N
 use snow_mod, only : read_snow_namelist, snow_init, snow_end, snow_get_sfc_temp, &
