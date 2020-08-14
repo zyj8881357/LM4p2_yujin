@@ -231,7 +231,7 @@ logical :: luh2_missing_transitions_bug = .FALSE.
 
 ! for irrigation
 character(len=1024) :: manag_file = '' ! management data file, for input land fraction irrigated area
-logical :: irrigation_on = .TRUE.
+logical :: irrigation_on = .FALSE.
 
 character(len=1024) :: input_file_lake  = '' ! input data set of lake transition dates
 character(len=1024) :: state_file_lake  = '' ! input data set of LU states (for initial transition only)
