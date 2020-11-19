@@ -19,9 +19,10 @@ use mpp_mod, only: input_nml_file
 use fms_mod, only: open_namelist_file
 #endif
 
-use mpp_mod, only : mpp_max, mpp_sum, mpp_chksum
+use mpp_mod, only : mpp_max, mpp_sum, mpp_chksum, mpp_send, mpp_recv, mpp_broadcast, &
+     mpp_sync, mpp_error, COMM_TAG_1, COMM_TAG_2
 use fms_io_mod, only : read_compressed, fms_io_unstructured_read
-use fms_mod, only : error_mesg, FATAL, WARNING, NOTE, mpp_pe, &
+use fms_mod, only : error_mesg, FATAL, WARNING, NOTE, mpp_npes, mpp_pe, &
      mpp_root_pe, file_exist, check_nml_error, close_file, &
      stdlog, stderr, mpp_clock_id, mpp_clock_begin, mpp_clock_end, string, &
      stdout, CLOCK_FLAG_DEFAULT, CLOCK_COMPONENT, CLOCK_ROUTINE
@@ -523,11 +524,11 @@ subroutine land_model_init &
   call update_land_bc_slow( land2cplr )
 
   ! mask error checking
-  do l=lnd%ls,lnd%le
-     if(lnd%ug_landfrac(l)>0.neqv.ANY(land2cplr%mask(l,:))) then
-        call error_mesg('land_model_init','land masks from grid spec and from land restart do not match',FATAL)
-     endif
-  enddo
+!   do l=lnd%ls,lnd%le
+!      if(lnd%ug_landfrac(l)>0.neqv.ANY(land2cplr%mask(l,:))) then
+!         call error_mesg('land_model_init','land masks from grid spec and from land restart do not match',FATAL)
+!      endif
+!   enddo
 
   ! [9] check the properties of co2 exchange with the atmosphere and set appropriate
   ! flags
@@ -1041,6 +1042,7 @@ subroutine land_cover_warm_start_new (restart)
   type(land_tile_type), pointer :: tile
 
   ntiles = size(restart%tidx)
+  call check_mask_match(restart%tidx)
   allocate(glac(ntiles), lake(ntiles), soil(ntiles), vegn(ntiles), frac(ntiles))
 
   call fms_io_unstructured_read(restart%basename, "frac", frac, lnd%ug_domain, timelevel=1)
@@ -1094,14 +1096,15 @@ subroutine land_cover_warm_start_orig (restart)
   __NF_ASRT__(nfu_inq_dim(ncid,dimids(1),name=tile_dim_name))
   ! read the compressed tile indices
   __NF_ASRT__(nfu_get_var(ncid,tile_dim_name,idx))
+  call check_mask_match(idx)
   ! read input data -- fractions and tags
   __NF_ASRT__(nfu_get_var(ncid,'frac',frac))
   __NF_ASRT__(nfu_get_var(ncid,'glac',glac))
   __NF_ASRT__(nfu_get_var(ncid,'lake',lake))
   __NF_ASRT__(nfu_get_var(ncid,'soil',soil))
   __NF_ASRT__(nfu_get_var(ncid,'vegn',vegn))
-  ! create tiles
 
+  ! create tiles
   npts = lnd%nlon*lnd%nlat
   do it = 1,ntiles
      k = idx(it)
@@ -1117,6 +1120,163 @@ subroutine land_cover_warm_start_orig (restart)
   deallocate(idx, glac, lake, soil, snow, cana, vegn, frac)
   __NF_ASRT__(nf_close(ncid))
 end subroutine land_cover_warm_start_orig
+
+! ============================================================================
+! given tile index from land restart, checks that mask in the restart matches
+! the grid spec mask
+subroutine check_mask_match(idx)
+  integer, intent(in) :: idx(:) ! compressed tile index from the restart
+
+  integer, allocatable :: map_r(:,:) ! map of points that exist in the restart
+  integer, allocatable :: map_g(:,:) ! map of points that exist in the domain
+  integer, allocatable :: ug_face(:) ! number of cubed sphere face, by PE
+  integer :: it,i,j,k,g,npes
+  integer :: tile_root_pe ! root PE for this cubed sphere face
+  character :: c
+
+  !call check_ug()
+  !call mpp_sync(lnd%pelist)
+
+  ! construct the map of points from our restart. It could be local to this PE
+  ! or it could be global (for the face) if the restart is combined
+  allocate(map_r(lnd%nlon,lnd%nlat)); map_r(:,:) = 0
+  do it = 1,size(idx)
+     k = idx(it)
+     if (k < 0) cycle
+     g = modulo(k,lnd%nlon*lnd%nlat)+1
+     if (g<lnd%gs.or.g>lnd%ge) cycle ! skip points outside of domain
+     i = modulo(k,lnd%nlon)+1 ; k = k/lnd%nlon
+     j = modulo(k,lnd%nlat)+1
+     map_r(i,j) = 1
+  enddo
+
+  allocate(map_g(lnd%nlon,lnd%nlat)); map_g(:,:) = 0
+  do it = lnd%ls,lnd%le
+     if (lnd%ug_landfrac(it) > 0) &
+           map_g(lnd%i_index(it),lnd%j_index(it)) = 1
+  enddo
+
+  npes = mpp_npes()
+  allocate(ug_face(0:npes-1))
+  if (mpp_pe() == mpp_root_pe()) then
+     do i = 0,npes-1
+        if (i==mpp_root_pe()) then
+           ug_face(i) = lnd%ug_face
+        else
+           call mpp_recv(ug_face(i),i,tag=COMM_TAG_1)
+        endif
+     enddo
+  else
+     call mpp_send(lnd%ug_face,mpp_root_pe(),tag=COMM_TAG_1)
+  endif
+
+!  call mpp_sync(lnd%pelist)
+
+  call mpp_broadcast(ug_face,npes,mpp_root_pe(),pelist=lnd%pelist)
+  do i = 0,npes-1
+     if (ug_face(i)==lnd%ug_face) then
+        tile_root_pe = i
+        exit ! from loop
+     endif
+  enddo
+  write(*,'("uf_face(pe=",i3.3,",rt=",i3.3,"):", 999(i2))') mpp_pe(),tile_root_pe,ug_face
+
+  ! accumulate maps from all PEs on this cubed sphere face to the root PE of the face
+  call gather_map(map_g)
+  call gather_map(map_r)
+  ! check the map
+  if (mpp_pe() == tile_root_pe) then
+     k = 0
+     do i = 1,lnd%nlon
+     do j = 1,lnd%nlat
+        if (map_r(i,j)/=map_g(i,j)) then
+           ! call mpp_error(WARNING,' mask mismatch at ',[i,j],' face ',lnd%ug_face)
+           k = k+1
+        endif
+     enddo
+     enddo
+     if (k>0) then
+         write(*,'("Face ",i2,"mask mismatches :: N land points: ",i, " N mismatches:", i)')lnd%ug_face, count(map_g>0), k
+         do j = lnd%nlat,1,-1
+            write (*,'("F",i2,":")',advance='NO') lnd%ug_face
+            do i = 1,lnd%nlon
+               c = ' '                       ! ocean point that matches between grid and restart
+               if ((map_r(i,j)==0).neqv.(map_g(i,j)==0)) then
+                  c = 'G'                    ! land point exists in grid, but not in restarts
+                  if (map_r(i,j)/=0) c = 'R' ! land point exists in restart, but not in grid
+               else if (map_g(i,j) /= 0) then
+                  c = '-'                    ! land point that matches between grid and restart
+               endif
+               write(*,'(a2)', advance='NO') c
+            enddo
+            write(*,*)
+         enddo
+         call mpp_error(FATAL,'land_model_init :: land masks from grid spec and from land restart do not match')
+     endif
+  endif
+  deallocate(map_r,map_g)
+!  call mpp_sync(lnd%pelist)
+
+  contains
+
+  subroutine gather_map(map)
+     integer, intent(inout) :: map(:,:) ! data to gather
+
+     integer :: buffer(lnd%nlon,lnd%nlat) ! buffer for receive operations
+     integer :: i
+
+     if (mpp_pe() /= tile_root_pe) then
+        call mpp_send(map(1,1),plen=lnd%nlon*lnd%nlat,to_pe=tile_root_pe,tag=COMM_TAG_2)
+     else
+        do i = 0,npes-1
+           if (ug_face(i) /= lnd%ug_face) cycle ! skip PEs that do not belong to the same face
+           if (i == tile_root_pe) cycle ! tile_root_pe does not send to itself
+           ! update map on root PE of the face
+           buffer(:,:) = 0
+           call mpp_recv(buffer(1,1),glen=lnd%nlon*lnd%nlat,from_pe=i,tag=COMM_TAG_2)
+           map(:,:) = map(:,:)+buffer(:,:)
+        enddo
+        map(:,:) = min(map,1)
+     endif
+     call mpp_sync(lnd%pelist)
+  end subroutine gather_map
+
+end subroutine check_mask_match
+
+
+subroutine check_ug()
+   integer :: npes     ! total number of processors
+   integer :: pe       ! this processor
+   integer :: root_pe  ! root processor
+   integer :: i
+   integer, allocatable :: f1(:), f2(:) ! UG cubed sphere face numbers for each PE, obtained two different ways
+
+   npes=mpp_npes()
+   pe = mpp_pe()
+   root_pe = mpp_root_pe()
+   if (pe==root_pe) then
+!       allocate(pelist(npes))
+!       call mpp_get_current_pelist(lnd%pelist)
+      write(*,*)'lnd%pelist'
+      write(*,'(5(2x, i2.2,":",i4.4))')(i,lnd%pelist(i),i=0,npes-1)
+      allocate(f1(0:npes-1),f2(npes))
+
+      do i = 0,npes-1
+         if (i==root_pe) then
+            f1(i) = lnd%ug_face
+         else
+            call mpp_recv(f1(i),i,tag=COMM_TAG_1)
+        endif
+      enddo
+   else
+      call mpp_send(lnd%ug_face,root_pe,tag=COMM_TAG_1)
+   endif
+
+   if (pe==root_pe) then
+      write(*,*)'face list:'
+      write(*,'(5(2x, i2.2,":u",i1.1))')(i,f1(i),i=0,npes-1)
+   endif
+end subroutine check_ug
 
 
 ! ============================================================================
