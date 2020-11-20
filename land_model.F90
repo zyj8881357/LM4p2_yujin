@@ -523,13 +523,6 @@ subroutine land_model_init &
   ! [8.4] update topographic roughness scaling
   call update_land_bc_slow( land2cplr )
 
-  ! mask error checking
-!   do l=lnd%ls,lnd%le
-!      if(lnd%ug_landfrac(l)>0.neqv.ANY(land2cplr%mask(l,:))) then
-!         call error_mesg('land_model_init','land masks from grid spec and from land restart do not match',FATAL)
-!      endif
-!   enddo
-
   ! [9] check the properties of co2 exchange with the atmosphere and set appropriate
   ! flags
   if (canopy_air_mass_for_tracers==0.and.ico2==NO_TRACER) then
@@ -1123,7 +1116,7 @@ end subroutine land_cover_warm_start_orig
 
 ! ============================================================================
 ! given tile index from land restart, checks that mask in the restart matches
-! the grid spec mask
+! the grid spec mask; if it doesn't prints diagnostics
 subroutine check_mask_match(idx)
   integer, intent(in) :: idx(:) ! compressed tile index from the restart
 
@@ -1131,11 +1124,9 @@ subroutine check_mask_match(idx)
   integer, allocatable :: map_g(:,:) ! map of points that exist in the domain
   integer, allocatable :: ug_face(:) ! number of cubed sphere face, by PE
   integer :: it,i,j,k,g,npes
-  integer :: tile_root_pe ! root PE for this cubed sphere face
+  integer :: face_root_pe ! root PE for this cubed sphere face
   character :: c
-
-  !call check_ug()
-  !call mpp_sync(lnd%pelist)
+  character(16) :: tag
 
   ! construct the map of points from our restart. It could be local to this PE
   ! or it could be global (for the face) if the restart is combined
@@ -1170,35 +1161,33 @@ subroutine check_mask_match(idx)
      call mpp_send(lnd%ug_face,mpp_root_pe(),tag=COMM_TAG_1)
   endif
 
-!  call mpp_sync(lnd%pelist)
-
   call mpp_broadcast(ug_face,npes,mpp_root_pe(),pelist=lnd%pelist)
   do i = 0,npes-1
      if (ug_face(i)==lnd%ug_face) then
-        tile_root_pe = i
+        face_root_pe = i
         exit ! from loop
      endif
   enddo
-  write(*,'("uf_face(pe=",i3.3,",rt=",i3.3,"):", 999(i2))') mpp_pe(),tile_root_pe,ug_face
+  ! write(*,'("uf_face(pe=",i3.3,",rt=",i3.3,"):", 999(i2))') mpp_pe(),face_root_pe,ug_face
 
-  ! accumulate maps from all PEs on this cubed sphere face to the root PE of the face
-  call gather_map(map_g)
-  call gather_map(map_r)
-  ! check the map
-  if (mpp_pe() == tile_root_pe) then
+  ! accumulate grid and restart maps from all PEs on this cubed sphere face to the root
+  ! PE of the face
+  call gather_map(map_g, ug_face, face_root_pe)
+  call gather_map(map_r, ug_face, face_root_pe)
+
+  ! try to find discrepancy in the maps
+  if (mpp_pe() == face_root_pe) then
      k = 0
      do i = 1,lnd%nlon
      do j = 1,lnd%nlat
-        if (map_r(i,j)/=map_g(i,j)) then
-           ! call mpp_error(WARNING,' mask mismatch at ',[i,j],' face ',lnd%ug_face)
-           k = k+1
-        endif
+        if (map_r(i,j)/=map_g(i,j)) k = k+1
      enddo
      enddo
+
      if (k>0) then
-         write(*,'("Face ",i2,"mask mismatches :: N land points: ",i, " N mismatches:", i)')lnd%ug_face, count(map_g>0), k
+         write(tag,'("T",i1)')lnd%ug_face
          do j = lnd%nlat,1,-1
-            write (*,'("F",i2,":")',advance='NO') lnd%ug_face
+            write (*,'(a,":")',advance='NO') trim(tag)
             do i = 1,lnd%nlon
                c = ' '                       ! ocean point that matches between grid and restart
                if ((map_r(i,j)==0).neqv.(map_g(i,j)==0)) then
@@ -1211,72 +1200,43 @@ subroutine check_mask_match(idx)
             enddo
             write(*,*)
          enddo
-         call mpp_error(FATAL,'land_model_init :: land masks from grid spec and from land restart do not match')
+         write(*,'(a,": ",i," mask mismatches ",i," grid points")') trim(tag), k, count(map_g>0)
+         write(*,'(a,": ",a)')trim(tag), 'Legend: G - point in gridSpec but not in restart, R - in restart but not in gridSpec.'
+         call mpp_error(FATAL,'land_model_init :: land masks from gridSpec and restart do not match, grep "^'//trim(tag)//'" stdout to see map.')
      endif
   endif
   deallocate(map_r,map_g)
-!  call mpp_sync(lnd%pelist)
-
-  contains
-
-  subroutine gather_map(map)
-     integer, intent(inout) :: map(:,:) ! data to gather
-
-     integer :: buffer(lnd%nlon,lnd%nlat) ! buffer for receive operations
-     integer :: i
-
-     if (mpp_pe() /= tile_root_pe) then
-        call mpp_send(map(1,1),plen=lnd%nlon*lnd%nlat,to_pe=tile_root_pe,tag=COMM_TAG_2)
-     else
-        do i = 0,npes-1
-           if (ug_face(i) /= lnd%ug_face) cycle ! skip PEs that do not belong to the same face
-           if (i == tile_root_pe) cycle ! tile_root_pe does not send to itself
-           ! update map on root PE of the face
-           buffer(:,:) = 0
-           call mpp_recv(buffer(1,1),glen=lnd%nlon*lnd%nlat,from_pe=i,tag=COMM_TAG_2)
-           map(:,:) = map(:,:)+buffer(:,:)
-        enddo
-        map(:,:) = min(map,1)
-     endif
-     call mpp_sync(lnd%pelist)
-  end subroutine gather_map
-
 end subroutine check_mask_match
 
+! ============================================================================
+! given map of existing points on each pe, list of UG faces per PE, and root face PE,
+! gathers the map of existing points from all PE to root. Note that the resulting map
+! is only correct on root face PE.
+subroutine gather_map(map, ug_face, face_root_pe)
+  integer, intent(inout) :: map(:,:)     ! data to gather
+  integer, intent(in)    :: ug_face(0:)   ! list of cubic sphere faces, per PE, on unstructured grid
+  integer, intent(in)    :: face_root_pe ! root PE for this face
 
-subroutine check_ug()
-   integer :: npes     ! total number of processors
-   integer :: pe       ! this processor
-   integer :: root_pe  ! root processor
-   integer :: i
-   integer, allocatable :: f1(:), f2(:) ! UG cubed sphere face numbers for each PE, obtained two different ways
+  integer :: buffer(lnd%nlon,lnd%nlat) ! buffer for receive operations
+  integer :: npes ! number of involved processors
+  integer :: i
 
-   npes=mpp_npes()
-   pe = mpp_pe()
-   root_pe = mpp_root_pe()
-   if (pe==root_pe) then
-!       allocate(pelist(npes))
-!       call mpp_get_current_pelist(lnd%pelist)
-      write(*,*)'lnd%pelist'
-      write(*,'(5(2x, i2.2,":",i4.4))')(i,lnd%pelist(i),i=0,npes-1)
-      allocate(f1(0:npes-1),f2(npes))
-
-      do i = 0,npes-1
-         if (i==root_pe) then
-            f1(i) = lnd%ug_face
-         else
-            call mpp_recv(f1(i),i,tag=COMM_TAG_1)
-        endif
-      enddo
-   else
-      call mpp_send(lnd%ug_face,root_pe,tag=COMM_TAG_1)
-   endif
-
-   if (pe==root_pe) then
-      write(*,*)'face list:'
-      write(*,'(5(2x, i2.2,":u",i1.1))')(i,f1(i),i=0,npes-1)
-   endif
-end subroutine check_ug
+  npes = size(ug_face)
+  if (mpp_pe() /= face_root_pe) then
+     call mpp_send(map(1,1),plen=lnd%nlon*lnd%nlat,to_pe=face_root_pe,tag=COMM_TAG_2)
+  else
+     do i = 0,npes-1
+        if (ug_face(i) /= lnd%ug_face) cycle ! skip PEs that do not belong to the same face
+        if (i == face_root_pe) cycle ! face_root_pe does not send to itself
+        ! update map on root PE of the face
+        buffer(:,:) = 0
+        call mpp_recv(buffer(1,1),glen=lnd%nlon*lnd%nlat,from_pe=i,tag=COMM_TAG_2)
+        map(:,:) = map(:,:)+buffer(:,:)
+     enddo
+     map(:,:) = min(map,1)
+  endif
+  call mpp_sync(lnd%pelist)
+end subroutine gather_map
 
 
 ! ============================================================================
