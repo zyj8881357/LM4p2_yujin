@@ -788,7 +788,9 @@ function soil_tile_ctor_predefined(hidx_j, hidx_k, tile_parameters, &
             ptr%div_hlsp_DOC      (N_C_TYPES, num_l), &
             ptr%div_hlsp_DON      (N_C_TYPES, num_l), &
             ptr%div_hlsp_NO3   (num_l) , &
-            ptr%div_hlsp_NH4   (num_l)         )
+            ptr%div_hlsp_NH4   (num_l) , &
+            ptr%gtos          (num_l),  &
+            ptr%gtosh     (num_l)  )
 
   ! Initialize to catch use before appropriate
   !ptr%psi(:) = initval
@@ -799,7 +801,8 @@ function soil_tile_ctor_predefined(hidx_j, hidx_k, tile_parameters, &
   ptr%div_hlsp_DON(:,:) = initval
   ptr%div_hlsp_NO3(:) = initval
   ptr%div_hlsp_NH4(:) = initval
-
+  ptr%gtos(:)      = initval
+  ptr%gtosh(:) = initval
 
   call soil_data_init_0d_predefined(ptr,tile_parameters,itile)
   do i=1,num_l
