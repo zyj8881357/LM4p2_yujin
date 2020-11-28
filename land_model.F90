@@ -1116,7 +1116,7 @@ end subroutine land_cover_warm_start_orig
 
 ! ============================================================================
 ! given tile index from land restart, checks that mask in the restart matches
-! the grid spec mask; if it doesn't prints diagnostics
+! the land mask in grid spec. It stops the model if the masks do not match.
 subroutine check_mask_match(idx)
   integer, intent(in) :: idx(:) ! compressed tile index from the restart
 
@@ -1214,7 +1214,7 @@ end subroutine check_mask_match
 ! is only correct on root face PE.
 subroutine gather_map(map, ug_face, face_root_pe)
   integer, intent(inout) :: map(:,:)     ! data to gather
-  integer, intent(in)    :: ug_face(0:)   ! list of cubic sphere faces, per PE, on unstructured grid
+  integer, intent(in)    :: ug_face(0:)  ! list of cubic sphere faces, per PE, on unstructured grid
   integer, intent(in)    :: face_root_pe ! root PE for this face
 
   integer :: buffer(lnd%nlon,lnd%nlat) ! buffer for receive operations
@@ -2480,6 +2480,16 @@ subroutine update_land_model_fast_0d ( tile, l,itile, N, land2cplr, &
   call update_cana_tracers(tile, l, tr_flux, dfdtr, &
            precip_l, precip_s, p_surf, ustar, con_g_v, con_v_v, con_st_v )
 
+  ! update_land_bc_fast updates land_refl_dif and land_refl_dir: therefore send the
+  ! upward fluxes to diag now so that they match calculated fsw. It does not matter
+  ! for downward fluxes, just keep them all together.
+  call send_tile_data(id_swdn_dir, ISa_dn_dir,                          tile%diag)
+  call send_tile_data(id_swdn_dif, ISa_dn_dif,                          tile%diag)
+  call send_tile_data(id_swup_dir, ISa_dn_dir*tile%land_refl_dir,       tile%diag)
+  call send_tile_data(id_swup_dif, ISa_dn_dif*tile%land_refl_dif,       tile%diag)
+  if (id_rsusLut>0) call send_tile_data(id_rsusLut, &
+    sum(ISa_dn_dir*tile%land_refl_dir+ISa_dn_dif*tile%land_refl_dif), tile%diag)
+
   call update_land_bc_fast (tile, N, l, itile, land2cplr)
 
   ! accumulate runoff variables over the tiles
@@ -2653,10 +2663,6 @@ subroutine update_land_model_fast_0d ( tile, l,itile, N, land2cplr, &
        tile%cana%tr(ico2)*mol_air/mol_co2/(1-tile%cana%tr(isphum)),   tile%diag)
   call send_tile_data(id_fco2,  vegn_fco2*mol_C/mol_CO2 + DOC_to_atmos, tile%diag)
   call send_tile_data(id_co2_mol_flux, fco2_0 + Dfco2Dq*delta_co2,      tile%diag)
-  call send_tile_data(id_swdn_dir, ISa_dn_dir,                          tile%diag)
-  call send_tile_data(id_swdn_dif, ISa_dn_dif,                          tile%diag)
-  call send_tile_data(id_swup_dir, ISa_dn_dir*tile%land_refl_dir,       tile%diag)
-  call send_tile_data(id_swup_dif, ISa_dn_dif*tile%land_refl_dif,       tile%diag)
   call send_tile_data(id_lwdn,     ILa_dn,                            tile%diag)
   call send_tile_data(id_subs_emis,1-tile%surf_refl_lw,               tile%diag)
 
@@ -2682,8 +2688,6 @@ subroutine update_land_model_fast_0d ( tile, l,itile, N, land2cplr, &
   ! it depends on temperature and phase state.
   call send_tile_data(id_hflsLut, land_evap*hlv,                      tile%diag)
   call send_tile_data(id_rlusLut, tile%lwup,                          tile%diag)
-  if (id_rsusLut>0) call send_tile_data(id_rsusLut, &
-    sum(ISa_dn_dir*tile%land_refl_dir+ISa_dn_dif*tile%land_refl_dif), tile%diag)
   ! evspsblsoi is evaporation from *soil*, so we send zero from glaciers and lakes;
   ! the result is averaged over the entire land surface, as required by CMIP. evspsblveg
   ! does not need this distinction because it is already zero over glaciers and lakes.
