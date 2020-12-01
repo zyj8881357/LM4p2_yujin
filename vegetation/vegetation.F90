@@ -652,7 +652,7 @@ subroutine vegn_init ( id_ug, id_band, id_cellarea )
         cc%bseed   = init_cohort_bseed(n)
         cc%scav_C_reservoir = 0.0 ; cc%scav_N_reservoir = 0.0
         cc%mine_C_reservoir = 0.0 ; cc%mine_N_reservoir = 0.0
-        cc%nfix_C_reservoir = 0.0 ; cc%nfix_C_reservoir = 0.0
+        cc%nfix_C_reservoir = 0.0 ; cc%nfix_N_reservoir = 0.0
 
         cc%nindivs = init_cohort_nindivs(n)
         cc%age     = init_cohort_age(n)
