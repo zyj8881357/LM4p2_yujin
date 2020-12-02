@@ -3907,6 +3907,15 @@ end subroutine soil_push_down_excess
         call move_up_revisited(soil%wl, dW_l, flow, w_shortage, num_l, l_internal,dz)
       endif
     enddo
+    do l=2, num_l
+      if ((soil%wl(l)+dW_l(l))/(dens_h2o*dz(l)*soil%pars%vwc_sat) < thetathresh) then
+        call get_current_point(ipt,jpt,kpt,fpt)
+        !write(*,*) '=== warning: fixing neg wl=',soil%wl(l)+dW_l(l),'at',l,ipt,jpt,kpt,fpt
+        l_internal = l
+        w_shortage = -(soil%wl(l_internal)+dW_l(l_internal))
+        call move_down_revisited(soil%wl, dW_l, flow, w_shortage, num_l, l_internal,dz)
+      endif
+    enddo
   endif
 
   if(is_watch_point().or.(flag.and.write_when_flagged)) then
@@ -3982,6 +3991,43 @@ end subroutine richards_clean
         enddo
      endif
   end subroutine move_up_revisited
+
+  subroutine move_down_revisited(w_l, dW_l, flow, w_shortage, num_l, l_internal, dz)
+  real, intent(in), dimension(num_l) :: w_l,dz
+  real, intent(inout), dimension(num_l)   :: dW_l
+  real, intent(inout), dimension(num_l+1) :: flow
+  real, intent(in)                        ::  w_shortage
+  integer, intent(in)                     ::  num_l, l_internal
+  ! ---- local vars ----------------------------------------------------------
+  integer l, l_source
+  real dW_l_source, w_to_move_down
+
+  !If a layer doesn't have enough water move the remaining extraction to lower layers
+     l_source = l_internal
+     dW_l_source = -1.e20
+     do l = l_internal-1, 1, -1
+        !if (dW_l(l).gt.dW_l_source) then
+        if ((w_l(l)+dW_l(l)-w_shortage) .gt. 0.01*dz(l)) then
+           l_source = l
+           dW_l_source = dW_l(l)
+           exit
+        endif
+     enddo
+     !w_to_move_up = min(dW_l_source, w_shortage)
+     !w_to_move_up = max(w_to_move_up, 0.)
+     w_to_move_down = w_shortage
+     !write(*,*) 'l_internal,l_source=',l_internal,l_source
+     !write(*,*) 'dW_l_source=',dW_l_source
+     !write(*,*) 'w_shortage=',w_shortage
+     !write(*,*) 'w_to_move_up=',w_to_move_up
+     if (l_source.lt.l_internal) then
+        dW_l(l_internal)   = dW_l(l_internal)   + w_to_move_down
+        dW_l(l_source) = dW_l(l_source) - w_to_move_down
+        do l = l_source, l_internal-1
+           flow(l+1) = flow(l+1) + w_to_move_down
+        enddo
+     endif
+  end subroutine move_down_revisited  
 
 ! ============================================================================
   subroutine move_up(dW_l, flow, w_shortage, num_l, l_internal)
