@@ -2542,11 +2542,11 @@ end subroutine soil_step_1
   END SELECT
 
   div = div_bf + div_if + div_al + div_it ! div includes inter-tile flow
-  !if (gw_option .eq. GW_TILED)then
-  ! lrunf_bf = sum(div_gtos)
-  !else
-  lrunf_bf = sum(div_bf + div_it) ! baseflow runoff includes inter-tile flow
-  !endif
+  if (gw_option .eq. GW_TILED)then
+   lrunf_bf = sum(div_gtos)
+  else
+   lrunf_bf = sum(div_bf + div_it) ! baseflow runoff includes inter-tile flow
+  endif
   lrunf_if = sum(div_if)
   lrunf_al = sum(div_al)
 
@@ -2840,12 +2840,12 @@ end subroutine soil_step_1
 
   flow_macro = (macro_inf-extra_cum)/delta_time
 
-  !if (gw_option .eq. GW_TILED)then
-  ! hlrunf_bf = sum(hdiv_gtos)
-  !else
-  ! hlrunf_bf = clw*sum(div_bf*(soil%T-tfreeze))
-  !endif
-  hlrunf_bf = clw*sum(div_bf*(soil%T-tfreeze)) + sum(hdiv_it)
+  if (gw_option .eq. GW_TILED)then
+   hlrunf_bf = sum(hdiv_gtos)
+  else
+   hlrunf_bf = clw*sum(div_bf*(soil%T-tfreeze))
+  endif
+  !hlrunf_bf = clw*sum(div_bf*(soil%T-tfreeze)) + sum(hdiv_it)
   ! div_bf is 0. for GW_TILED, else hdiv_it == zero
   hlrunf_if = clw*sum(div_if*(soil%T-tfreeze))
   hlrunf_al = clw*sum(div_al*(soil%T-tfreeze))
