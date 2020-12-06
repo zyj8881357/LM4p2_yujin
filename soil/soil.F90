@@ -3898,7 +3898,7 @@ end subroutine soil_push_down_excess
   endif
 
   if (fix_neg_subsurface_wl_revisited) then
-    do l=2, num_l
+    do l=1, num_l
       if ((soil%wl(l)+dW_l(l))/(dens_h2o*dz(l)*soil%pars%vwc_sat) < thetathresh) then
         call get_current_point(ipt,jpt,kpt,fpt)
         !write(*,*) '=== warning: fixing neg wl=',soil%wl(l)+dW_l(l),'at',l,ipt,jpt,kpt,fpt
@@ -3907,7 +3907,7 @@ end subroutine soil_push_down_excess
         call move_up_revisited(soil%wl, dW_l, flow, w_shortage, num_l, l_internal,dz)
       endif
     enddo
-    do l=2, num_l
+    do l=1, num_l
       if ((soil%wl(l)+dW_l(l))/(dens_h2o*dz(l)*soil%pars%vwc_sat) < thetathresh) then
         call get_current_point(ipt,jpt,kpt,fpt)
         !write(*,*) '=== warning: fixing neg wl=',soil%wl(l)+dW_l(l),'at',l,ipt,jpt,kpt,fpt
@@ -3916,7 +3916,7 @@ end subroutine soil_push_down_excess
         call move_down_revisited(soil%wl, dW_l, flow, w_shortage, num_l, l_internal,dz)
       endif
     enddo
-    do l=2, num_l
+    do l=1, num_l
       if ((soil%wl(l)+dW_l(l))/(dens_h2o*dz(l)*soil%pars%vwc_sat) < thetathresh) then
         call get_current_point(ipt,jpt,kpt,fpt)
         !write(*,*) '=== warning: fixing neg wl=',soil%wl(l)+dW_l(l),'at',l,ipt,jpt,kpt,fpt
