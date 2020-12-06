@@ -3916,6 +3916,15 @@ end subroutine soil_push_down_excess
         call move_down_revisited(soil%wl, dW_l, flow, w_shortage, num_l, l_internal,dz)
       endif
     enddo
+    do l=2, num_l
+      if ((soil%wl(l)+dW_l(l))/(dens_h2o*dz(l)*soil%pars%vwc_sat) < thetathresh) then
+        call get_current_point(ipt,jpt,kpt,fpt)
+        !write(*,*) '=== warning: fixing neg wl=',soil%wl(l)+dW_l(l),'at',l,ipt,jpt,kpt,fpt
+        l_internal = l
+        w_shortage = -(soil%wl(l_internal)+dW_l(l_internal))
+        call move_all_revisited(soil%wl, dW_l, flow, w_shortage, num_l, l_internal,dz)
+      endif
+    enddo
   endif
 
   if(is_watch_point().or.(flag.and.write_when_flagged)) then
@@ -4028,6 +4037,53 @@ end subroutine richards_clean
         enddo
      endif
   end subroutine move_down_revisited  
+
+  subroutine move_all_revisited(w_l, dW_l, flow, w_shortage, num_l, l_internal, dz)
+  real, intent(in), dimension(num_l) :: w_l,dz
+  real, intent(inout), dimension(num_l)   :: dW_l
+  real, intent(inout), dimension(num_l+1) :: flow
+  real, intent(inout)                        ::  w_shortage
+  integer, intent(in)                     ::  num_l, l_internal
+  ! ---- local vars ----------------------------------------------------------
+  integer l, l2
+  real w_to_move_up, w_to_move_down
+
+  !If a layer doesn't have enough water move the remaining extraction to lower layers
+
+     do l = l_internal+1, num_l
+        if ((w_l(l)+dW_l(l)) .gt. 0.01*dz(l)) then
+           w_to_move_up = min(w_l(l)+dW_l(l)-0.01*dz(l),w_shortage)
+           dW_l(l_internal)   = dW_l(l_internal)   + w_to_move_up
+           dW_l(l) = dW_l(l) - w_to_move_up
+           do l2 = l_internal+1, l
+             flow(l2) = flow(l2) - w_to_move_up
+           enddo
+           w_shortage = w_shortage - w_to_move_up
+           if (w_shortage <= 1.e-7)then
+             w_shortage = 0.
+             return
+           endif
+        endif
+     enddo
+
+     do l = l_internal-1, 1, -1
+        if ((w_l(l)+dW_l(l)) .gt. 0.01*dz(l)) then
+           w_to_move_down = min(w_l(l)+dW_l(l)-0.01*dz(l),w_shortage)
+           dW_l(l_internal)   = dW_l(l_internal)   + w_to_move_down
+           dW_l(l) = dW_l(l) - w_to_move_down
+           do l2 = l, l_internal-1
+              flow(l2+1) = flow(l2+1) + w_to_move_down
+           enddo
+           w_shortage = w_shortage - w_to_move_up
+           if (w_shortage <= 1.e-7)then
+             w_shortage = 0.
+             return
+           endif
+        endif
+     enddo
+     if(w_shortage>0.) print*,'WARNING: negative soil water storage.'
+  
+  end subroutine move_all_revisited 
 
 ! ============================================================================
   subroutine move_up(dW_l, flow, w_shortage, num_l, l_internal)
