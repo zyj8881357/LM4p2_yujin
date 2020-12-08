@@ -3898,31 +3898,31 @@ end subroutine soil_push_down_excess
   endif
 
   if (fix_neg_subsurface_wl_revisited) then
+    !do l=1, num_l
+    !  if ((soil%wl(l)+dW_l(l))/(dens_h2o*dz(l)*soil%pars%vwc_sat) < thetathresh) then
+    !    call get_current_point(ipt,jpt,kpt,fpt)
+    !    !write(*,*) '=== warning: fixing neg wl=',soil%wl(l)+dW_l(l),'at',l,ipt,jpt,kpt,fpt
+    !    l_internal = l
+    !    w_shortage = -(soil%wl(l_internal)+dW_l(l_internal))
+    !    call move_up_revisited(soil%wl, dW_l, flow, w_shortage, num_l, l_internal,dz)
+    !  endif
+    !enddo
+    !do l=1, num_l
+    !  if ((soil%wl(l)+dW_l(l))/(dens_h2o*dz(l)*soil%pars%vwc_sat) < thetathresh) then
+    !    call get_current_point(ipt,jpt,kpt,fpt)
+    !    !write(*,*) '=== warning: fixing neg wl=',soil%wl(l)+dW_l(l),'at',l,ipt,jpt,kpt,fpt
+    !    l_internal = l
+    !    w_shortage = -(soil%wl(l_internal)+dW_l(l_internal))
+    !    call move_down_revisited(soil%wl, dW_l, flow, w_shortage, num_l, l_internal,dz)
+    !  endif
+    !enddo
     do l=1, num_l
       if ((soil%wl(l)+dW_l(l))/(dens_h2o*dz(l)*soil%pars%vwc_sat) < thetathresh) then
         call get_current_point(ipt,jpt,kpt,fpt)
         !write(*,*) '=== warning: fixing neg wl=',soil%wl(l)+dW_l(l),'at',l,ipt,jpt,kpt,fpt
         l_internal = l
         w_shortage = -(soil%wl(l_internal)+dW_l(l_internal))
-        call move_up_revisited(soil%wl, dW_l, flow, w_shortage, num_l, l_internal,dz)
-      endif
-    enddo
-    do l=1, num_l
-      if ((soil%wl(l)+dW_l(l))/(dens_h2o*dz(l)*soil%pars%vwc_sat) < thetathresh) then
-        call get_current_point(ipt,jpt,kpt,fpt)
-        !write(*,*) '=== warning: fixing neg wl=',soil%wl(l)+dW_l(l),'at',l,ipt,jpt,kpt,fpt
-        l_internal = l
-        w_shortage = -(soil%wl(l_internal)+dW_l(l_internal))
-        call move_down_revisited(soil%wl, dW_l, flow, w_shortage, num_l, l_internal,dz)
-      endif
-    enddo
-    do l=1, num_l
-      if ((soil%wl(l)+dW_l(l))/(dens_h2o*dz(l)*soil%pars%vwc_sat) < thetathresh) then
-        call get_current_point(ipt,jpt,kpt,fpt)
-        !write(*,*) '=== warning: fixing neg wl=',soil%wl(l)+dW_l(l),'at',l,ipt,jpt,kpt,fpt
-        l_internal = l
-        w_shortage = -(soil%wl(l_internal)+dW_l(l_internal))
-        call move_all_revisited(soil%wl, dW_l, flow, w_shortage, num_l, l_internal,dz)
+        call move_all_revisited(soil%wl, dW_l, flow, w_shortage, num_l, l_internal,dz, soil%pars%vwc_sat)
       endif
     enddo
   endif
@@ -4038,8 +4038,9 @@ end subroutine richards_clean
      endif
   end subroutine move_down_revisited  
 
-  subroutine move_all_revisited(w_l, dW_l, flow, w_shortage, num_l, l_internal, dz)
+  subroutine move_all_revisited(w_l, dW_l, flow, w_shortage, num_l, l_internal, dz, vwc_sat)
   real, intent(in), dimension(num_l) :: w_l,dz
+  real, intent(in) :: vwc_sat
   real, intent(inout), dimension(num_l)   :: dW_l
   real, intent(inout), dimension(num_l+1) :: flow
   real, intent(inout)                        ::  w_shortage
@@ -4059,8 +4060,7 @@ end subroutine richards_clean
              flow(l2) = flow(l2) - w_to_move_up
            enddo
            w_shortage = w_shortage - w_to_move_up
-           if (w_shortage <= 1.e-7)then
-             w_shortage = 0.
+           if (w_shortage <= -thetathresh*(dens_h2o*dz(l_internal)*vwc_sat))then
              return
            endif
         endif
@@ -4074,14 +4074,14 @@ end subroutine richards_clean
            do l2 = l, l_internal-1
               flow(l2+1) = flow(l2+1) + w_to_move_down
            enddo
-           w_shortage = w_shortage - w_to_move_up
-           if (w_shortage <= 1.e-7)then
-             w_shortage = 0.
+           w_shortage = w_shortage - w_to_move_down
+           if (w_shortage <= -thetathresh*(dens_h2o*dz(l_internal)*vwc_sat))then
              return
            endif
         endif
      enddo
-     if(w_shortage>0.) print*,'WARNING: negative soil water storage.'
+     
+     print*,'WARNING: negative soil water storage, Th=', -w_shortage/(dens_h2o*dz(l_internal)*vwc_sat)
   
   end subroutine move_all_revisited 
 
