@@ -1338,6 +1338,16 @@ subroutine update_land_model_fast ( cplr2land, land2cplr )
   call hlsp_hydrology_1(n_c_types)
   ! ZMS: Eventually pass these args into river or main tile loop.
 
+  do l = lnd%ls, lnd%le
+     i = lnd%i_index(l)
+     j = lnd%j_index(l)
+     ce = first_elmt(land_tile_map(l))
+     do while (loop_over_tiles(ce,tile,k=k))
+        ! nwc: downscale appropriate variables (sw,prec)
+        if (downscale_surface_meteorology)call downscale_atmos(tile,cplr2land,l,k,lnd)
+     enddo
+  enddo
+
   ! main tile loop
 !$OMP parallel do default(none) shared(lnd,land_tile_map,cplr2land,land2cplr,phot_co2_overridden, &
 !$OMP                                  phot_co2_data,runoff,runoff_c,snc,id_area,id_z0m,id_z0s,       &
@@ -1350,9 +1360,6 @@ subroutine update_land_model_fast ( cplr2land, land2cplr )
      do while (loop_over_tiles(ce,tile,k=k))
         ! set this point coordinates as current for debug output
         call set_current_point(i,j,k,l)
-
-        ! nwc: downscale appropriate variables (sw,prec)
-        if (downscale_surface_meteorology)call downscale_atmos(tile,cplr2land,l,k,lnd)
 
         ISa_dn_dir(BAND_VIS) = cplr2land%sw_flux_down_vis_dir(l,k)
         ISa_dn_dir(BAND_NIR) = cplr2land%sw_flux_down_total_dir(l,k)&
