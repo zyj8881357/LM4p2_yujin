@@ -21,7 +21,7 @@ use land_utils_mod, only : put_to_tiles_r0d_fptr
 use land_tile_diag_mod, only : diag_buff_type, &
      register_tiled_static_field, set_default_diag_filter, &
      send_tile_data_r0d_fptr, send_tile_data_i0d_fptr
-use land_data_mod, only : lnd, log_version
+use land_data_mod, only : lnd, log_version, atmos_land_boundary_type
 use land_io_mod, only : read_field
 use land_tile_io_mod, only: land_restart_type, &
      init_land_restart, open_land_restart, save_land_restart, free_land_restart, &
@@ -57,7 +57,7 @@ public :: hlsp_config_check     ! Check configuration for errors, at the end of 
                                 ! Also deallocate any module variables used during cold start.
 public :: calculate_wt_init  ! Calculates water table depth for initialization to be returned by
                              ! horiz_wt_depth_to_init.
-
+public :: hlsp_disagg_precip
 ! =====end of public interfaces ==============================================
 
 ! =====private methods
@@ -128,6 +128,8 @@ logical, protected, public :: turn_gtos_off = .false.
 logical, protected, public :: sat_from_edecay = .true.
 real, protected, public :: sat_from_edecay_parameter = 0.1
 
+logical, protected :: do_hlsp_disagg_precip = .FALSE.
+
 character(len=256)  :: hillslope_surfdata = 'INPUT/hillslope.nc'
 character(len=24)   :: hlsp_interpmethod = 'nearest'
 character(*), parameter  :: hlsp_rst_ifname = 'INPUT/hlsp.res.nc'
@@ -140,7 +142,8 @@ namelist /hlsp_nml/ num_vertclusters, max_num_topo_hlsps, hillslope_horz_subdiv,
                     diagnostics_by_cluster, init_wt_strmelev, dammed_strm_bc, &
                     simple_inundation, surf_flow_velocity, dl, equal_length_tiles, &
                     limit_intertile_flow, flow_ratio_limit, exp_inundation, tiled_DOC_flux, &
-                    sat_frac_from_hand, turn_gtos_off, sat_from_edecay,sat_from_edecay_parameter
+                    sat_frac_from_hand, turn_gtos_off, sat_from_edecay,sat_from_edecay_parameter, &
+                    do_hlsp_disagg_precip
 ! hardwired: fixed_num_vertclusters, hillslope_topo_subdiv, stiff_do_explicit
 !---- end of namelist --------------------------------------------------------
 
@@ -1121,6 +1124,70 @@ function meanelev(elev, area, lowbound, upbound) result(melev)
    end if
 
 end function meanelev
+
+! ============================================================================
+
+subroutine hlsp_disagg_precip(cplr2land)
+
+  type(atmos_land_boundary_type), intent(in)    :: cplr2land
+  
+  real, dimension(lnd%ls:lnd%le) :: soil_frac, elev_mean, elev_max, norm_tot
+  type(land_tile_enum_type)     :: ce
+  type(land_tile_type), pointer :: tile
+  real :: h, frac, norm, adjust
+  integer :: l, k
+
+  if(.not.do_hlsp_disagg_precip) return
+  if(.not.do_hillslope_model) &
+    call error_mesg(module_name, 'do_hillslope_model must be activated when using do_hlsp_disagg_precip', FATAL)
+ 
+  soil_frac(lnd%ls:lnd%le) = 0.0
+  elev_mean(lnd%ls:lnd%le) = 0.0
+  elev_max(lnd%ls:lnd%le) = 0.0
+  do l = lnd%ls, lnd%le
+     ce = first_elmt(land_tile_map(l))
+     do while (loop_over_tiles(ce,tile,k=k))
+       if (.not.associated(tile%soil)) cycle
+       soil_frac(l) = soil_frac(l) + tile%frac
+       elev_mean(l) = elev_mean(l) + tile%frac * tile%soil%pars%tile_hlsp_elev
+       if (tile%soil%pars%tile_hlsp_elev > elev_max(l)) elev_max(l) = tile%soil%pars%tile_hlsp_elev
+     enddo
+     if(soil_frac(l) > 0.) elev_mean(l) = elev_mean(l)/soil_frac(l)
+     if(elev_max(l) <= 0.) elev_max(l) = epsilon(1.0) 
+  enddo  
+
+  norm_tot(lnd%ls:lnd%le) = 0.0
+  do l = lnd%ls, lnd%le
+     ce = first_elmt(land_tile_map(l))
+     do while (loop_over_tiles(ce,tile,k=k))
+       if (.not.associated(tile%soil)) cycle 
+       if (cplr2land%bnv(l,k)>0.)then
+          h = min(tile%soil%pars%tile_hlsp_elev - elev_mean(l), cplr2land%ulow(l,k)/cplr2land%bnv(l,k))
+       else
+          h = tile%soil%pars%tile_hlsp_elev - elev_mean(l)
+       endif
+       frac = tile%frac/soil_frac(l)
+       norm = frac * (1. + h/elev_max(l))
+       norm_tot(l) = norm_tot(l) + norm
+     enddo
+  enddo
+
+  do l = lnd%ls, lnd%le
+     ce = first_elmt(land_tile_map(l))
+     do while (loop_over_tiles(ce,tile,k=k))
+       if (.not.associated(tile%soil)) cycle 
+       if (cplr2land%bnv(l,k)>0.)then
+          h = min(tile%soil%pars%tile_hlsp_elev - elev_mean(l), cplr2land%ulow(l,k)/cplr2land%bnv(l,k))
+       else
+          h = tile%soil%pars%tile_hlsp_elev - elev_mean(l)
+       endif
+       adjust = (1. + h/elev_max(l))/norm_tot(l)
+       cplr2land%lprec(l,k) = cplr2land%lprec(l,k) * adjust
+       cplr2land%fprec(l,k) = cplr2land%fprec(l,k) * adjust
+     enddo
+  enddo
+
+end subroutine hlsp_disagg_precip
 
 ! ============================================================================
 ! cohort accessor functions: given a pointer to cohort, return a pointer to a

@@ -112,9 +112,9 @@ use land_transitions_mod, only : &
 use stock_constants_mod, only: ISTOCK_WATER, ISTOCK_HEAT, ISTOCK_SALT
 use nitrogen_sources_mod, only : nitrogen_sources_init, nitrogen_sources_end, &
      update_nitrogen_sources, nitrogen_sources
-use hillslope_mod, only: retrieve_hlsp_indices, save_hlsp_restart, hlsp_end, &
+use hillslope_mod, only: do_hillslope_model, retrieve_hlsp_indices, save_hlsp_restart, hlsp_end, &
                          read_hlsp_namelist, hlsp_init, hlsp_config_check, &
-                         hlsp_init_predefined
+                         hlsp_init_predefined, hlsp_disagg_precip
 use hillslope_hydrology_mod, only: hlsp_hydrology_1, hlsp_hydro_init
 use hdf5
 use predefined_tiles_mod, only : read_predefined_tiles_namelist, &
@@ -279,6 +279,7 @@ integer :: &
   id_sens,     id_sensv,    id_senss,    id_sensg,                         &
 !
   id_e_res_1,  id_e_res_2,  id_cd_m,     id_cd_t,                          &
+  id_bnv, id_ulow,                                                         &
   id_cellarea, id_landfrac,                                                &
   id_geolon_t, id_geolat_t,                                                &
   id_frac,     id_area,     id_ntiles,                                     &
@@ -1348,10 +1349,12 @@ subroutine update_land_model_fast ( cplr2land, land2cplr )
      enddo
   enddo
 
+  call hlsp_disagg_precip(cplr2land)
+
   ! main tile loop
 !$OMP parallel do default(none) shared(lnd,land_tile_map,cplr2land,land2cplr,phot_co2_overridden, &
 !$OMP                                  phot_co2_data,runoff,runoff_c,snc,id_area,id_z0m,id_z0s,       &
-!$OMP                                  id_Trad,id_Tca,id_qca,isphum,id_cd_m,id_cd_t,id_snc) &
+!$OMP                                  id_Trad,id_Tca,id_qca,isphum,id_cd_m,id_cd_t,id_bnv,id_ulow,id_snc) &
 !$OMP                                  private(i,j,k,ce,tile,ISa_dn_dir,ISa_dn_dif,n_cohorts,snow_depth,snow_area)
   do l = lnd%ls, lnd%le
      i = lnd%i_index(l)
@@ -1400,6 +1403,8 @@ subroutine update_land_model_fast ( cplr2land, land2cplr )
         call send_tile_data(id_qca,  land2cplr%tr(l,k,isphum),     tile%diag)
         call send_tile_data(id_cd_m, cplr2land%cd_m(l,k),          tile%diag)
         call send_tile_data(id_cd_t, cplr2land%cd_t(l,k),          tile%diag)
+        call send_tile_data(id_bnv,  cplr2land%bnv(l,k),           tile%diag)
+        call send_tile_data(id_ulow, cplr2land%ulow(l,k),          tile%diag)
 
         if (id_snc>0) then
            call snow_get_depth_area ( tile%snow, snow_depth, snow_area )
@@ -4341,6 +4346,10 @@ subroutine land_diag_init(clonb, clatb, clon, clat, time, id_band, id_ug, id_pti
        'drag coefficient for momentum', missing_value=-1e20)
   id_cd_t    = register_tiled_diag_field ( module_name, 'cd_t', axes, time, &
        'drag coefficient for heat and tracers', missing_value=-1e20)
+  id_bnv     = register_tiled_diag_field ( module_name, 'bnv', axes, time, &
+       'brunt-vaisala frequency', missing_value=-1e20)  
+  id_ulow    = register_tiled_diag_field ( module_name, 'ulow', axes, time, &
+       'wind speed in lower-level atmosphere', missing_value=-1e20)    
   id_sens    = register_tiled_diag_field ( module_name, 'sens', axes, time, &
              'sens heat flux from land', 'W/m2', missing_value=-1.0e+20 )
   id_sensv   = register_tiled_diag_field ( module_name, 'sensv', axes, time, &
@@ -5040,6 +5049,8 @@ subroutine realloc_cplr2land( bnd )
   allocate( bnd%z_bot(lnd%ls:lnd%le,kd) )
 
   allocate( bnd%drag_q(lnd%ls:lnd%le,kd) )
+  allocate( bnd%bnv(lnd%ls:lnd%le,kd) )
+  allocate( bnd%ulow(lnd%ls:lnd%le,kd) )  
 
   bnd%t_flux                 = init_value
   bnd%lw_flux                = init_value
@@ -5068,6 +5079,8 @@ subroutine realloc_cplr2land( bnd )
   bnd%z_bot                  = init_value
 
   bnd%drag_q                 = init_value
+  bnd%bnv                    = init_value
+  bnd%ulow                   = init_value  
 
 end subroutine realloc_cplr2land
 
@@ -5101,6 +5114,8 @@ subroutine dealloc_cplr2land( bnd )
   __DEALLOC__( bnd%drag_q )
   __DEALLOC__( bnd%tr_flux )
   __DEALLOC__( bnd%dfdtr )
+  __DEALLOC__( bnd%bnv )  
+  __DEALLOC__( bnd%ulow ) 
 
 end subroutine dealloc_cplr2land
 

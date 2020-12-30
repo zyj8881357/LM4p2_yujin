@@ -52,6 +52,8 @@ type :: atmos_land_boundary_type
         lprec     => NULL(), &   ! liquid precipitation rate, kg/(m2 s)
         fprec     => NULL(), &   ! frozen precipitation rate, kg/(m2 s)
         tprec     => NULL(), &   ! temperature of precipitation, degK
+        bnv       => NULL(), &       
+        ulow      => NULL(), & 
    ! components of downward shortwave flux, W/m2
         sw_flux_down_vis_dir   => NULL(), & ! visible direct
         sw_flux_down_total_dir => NULL(), & ! total direct
