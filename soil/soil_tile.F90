@@ -193,6 +193,7 @@ type :: soil_pars_type
                         ! tile area)
   real tile_hlsp_slope  ! vertical slope of tile (-)
   real tile_hlsp_elev   ! elevation of center of tile above streambed at hillslope bottom (m)
+  real tile_abs_elev
   real tile_hlsp_hpos   ! horizontal position of tile center along hillslope (m)
   real tile_hlsp_width  ! width of tile perpendicular to hillslope, normalized to strm width (-)
                         ! (proportional to tile area)
@@ -928,6 +929,7 @@ subroutine soil_data_init_0d(soil)
   soil%pars%tile_hlsp_length = initval
   soil%pars%tile_hlsp_slope = initval
   soil%pars%tile_hlsp_elev = initval
+  soil%pars%tile_abs_elev = initval
   soil%pars%tile_hlsp_hpos = initval
   soil%pars%tile_hlsp_width = initval
 

@@ -182,6 +182,15 @@ subroutine soil_hillslope_length_ptr(t,p)
     endif
 end subroutine
 
+subroutine soil_tile_abs_elev_ptr(t,p)
+    type(land_tile_type),pointer::t
+    real,pointer::p
+    p=>NULL()
+    if(associated(t))then
+        if(associated(t%soil))p=>t%soil%pars%tile_abs_elev
+    endif
+end subroutine
+
 subroutine soil_hillslope_relief_ptr(t,p)
     type(land_tile_type),pointer::t
     real,pointer::p

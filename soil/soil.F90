@@ -84,6 +84,8 @@ use soil_tile_mod, only : n_dim_soil_types, soil_to_use, &
 use hillslope_hydrology_mod, only: hlsp_hydro_lev_init, hlsp_hydrology_2, &
      stiff_explicit_gwupdate
 use river_mod, only : river_tracer_index
+use topography_mod, only: get_topog_mean
+use mpp_domains_mod, only : mpp_get_UG_compute_domain, mpp_get_compute_domain, mpp_pass_sg_to_ug
 
 ! Test tridiagonal solution for advection
 use land_numerics_mod, only : tridiag
@@ -232,7 +234,7 @@ integer ::  &
     id_lwc, id_swc, id_psi, id_temp, &
     id_ie, id_sn, id_bf, id_if, id_al, id_nu, id_sc, &
     id_hie, id_hsn, id_hbf, id_hif, id_hal, id_hnu, id_hsc, &
-    id_heat_cap, id_thermal_cond, id_type, id_tau_gw, id_slope_l, &
+    id_heat_cap, id_thermal_cond, id_type, id_tau_gw, id_slope_l, id_slope_e, &
     id_slope_Z, id_zeta_bar, id_e_depth, id_vwc_sat, id_vwc_fc, &
     id_vwc_wilt, id_K_sat, id_K_gw, id_w_fc, id_alpha, &
     id_refl_dry_dif, id_refl_dry_dir, id_refl_sat_dif, id_refl_sat_dir, &
@@ -386,6 +388,12 @@ subroutine soil_init (id_ug,id_band,id_zfull,id_ptid)
   integer :: i, k, ll ! indices
   real :: psi(num_l), mwc(num_l)
   real :: sum_frac
+
+  real, dimension(lnd%ls:lnd%le) :: zmean_ug, soil_frac, elev_bottom, hlsp_elev_frac   
+  real, allocatable :: topo_mean(:)
+  real, allocatable :: topo_mean_SG(:,:)
+  logical  ::  answer
+  integer :: ls, le, isc, iec, jsc, jec                         ! compute domain decomposition  
 
   type(land_restart_type) :: restart, restart1
   logical :: restart_exists
@@ -566,6 +574,53 @@ subroutine soil_init (id_ug,id_band,id_zfull,id_ptid)
           '" is invalid, use "albedo-map", "brdf-maps", or empty line ("")',&
           FATAL)
   endif
+
+
+  !---initialize absolute elevation for each soil tile-----
+  if(do_hillslope_model)then
+
+      call mpp_get_UG_compute_domain(lnd%ug_domain, ls, le)
+      allocate(topo_mean(ls:le))
+      call mpp_get_compute_domain(lnd%sg_domain, isc, iec, jsc, jec) 
+      allocate(topo_mean_SG(isc:iec,jsc:jec))  
+
+      answer = get_topog_mean(lnd%sg_lonb, lnd%sg_latb,topo_mean_SG)
+      if (.not.answer) &
+             call error_mesg ('soil_init', &
+             'could not read topography data', FATAL) 
+
+      call mpp_pass_SG_to_UG(lnd%ug_domain, topo_mean_SG, topo_mean)    
+      zmean_ug(lnd%ls:lnd%le) = topo_mean(ls:le)
+
+      soil_frac(lnd%ls:lnd%le) = 0.0
+      hlsp_elev_frac(lnd%ls:lnd%le) = 0.0
+      elev_bottom(lnd%ls:lnd%le) = 0.0
+      do ll = lnd%ls, lnd%le
+          ce = first_elmt(land_tile_map(ll))
+          do while (loop_over_tiles(ce,tile,k=k))
+              if (.not.associated(tile%soil)) cycle
+              soil_frac(ll) = soil_frac(ll) + tile%frac
+              hlsp_elev_frac(ll) = hlsp_elev_frac(ll) + tile%frac * tile%soil%pars%tile_hlsp_elev
+          enddo
+          if(soil_frac(ll)>0.)then
+            elev_bottom(ll) = max(0.,zmean_ug(ll) - hlsp_elev_frac(ll)/soil_frac(ll))
+          else
+            elev_bottom(ll) = max(0.,zmean_ug(ll))
+          endif
+      enddo     
+
+      do ll = lnd%ls, lnd%le
+          ce = first_elmt(land_tile_map(ll))
+          do while (loop_over_tiles(ce,tile,k=k))
+              if (.not.associated(tile%soil)) cycle
+              tile%soil%pars%tile_abs_elev = elev_bottom(ll) + tile%soil%pars%tile_hlsp_elev
+          enddo       
+      enddo     
+      deallocate(topo_mean, topo_mean_SG)
+
+  endif
+  !--------------------------------------------------------
+
 
   ce = first_elmt(land_tile_map)
   do while(loop_over_tiles(ce,tile))
@@ -796,6 +851,7 @@ subroutine soil_init (id_ug,id_band,id_zfull,id_ptid)
   ! ---- static diagnostic section
   call send_tile_data_r0d_fptr(id_tau_gw,       soil_tau_groundwater_ptr)
   call send_tile_data_r0d_fptr(id_slope_l,      soil_hillslope_length_ptr)
+  call send_tile_data_r0d_fptr(id_slope_e,      soil_tile_abs_elev_ptr)  
   call send_tile_data_r0d_fptr(id_slope_Z,      soil_hillslope_relief_ptr)
   call send_tile_data_r0d_fptr(id_zeta_bar,     soil_hillslope_zeta_bar_ptr)
   call send_tile_data_r0d_fptr(id_e_depth,      soil_soil_e_depth_ptr)
@@ -1263,6 +1319,8 @@ subroutine soil_diag_init(id_ug,id_band,id_zfull,id_ptid)
        axes(1:1), 'groundwater residence time', 's', missing_value=-100.0 )
   id_slope_l = register_tiled_static_field ( module_name, 'slope_l',  &
        axes(1:1), 'hillslope length', 'm', missing_value=-100.0 )
+  id_slope_e = register_tiled_static_field ( module_name, 'slope_elev',  &
+       axes(1:1), 'hillslope elevation', 'm', missing_value=-100.0 )  
   id_slope_Z = register_tiled_static_field ( module_name, 'soil_rlief',  &
        axes(1:1), 'hillslope relief', 'm', missing_value=-100.0 )
   id_zeta_bar = register_tiled_static_field ( module_name, 'zeta_bar',  &

@@ -1140,7 +1140,8 @@ subroutine hlsp_disagg_precip(cplr2land)
   if(.not.do_hlsp_disagg_precip) return
   if(.not.do_hillslope_model) &
     call error_mesg(module_name, 'do_hillslope_model must be activated when using do_hlsp_disagg_precip', FATAL)
- 
+
+
   soil_frac(lnd%ls:lnd%le) = 0.0
   elev_mean(lnd%ls:lnd%le) = 0.0
   elev_max(lnd%ls:lnd%le) = 0.0
@@ -1148,9 +1149,9 @@ subroutine hlsp_disagg_precip(cplr2land)
      ce = first_elmt(land_tile_map(l))
      do while (loop_over_tiles(ce,tile,k=k))
        if (.not.associated(tile%soil)) cycle
-       soil_frac(l) = soil_frac(l) + tile%frac
-       elev_mean(l) = elev_mean(l) + tile%frac * tile%soil%pars%tile_hlsp_elev
-       if (tile%soil%pars%tile_hlsp_elev > elev_max(l)) elev_max(l) = tile%soil%pars%tile_hlsp_elev
+       soil_frac(l) = soil_frac(l) + tile%frac       
+       elev_mean(l) = elev_mean(l) + tile%frac * tile%soil%pars%tile_abs_elev
+       if (tile%soil%pars%tile_abs_elev > elev_max(l)) elev_max(l) = tile%soil%pars%tile_abs_elev
      enddo
      if(soil_frac(l) > 0.) elev_mean(l) = elev_mean(l)/soil_frac(l)
      if(elev_max(l) <= 0.) elev_max(l) = epsilon(1.0) 
@@ -1162,9 +1163,9 @@ subroutine hlsp_disagg_precip(cplr2land)
      do while (loop_over_tiles(ce,tile,k=k))
        if (.not.associated(tile%soil)) cycle 
        if (cplr2land%bnv(l,k)>0.)then
-          h = min(tile%soil%pars%tile_hlsp_elev - elev_mean(l), cplr2land%ulow(l,k)/cplr2land%bnv(l,k))
+          h = min(tile%soil%pars%tile_abs_elev - elev_mean(l), cplr2land%ulow(l,k)/cplr2land%bnv(l,k))
        else
-          h = tile%soil%pars%tile_hlsp_elev - elev_mean(l)
+          h = tile%soil%pars%tile_abs_elev - elev_mean(l)
        endif
        frac = tile%frac/soil_frac(l)
        norm = frac * (1. + h/elev_max(l))
@@ -1177,9 +1178,9 @@ subroutine hlsp_disagg_precip(cplr2land)
      do while (loop_over_tiles(ce,tile,k=k))
        if (.not.associated(tile%soil)) cycle 
        if (cplr2land%bnv(l,k)>0.)then
-          h = min(tile%soil%pars%tile_hlsp_elev - elev_mean(l), cplr2land%ulow(l,k)/cplr2land%bnv(l,k))
+          h = min(tile%soil%pars%tile_abs_elev - elev_mean(l), cplr2land%ulow(l,k)/cplr2land%bnv(l,k))
        else
-          h = tile%soil%pars%tile_hlsp_elev - elev_mean(l)
+          h = tile%soil%pars%tile_abs_elev - elev_mean(l)
        endif
        adjust = (1. + h/elev_max(l))/norm_tot(l)
        cplr2land%lprec(l,k) = cplr2land%lprec(l,k) * adjust
