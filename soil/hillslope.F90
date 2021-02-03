@@ -34,7 +34,7 @@ use vegn_harvesting_mod , only : do_harvesting
 use hillslope_tile_mod , only : register_hlsp_selectors
 use constants_mod, only : tfreeze
 use soil_tile_mod, only : gw_option, GW_TILED, initval, soil_tile_type, &
-     gw_scale_length, gw_scale_relief
+     gw_scale_length, gw_scale_relief, MAX_HLSP_J
 
 implicit none
 private
@@ -1136,6 +1136,9 @@ subroutine hlsp_disagg_precip(cplr2land)
   type(land_tile_type), pointer :: tile
   real :: h, frac, norm, adjust
   integer :: l, k
+  real, dimension(lnd%ls:lnd%le, MAX_HLSP_J) :: lprec, fprec, elev
+  integer :: hidx_j
+
 
   if(.not.do_hlsp_disagg_precip) return
   if(.not.do_hillslope_model) &
@@ -1187,6 +1190,34 @@ subroutine hlsp_disagg_precip(cplr2land)
        cplr2land%fprec(l,k) = cplr2land%fprec(l,k) * adjust
      enddo
   enddo
+
+  !at here we assume only one hillslope is represented within a gridcell
+  lprec(lnd%ls:lnd%le, 1:MAX_HLSP_J)=initval
+  fprec(lnd%ls:lnd%le, 1:MAX_HLSP_J)=initval
+  elev(lnd%ls:lnd%le, 1:MAX_HLSP_J)=initval  
+  do l = lnd%ls, lnd%le
+     ce = first_elmt(land_tile_map(l))
+     do while (loop_over_tiles(ce,tile,k=k))
+       if (.not.associated(tile%soil)) cycle 
+       hidx_j =  tile%soil%hidx_j
+       ! this assumes cplr2land%lprec(l,k) are same for tiles with a same hidx_j
+       lprec(l,hidx_j) = cplr2land%lprec(l,k) 
+       fprec(l,hidx_j) = cplr2land%fprec(l,k)
+       elev(l,hidx_j) = tile%soil%pars%tile_abs_elev
+     enddo
+  enddo
+
+
+  do l = lnd%ls, lnd%le
+     ce = first_elmt(land_tile_map(l))
+     do while (loop_over_tiles(ce,tile,k=k))
+       if (.not.associated(tile%soil)) cycle
+       tile%soil%lprec_hlsp(:) = lprec(l,:)
+       tile%soil%fprec_hlsp(:) = fprec(l,:)
+       tile%soil%elev_hlsp(:) = elev(l,:)
+     enddo
+  enddo       
+  
 
 end subroutine hlsp_disagg_precip
 

@@ -36,7 +36,8 @@ use soil_tile_mod, only : num_l, dz, zfull, zhalf, &
      slope_exp, gw_scale_perm, k0_macro_x, retro_a0n1, &
      soil_type_file, &
      soil_tile_stock_pe, initval, comp, soil_theta, soil_ice_porosity, &
-     N_LITTER_POOLS,LEAF,CWOOD,l_shortname,l_longname,l_diagname
+     N_LITTER_POOLS,LEAF,CWOOD,l_shortname,l_longname,l_diagname, &
+     MAX_HLSP_J, hlsp_name
 use soil_util_mod, only: soil_util_init, rhizosphere_frac
 use soil_accessors_mod ! use everything
 
@@ -276,6 +277,9 @@ integer, dimension(N_LITTER_POOLS,N_C_TYPES) :: &
     id_litter_protected_C, id_litter_protected_N, &
     id_litter_rsoil_C,     id_litter_rsoil_N, &
     id_litter_C_leaching, id_litter_DON_leaching
+
+integer, dimension(MAX_HLSP_J) :: &
+    id_lprec_hlsp, id_fprec_hlsp, id_elev_hlsp
 
 ! FIXME: add N leaching terms to diagnostics?
 
@@ -901,6 +905,34 @@ end do
 end function replace_text
 
 ! ============================================================================
+function register_hlsp_diag_fields(module_name, field_name, axes, init_time, &
+     long_name, units, missing_value, range, op, standard_name) result (id)
+
+  integer :: id(MAX_HLSP_J)
+
+  character(len=*), intent(in) :: module_name
+  character(len=*), intent(in) :: field_name
+  integer,          intent(in) :: axes(:)
+  type(time_type),  intent(in) :: init_time
+  character(len=*), intent(in), optional :: long_name
+  character(len=*), intent(in), optional :: units
+  real,             intent(in), optional :: missing_value
+  real,             intent(in), optional :: range(2)
+  character(len=*), intent(in), optional :: op ! aggregation operation
+  character(len=*), intent(in), optional :: standard_name
+
+  integer :: i
+
+  do i = 1, MAX_HLSP_J
+     id(i) = register_tiled_diag_field(module_name, &
+             trim(replace_text(field_name,'<jtype>',trim(hlsp_name(i)))), &
+             axes, init_time, &
+             trim(replace_text(long_name,'<jtype>',trim(hlsp_name(i)))), &
+             units, missing_value, range, op, standard_name)
+  enddo
+end function register_hlsp_diag_fields
+
+! ============================================================================
 function register_soilc_diag_fields(module_name, field_name, axes, init_time, &
      long_name, units, missing_value, range, op, standard_name) result (id)
 
@@ -1043,6 +1075,14 @@ subroutine soil_diag_init(id_ug,id_band,id_zfull,id_ptid)
        lnd%time, 'dissolved organic carbon', 'kg C/m3', missing_value=-100.0 )
   id_soil_DON = register_tiled_diag_field ( module_name, 'soil_DON', axes,  &
        lnd%time, 'dissolved organic nitrogen', 'kg C/m3', missing_value=-100.0 )
+
+  ! hillslope output
+  id_lprec_hlsp(:) = register_hlsp_diag_fields(module_name, '<jtype>_lprec', &
+       axes(1:1), lnd%time, '<jtype> rainfall', 'kg/(m2 s)', missing_value=initval )
+  id_fprec_hlsp(:) = register_hlsp_diag_fields(module_name, '<jtype>_fprec', &
+       axes(1:1), lnd%time, '<jtype> snowfall', 'kg/(m2 s)', missing_value=initval )
+  id_elev_hlsp(:) = register_hlsp_diag_fields(module_name, '<jtype>_elev', &
+       axes(1:1), lnd%time, '<jtype> elevation', 'm', missing_value=initval )  
 
   ! by-carbon-species diag fields
   id_soil_C(:) = register_soilc_diag_fields(module_name, '<ctype>_soil_C', &
@@ -2113,6 +2153,7 @@ end subroutine soil_step_1
   real, dimension(vegn%n_cohorts) :: passive_N_uptake
 
   real :: frozen ! frozen soil indicator, used for calculating long-term frozen soil frequency
+  integer :: i
   ! --------------------------------------------------------------------------
   div_active(:) = 0.0
 
@@ -3148,6 +3189,14 @@ end subroutine soil_step_1
   ! std variables
   if (id_lwc_std > 0) call send_tile_data(id_lwc_std,  soil%wl/dz(1:num_l), diag)
   if (id_swc_std > 0) call send_tile_data(id_swc_std,  soil%ws/dz(1:num_l), diag)
+
+  do i = 1, MAX_HLSP_J
+     call send_tile_data(id_lprec_hlsp(i), soil%lprec_hlsp(i), diag)
+     call send_tile_data(id_fprec_hlsp(i), soil%fprec_hlsp(i), diag)   
+     call send_tile_data(id_elev_hlsp(i),  soil%elev_hlsp(i),  diag)         
+  enddo
+  
+
 
 end subroutine soil_step_2
 

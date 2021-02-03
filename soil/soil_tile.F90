@@ -107,6 +107,14 @@ real,    parameter :: g_RT             = grav / (rvgas*t_ref)
 real,    parameter :: K_rel_min        = 1.e-12
 real,    parameter, public :: initval  = 1.e36 ! For initializing variables
 
+integer, parameter, public :: MAX_HLSP_J = 20
+character(len=12), parameter, public :: &
+ hlsp_name (MAX_HLSP_J) = [ 'hidx_j_1    ', 'hidx_j_2    ', 'hidx_j_3    ', 'hidx_j_4    ', &
+                            'hidx_j_5    ', 'hidx_j_6    ', 'hidx_j_7    ', 'hidx_j_8    ', &
+                            'hidx_j_9    ', 'hidx_j_10   ', 'hidx_j_11   ', 'hidx_j_12   ', &
+                            'hidx_j_13   ', 'hidx_j_14   ', 'hidx_j_15   ', 'hidx_j_16   ', &
+                            'hidx_j_17   ', 'hidx_j_18   ', 'hidx_j_19   ', 'hidx_j_20   ' ] 
+
 ! from the modis brdf/albedo product user guide:
 real, parameter :: g_iso  = 1.
 real, parameter :: g_vol  = 0.189184
@@ -253,6 +261,10 @@ type :: soil_tile_type
                                      ! (relative to tfreeze) [W/m^2]
    real*8, allocatable :: gtos(:) ! groundwater from tile to stream [mm/s]
    real, allocatable :: gtosh(:) ! heat flux to stream [W/m^2]
+
+   real :: lprec_hlsp(MAX_HLSP_J) = initval
+   real :: fprec_hlsp(MAX_HLSP_J) = initval
+   real :: elev_hlsp(MAX_HLSP_J) = initval
 
    ! soil carbon
    ! CENTURY-style values
