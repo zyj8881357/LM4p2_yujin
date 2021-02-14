@@ -1136,7 +1136,7 @@ subroutine hlsp_disagg_precip(cplr2land)
   type(land_tile_type), pointer :: tile
   real :: h, frac, norm, adjust
   integer :: l, k
-  real, dimension(lnd%ls:lnd%le, MAX_HLSP_J) :: lprec, fprec, elev
+  real, dimension(lnd%ls:lnd%le, MAX_HLSP_J) :: lprec, fprec, elev, tfrac
   integer :: hidx_j
 
 
@@ -1195,6 +1195,7 @@ subroutine hlsp_disagg_precip(cplr2land)
   lprec(lnd%ls:lnd%le, 1:MAX_HLSP_J)=initval
   fprec(lnd%ls:lnd%le, 1:MAX_HLSP_J)=initval
   elev(lnd%ls:lnd%le, 1:MAX_HLSP_J)=initval  
+  tfrac(lnd%ls:lnd%le, 1:MAX_HLSP_J)=initval
   do l = lnd%ls, lnd%le
      ce = first_elmt(land_tile_map(l))
      do while (loop_over_tiles(ce,tile,k=k))
@@ -1204,6 +1205,8 @@ subroutine hlsp_disagg_precip(cplr2land)
        lprec(l,hidx_j) = cplr2land%lprec(l,k) 
        fprec(l,hidx_j) = cplr2land%fprec(l,k)
        elev(l,hidx_j) = tile%soil%pars%tile_abs_elev
+       if(tfrac(l,hidx_j)==initval) tfrac(l,hidx_j) = 0.
+       tfrac(l,hidx_j) = tfrac(l,hidx_j) + tile%frac
      enddo
   enddo
 
@@ -1215,6 +1218,7 @@ subroutine hlsp_disagg_precip(cplr2land)
        tile%soil%lprec_hlsp(:) = lprec(l,:)
        tile%soil%fprec_hlsp(:) = fprec(l,:)
        tile%soil%elev_hlsp(:) = elev(l,:)
+       tile%soil%tfrac_hlsp(:) = tfrac(l,:)
      enddo
   enddo       
   

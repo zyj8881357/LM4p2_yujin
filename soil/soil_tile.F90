@@ -265,6 +265,7 @@ type :: soil_tile_type
    real :: lprec_hlsp(MAX_HLSP_J) = initval
    real :: fprec_hlsp(MAX_HLSP_J) = initval
    real :: elev_hlsp(MAX_HLSP_J) = initval
+   real :: tfrac_hlsp(MAX_HLSP_J) = initval
 
    ! soil carbon
    ! CENTURY-style values
