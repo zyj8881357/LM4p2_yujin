@@ -279,7 +279,9 @@ integer, dimension(N_LITTER_POOLS,N_C_TYPES) :: &
     id_litter_C_leaching, id_litter_DON_leaching
 
 integer, dimension(MAX_HLSP_J) :: &
-    id_lprec_hlsp, id_fprec_hlsp, id_elev_hlsp, id_tfrac_hlsp
+    id_lprec_hlsp, id_fprec_hlsp, id_elev_hlsp, id_tfrac_hlsp, id_lift_hlsp
+
+integer :: id_elevmean
 
 ! FIXME: add N leaching terms to diagnostics?
 
@@ -1085,6 +1087,11 @@ subroutine soil_diag_init(id_ug,id_band,id_zfull,id_ptid)
        axes(1:1), lnd%time, '<jtype> elevation', 'm', missing_value=initval )  
   id_tfrac_hlsp(:) = register_hlsp_diag_fields(module_name, '<jtype>_tfrac', &
        axes(1:1), lnd%time, '<jtype> total tile fraction', 'unitless', missing_value=initval )    
+  id_lift_hlsp(:) = register_hlsp_diag_fields(module_name, '<jtype>_lift', &
+       axes(1:1), lnd%time, '<jtype> air lift compared to mean elevation of soil tiles', 'm', missing_value=initval ) 
+
+  id_elevmean = register_tiled_diag_field ( module_name, 'elev_mean', axes(1:1), &
+       lnd%time, 'mean elevation of soil tiles', 'm',  missing_value=initval )  
 
   ! by-carbon-species diag fields
   id_soil_C(:) = register_soilc_diag_fields(module_name, '<ctype>_soil_C', &
@@ -3196,9 +3203,10 @@ end subroutine soil_step_1
      call send_tile_data(id_lprec_hlsp(i), soil%lprec_hlsp(i), diag)
      call send_tile_data(id_fprec_hlsp(i), soil%fprec_hlsp(i), diag)   
      call send_tile_data(id_elev_hlsp(i),  soil%elev_hlsp(i),  diag) 
-     call send_tile_data(id_tfrac_hlsp(i), soil%tfrac_hlsp(i),  diag)              
+     call send_tile_data(id_tfrac_hlsp(i), soil%tfrac_hlsp(i), diag) 
+     call send_tile_data(id_lift_hlsp(i),  soil%lift_hlsp(i),  diag)             
   enddo
-  
+  call send_tile_data(id_elevmean, soil%elevmean_hlsp, diag)
 
 
 end subroutine soil_step_2

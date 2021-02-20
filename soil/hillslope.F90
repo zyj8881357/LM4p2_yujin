@@ -1136,7 +1136,8 @@ subroutine hlsp_disagg_precip(cplr2land)
   type(land_tile_type), pointer :: tile
   real :: h, frac, norm, adjust
   integer :: l, k
-  real, dimension(lnd%ls:lnd%le, MAX_HLSP_J) :: lprec, fprec, elev, tfrac
+  real, dimension(lnd%ls:lnd%le, MAX_HLSP_J) :: lprec, fprec, elev, tfrac, lift
+  real, dimension(lnd%ls:lnd%le) :: elevmean
   integer :: hidx_j
 
 
@@ -1176,6 +1177,9 @@ subroutine hlsp_disagg_precip(cplr2land)
      enddo
   enddo
 
+  lift(lnd%ls:lnd%le, 1:MAX_HLSP_J)=initval
+  elevmean(lnd%ls:lnd%le)=initval
+
   do l = lnd%ls, lnd%le
      ce = first_elmt(land_tile_map(l))
      do while (loop_over_tiles(ce,tile,k=k))
@@ -1188,6 +1192,10 @@ subroutine hlsp_disagg_precip(cplr2land)
        adjust = (1. + h/elev_max(l))/norm_tot(l)
        cplr2land%lprec(l,k) = cplr2land%lprec(l,k) * adjust
        cplr2land%fprec(l,k) = cplr2land%fprec(l,k) * adjust
+
+       hidx_j =  tile%soil%hidx_j
+       lift(l,hidx_j) = h
+       elevmean(l) = elev_mean(l)
      enddo
   enddo
 
@@ -1219,6 +1227,8 @@ subroutine hlsp_disagg_precip(cplr2land)
        tile%soil%fprec_hlsp(:) = fprec(l,:)
        tile%soil%elev_hlsp(:) = elev(l,:)
        tile%soil%tfrac_hlsp(:) = tfrac(l,:)
+       tile%soil%lift_hlsp(:) = lift(l,:)
+       tile%soil%elevmean_hlsp = elevmean(l)
      enddo
   enddo       
   
