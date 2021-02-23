@@ -35,6 +35,7 @@ use hillslope_tile_mod , only : register_hlsp_selectors
 use constants_mod, only : tfreeze
 use soil_tile_mod, only : gw_option, GW_TILED, initval, soil_tile_type, &
      gw_scale_length, gw_scale_relief, MAX_HLSP_J
+use time_manager_mod, only : get_date     
 
 implicit none
 private
@@ -129,6 +130,7 @@ logical, protected, public :: sat_from_edecay = .true.
 real, protected, public :: sat_from_edecay_parameter = 0.1
 
 logical, protected :: do_hlsp_disagg_precip = .FALSE.
+logical, protected, public :: use_obs_precip_slope = .FALSE.
 
 character(len=256)  :: hillslope_surfdata = 'INPUT/hillslope.nc'
 character(len=24)   :: hlsp_interpmethod = 'nearest'
@@ -143,7 +145,7 @@ namelist /hlsp_nml/ num_vertclusters, max_num_topo_hlsps, hillslope_horz_subdiv,
                     simple_inundation, surf_flow_velocity, dl, equal_length_tiles, &
                     limit_intertile_flow, flow_ratio_limit, exp_inundation, tiled_DOC_flux, &
                     sat_frac_from_hand, turn_gtos_off, sat_from_edecay,sat_from_edecay_parameter, &
-                    do_hlsp_disagg_precip
+                    do_hlsp_disagg_precip, use_obs_precip_slope
 ! hardwired: fixed_num_vertclusters, hillslope_topo_subdiv, stiff_do_explicit
 !---- end of namelist --------------------------------------------------------
 
@@ -1134,17 +1136,29 @@ subroutine hlsp_disagg_precip(cplr2land)
   real, dimension(lnd%ls:lnd%le) :: soil_frac, elev_mean, elev_max, norm_tot
   type(land_tile_enum_type)     :: ce
   type(land_tile_type), pointer :: tile
-  real :: h, frac, norm, adjust
+  real :: h, frac, norm, adjust, kg, kgh
   integer :: l, k
-  real, dimension(lnd%ls:lnd%le, MAX_HLSP_J) :: lprec, fprec, elev, tfrac, lift
-  real, dimension(lnd%ls:lnd%le) :: elevmean
+  real, dimension(lnd%ls:lnd%le, MAX_HLSP_J) :: lprec, fprec, elev, tfrac, lift, pratio
+  real, dimension(lnd%ls:lnd%le) :: elevmean, pslope2p
   integer :: hidx_j
+  integer :: year,month,day,hour,minute,second
 
 
   if(.not.do_hlsp_disagg_precip) return
   if(.not.do_hillslope_model) &
     call error_mesg(module_name, 'do_hillslope_model must be activated when using do_hlsp_disagg_precip', FATAL)
 
+  call get_date(lnd%time,year,month,day,hour,minute,second)
+
+  !for output
+  elevmean(lnd%ls:lnd%le)=initval
+  pslope2p(lnd%ls:lnd%le)=initval
+  lift(lnd%ls:lnd%le, 1:MAX_HLSP_J)=initval 
+  pratio(lnd%ls:lnd%le, 1:MAX_HLSP_J)=initval   
+  lprec(lnd%ls:lnd%le, 1:MAX_HLSP_J)=initval
+  fprec(lnd%ls:lnd%le, 1:MAX_HLSP_J)=initval
+  elev(lnd%ls:lnd%le, 1:MAX_HLSP_J)=initval  
+  tfrac(lnd%ls:lnd%le, 1:MAX_HLSP_J)=initval    
 
   soil_frac(lnd%ls:lnd%le) = 0.0
   elev_mean(lnd%ls:lnd%le) = 0.0
@@ -1161,6 +1175,7 @@ subroutine hlsp_disagg_precip(cplr2land)
      if(elev_max(l) <= 0.) elev_max(l) = epsilon(1.0) 
   enddo  
 
+
   norm_tot(lnd%ls:lnd%le) = 0.0
   do l = lnd%ls, lnd%le
      ce = first_elmt(land_tile_map(l))
@@ -1172,38 +1187,39 @@ subroutine hlsp_disagg_precip(cplr2land)
           h = tile%soil%pars%tile_abs_elev - elev_mean(l)
        endif
        frac = tile%frac/soil_frac(l)
-       norm = frac * (1. + h/elev_max(l))
+       if(use_obs_precip_slope)then
+         kg = tile%soil%pars%precip_slope2p(month)
+         kgh = max(kg*h,-0.9999)
+       else
+         kg =  1./elev_max(l)
+         kgh = kg*h
+       endif
+       norm = frac * (1. + kgh)
        norm_tot(l) = norm_tot(l) + norm
+       tile%soil%pslope2p_hlsp = kgh
+
+       hidx_j =  tile%soil%hidx_j
+       elevmean(l) = elev_mean(l)
+       pslope2p(l) = kg       
+       lift(l,hidx_j) = h
      enddo
   enddo
-
-  lift(lnd%ls:lnd%le, 1:MAX_HLSP_J)=initval
-  elevmean(lnd%ls:lnd%le)=initval
 
   do l = lnd%ls, lnd%le
      ce = first_elmt(land_tile_map(l))
      do while (loop_over_tiles(ce,tile,k=k))
        if (.not.associated(tile%soil)) cycle 
-       if (cplr2land%bnv(l,k)>0.)then
-          h = min(tile%soil%pars%tile_abs_elev - elev_mean(l), cplr2land%ulow(l,k)/cplr2land%bnv(l,k))
-       else
-          h = tile%soil%pars%tile_abs_elev - elev_mean(l)
-       endif
-       adjust = (1. + h/elev_max(l))/norm_tot(l)
+       kgh = tile%soil%pslope2p_hlsp
+       adjust = (1. + kgh)/norm_tot(l)
        cplr2land%lprec(l,k) = cplr2land%lprec(l,k) * adjust
        cplr2land%fprec(l,k) = cplr2land%fprec(l,k) * adjust
 
        hidx_j =  tile%soil%hidx_j
-       lift(l,hidx_j) = h
-       elevmean(l) = elev_mean(l)
+       pratio(l,hidx_j) = adjust
      enddo
   enddo
 
   !at here we assume only one hillslope is represented within a gridcell
-  lprec(lnd%ls:lnd%le, 1:MAX_HLSP_J)=initval
-  fprec(lnd%ls:lnd%le, 1:MAX_HLSP_J)=initval
-  elev(lnd%ls:lnd%le, 1:MAX_HLSP_J)=initval  
-  tfrac(lnd%ls:lnd%le, 1:MAX_HLSP_J)=initval
   do l = lnd%ls, lnd%le
      ce = first_elmt(land_tile_map(l))
      do while (loop_over_tiles(ce,tile,k=k))
@@ -1223,12 +1239,14 @@ subroutine hlsp_disagg_precip(cplr2land)
      ce = first_elmt(land_tile_map(l))
      do while (loop_over_tiles(ce,tile,k=k))
        if (.not.associated(tile%soil)) cycle
+       tile%soil%elevmean_hlsp = elevmean(l)
+       tile%soil%pslope2p_hlsp = pslope2p(l)
+       tile%soil%lift_hlsp(:) = lift(l,:)
+       tile%soil%pratio_hlsp(:) = pratio(l,:)
        tile%soil%lprec_hlsp(:) = lprec(l,:)
        tile%soil%fprec_hlsp(:) = fprec(l,:)
        tile%soil%elev_hlsp(:) = elev(l,:)
        tile%soil%tfrac_hlsp(:) = tfrac(l,:)
-       tile%soil%lift_hlsp(:) = lift(l,:)
-       tile%soil%elevmean_hlsp = elevmean(l)
      enddo
   enddo       
   

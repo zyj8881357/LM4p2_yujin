@@ -148,6 +148,9 @@ character(16), parameter, public :: &
      l_longname (N_LITTER_POOLS) = [ 'leaf            ', 'coarse wood     '  ], & ! for long names
      l_diagname (N_LITTER_POOLS) = [ 'lf              ', 'cw              '  ]    ! for diag field names
 
+character(3), parameter, public :: month_name(12) = ['JAN','FEB','MAR','APR','MAY','JUN', &
+                                                     'JUL','AUG','SEP','OCT','NOV','DEC'  ]     
+
 ! ==== types =================================================================
 type :: soil_pars_type
   real vwc_sat
@@ -201,7 +204,10 @@ type :: soil_pars_type
                         ! tile area)
   real tile_hlsp_slope  ! vertical slope of tile (-)
   real tile_hlsp_elev   ! elevation of center of tile above streambed at hillslope bottom (m)
+
   real tile_abs_elev
+  real precip_slope2p(12)
+
   real tile_hlsp_hpos   ! horizontal position of tile center along hillslope (m)
   real tile_hlsp_width  ! width of tile perpendicular to hillslope, normalized to strm width (-)
                         ! (proportional to tile area)
@@ -262,12 +268,14 @@ type :: soil_tile_type
    real*8, allocatable :: gtos(:) ! groundwater from tile to stream [mm/s]
    real, allocatable :: gtosh(:) ! heat flux to stream [W/m^2]
 
+   real :: elevmean_hlsp = initval   
+   real :: pslope2p_hlsp = initval
+   real :: lift_hlsp(MAX_HLSP_J) = initval
+   real :: pratio_hlsp(MAX_HLSP_J) = initval   
    real :: lprec_hlsp(MAX_HLSP_J) = initval
    real :: fprec_hlsp(MAX_HLSP_J) = initval
    real :: elev_hlsp(MAX_HLSP_J) = initval
    real :: tfrac_hlsp(MAX_HLSP_J) = initval
-   real :: lift_hlsp(MAX_HLSP_J) = initval
-   real :: elevmean_hlsp = initval   
 
    ! soil carbon
    ! CENTURY-style values

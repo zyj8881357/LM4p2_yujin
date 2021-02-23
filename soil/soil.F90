@@ -12,7 +12,7 @@ use fms_mod, only: open_namelist_file
 #endif
 
 use fms_mod, only: error_mesg, string, file_exist, check_nml_error, &
-     stdlog, close_file, mpp_pe, mpp_root_pe, FATAL, WARNING, NOTE
+     stdlog, close_file, mpp_pe, mpp_root_pe, FATAL, WARNING, NOTE, read_data
 use time_manager_mod,   only: time_type, time_type_to_real
 use diag_manager_mod,   only: diag_axis_init
 use constants_mod,      only: pi, tfreeze, hlv, hlf, dens_h2o
@@ -77,11 +77,12 @@ use uptake_mod, only : UPTAKE_LINEAR, UPTAKE_DARCY2D, UPTAKE_DARCY2D_LIN, &
 
 use hillslope_mod, only : do_hillslope_model, max_num_topo_hlsps, &
      num_vertclusters, hlsp_coldfracs, use_geohydrodata, & !pond, &
-     horiz_wt_depth_to_init, calculate_wt_init, simple_inundation
+     horiz_wt_depth_to_init, calculate_wt_init, simple_inundation, &
+     use_obs_precip_slope
 use land_io_mod, only : &
      init_cover_field
 use soil_tile_mod, only : n_dim_soil_types, soil_to_use, &
-     soil_index_constant, input_cover_types
+     soil_index_constant, input_cover_types, month_name
 use hillslope_hydrology_mod, only: hlsp_hydro_lev_init, hlsp_hydrology_2, &
      stiff_explicit_gwupdate
 use river_mod, only : river_tracer_index
@@ -279,9 +280,9 @@ integer, dimension(N_LITTER_POOLS,N_C_TYPES) :: &
     id_litter_C_leaching, id_litter_DON_leaching
 
 integer, dimension(MAX_HLSP_J) :: &
-    id_lprec_hlsp, id_fprec_hlsp, id_elev_hlsp, id_tfrac_hlsp, id_lift_hlsp
+    id_lprec_hlsp, id_fprec_hlsp, id_elev_hlsp, id_tfrac_hlsp, id_lift_hlsp, id_pratio_hlsp
 
-integer :: id_elevmean
+integer :: id_elevmean, id_pslope2p
 
 ! FIXME: add N leaching terms to diagnostics?
 
@@ -399,6 +400,8 @@ subroutine soil_init (id_ug,id_band,id_zfull,id_ptid)
   real, allocatable :: topo_mean(:)
   real, allocatable :: topo_mean_SG(:,:)
   logical  ::  answer
+  logical :: pslope_exist
+  real, allocatable :: precip_s2p(:,:)  
   integer :: ls, le, isc, iec, jsc, jec                         ! compute domain decomposition  
 
   type(land_restart_type) :: restart, restart1
@@ -623,6 +626,29 @@ subroutine soil_init (id_ug,id_band,id_zfull,id_ptid)
           enddo       
       enddo     
       deallocate(topo_mean, topo_mean_SG)
+
+      if(use_obs_precip_slope)then
+          pslope_exist = file_exist('INPUT/precip_s2p.nc', lnd%sg_domain)  
+          if (pslope_exist) then
+              call error_mesg('soil_init', 'reading precipitation slope from file', NOTE)
+          else
+              call error_mesg('soil_init', 'precipitation slope data file not present', FATAL)
+          endif  
+          allocate(precip_s2p(lnd%ls:lnd%le,12))
+          do i = 1,12          
+            call read_data('INPUT/precip_s2p.nc','s2p_'//month_name(i), precip_s2p(:,i), lnd%sg_domain, lnd%ug_domain)            
+          enddo
+          !where(precip_s2p<0.) precip_s2p=0.
+          do ll = lnd%ls, lnd%le
+              ce = first_elmt(land_tile_map(ll))
+              do while (loop_over_tiles(ce,tile,k=k))
+                  if (.not.associated(tile%soil)) cycle
+                  where(precip_s2p(ll,:)<0.) precip_s2p(ll,:)=0.
+                  tile%soil%pars%precip_slope2p(:)=precip_s2p(ll,:)
+              enddo       
+          enddo               
+          deallocate(precip_s2p)
+      endif 
 
   endif
   !--------------------------------------------------------
@@ -1089,9 +1115,13 @@ subroutine soil_diag_init(id_ug,id_band,id_zfull,id_ptid)
        axes(1:1), lnd%time, '<jtype> total tile fraction', 'unitless', missing_value=initval )    
   id_lift_hlsp(:) = register_hlsp_diag_fields(module_name, '<jtype>_lift', &
        axes(1:1), lnd%time, '<jtype> air lift compared to mean elevation of soil tiles', 'm', missing_value=initval ) 
+  id_pratio_hlsp(:) = register_hlsp_diag_fields(module_name, '<jtype>_pratio', &
+       axes(1:1), lnd%time, '<jtype> ratio of precitation to the mean precip', 'unitless', missing_value=initval )
 
   id_elevmean = register_tiled_diag_field ( module_name, 'elev_mean', axes(1:1), &
        lnd%time, 'mean elevation of soil tiles', 'm',  missing_value=initval )  
+  id_pslope2p = register_tiled_diag_field ( module_name, 'pslope2p', axes(1:1), &
+       lnd%time, 'ratio of precitation slope to the mean precip', '1/m',  missing_value=initval )  
 
   ! by-carbon-species diag fields
   id_soil_C(:) = register_soilc_diag_fields(module_name, '<ctype>_soil_C', &
@@ -3204,9 +3234,11 @@ end subroutine soil_step_1
      call send_tile_data(id_fprec_hlsp(i), soil%fprec_hlsp(i), diag)   
      call send_tile_data(id_elev_hlsp(i),  soil%elev_hlsp(i),  diag) 
      call send_tile_data(id_tfrac_hlsp(i), soil%tfrac_hlsp(i), diag) 
-     call send_tile_data(id_lift_hlsp(i),  soil%lift_hlsp(i),  diag)             
+     call send_tile_data(id_lift_hlsp(i),  soil%lift_hlsp(i),  diag)
+     call send_tile_data(id_pratio_hlsp(i), soil%lift_hlsp(i),  diag)             
   enddo
   call send_tile_data(id_elevmean, soil%elevmean_hlsp, diag)
+  call send_tile_data(id_pslope2p, soil%pslope2p_hlsp, diag)
 
 
 end subroutine soil_step_2
