@@ -37,7 +37,7 @@ use soil_tile_mod, only : num_l, dz, zfull, zhalf, &
      soil_type_file, &
      soil_tile_stock_pe, initval, comp, soil_theta, soil_ice_porosity, &
      N_LITTER_POOLS,LEAF,CWOOD,l_shortname,l_longname,l_diagname, &
-     MAX_HLSP_J, hlsp_name
+     MAX_HLSP_K, MAX_HLSP_J, hlspk_name, hlspj_name
 use soil_util_mod, only: soil_util_init, rhizosphere_frac
 use soil_accessors_mod ! use everything
 
@@ -236,7 +236,7 @@ integer ::  &
     id_lwc, id_swc, id_psi, id_temp, &
     id_ie, id_sn, id_bf, id_if, id_al, id_nu, id_sc, &
     id_hie, id_hsn, id_hbf, id_hif, id_hal, id_hnu, id_hsc, &
-    id_heat_cap, id_thermal_cond, id_type, id_tau_gw, id_slope_l, id_slope_e, &
+    id_heat_cap, id_thermal_cond, id_type, id_tau_gw, id_slope_l, &
     id_slope_Z, id_zeta_bar, id_e_depth, id_vwc_sat, id_vwc_fc, &
     id_vwc_wilt, id_K_sat, id_K_gw, id_w_fc, id_alpha, &
     id_refl_dry_dif, id_refl_dry_dir, id_refl_sat_dif, id_refl_sat_dir, &
@@ -279,10 +279,10 @@ integer, dimension(N_LITTER_POOLS,N_C_TYPES) :: &
     id_litter_rsoil_C,     id_litter_rsoil_N, &
     id_litter_C_leaching, id_litter_DON_leaching
 
-integer, dimension(MAX_HLSP_J) :: &
-    id_lprec_hlsp, id_fprec_hlsp, id_elev_hlsp, id_tfrac_hlsp, id_lift_hlsp, id_pratio_hlsp
-
 integer :: id_elevmean, id_pslope2p
+integer, dimension(MAX_HLSP_K, MAX_HLSP_J) :: &
+    id_lift_hlsp, id_pratio_hlsp, id_lprec_hlsp, id_fprec_hlsp, id_elev_hlsp, id_tfrac_hlsp
+
 
 ! FIXME: add N leaching terms to diagnostics?
 
@@ -588,44 +588,44 @@ subroutine soil_init (id_ug,id_band,id_zfull,id_ptid)
   !---initialize absolute elevation for each soil tile-----
   if(do_hillslope_model)then
 
-      call mpp_get_UG_compute_domain(lnd%ug_domain, ls, le)
-      allocate(topo_mean(ls:le))
-      call mpp_get_compute_domain(lnd%sg_domain, isc, iec, jsc, jec) 
-      allocate(topo_mean_SG(isc:iec,jsc:jec))  
+      !call mpp_get_UG_compute_domain(lnd%ug_domain, ls, le)
+      !allocate(topo_mean(ls:le))
+      !call mpp_get_compute_domain(lnd%sg_domain, isc, iec, jsc, jec) 
+      !allocate(topo_mean_SG(isc:iec,jsc:jec))  
 
-      answer = get_topog_mean(lnd%sg_lonb, lnd%sg_latb,topo_mean_SG)
-      if (.not.answer) &
-             call error_mesg ('soil_init', &
-             'could not read topography data', FATAL) 
+      !answer = get_topog_mean(lnd%sg_lonb, lnd%sg_latb,topo_mean_SG)
+      !if (.not.answer) &
+      !       call error_mesg ('soil_init', &
+      !       'could not read topography data', FATAL) 
 
-      call mpp_pass_SG_to_UG(lnd%ug_domain, topo_mean_SG, topo_mean)    
-      zmean_ug(lnd%ls:lnd%le) = topo_mean(ls:le)
+      !call mpp_pass_SG_to_UG(lnd%ug_domain, topo_mean_SG, topo_mean)    
+      !zmean_ug(lnd%ls:lnd%le) = topo_mean(ls:le)
 
-      soil_frac(lnd%ls:lnd%le) = 0.0
-      hlsp_elev_frac(lnd%ls:lnd%le) = 0.0
-      elev_bottom(lnd%ls:lnd%le) = 0.0
-      do ll = lnd%ls, lnd%le
-          ce = first_elmt(land_tile_map(ll))
-          do while (loop_over_tiles(ce,tile,k=k))
-              if (.not.associated(tile%soil)) cycle
-              soil_frac(ll) = soil_frac(ll) + tile%frac
-              hlsp_elev_frac(ll) = hlsp_elev_frac(ll) + tile%frac * tile%soil%pars%tile_hlsp_elev
-          enddo
-          if(soil_frac(ll)>0.)then
-            elev_bottom(ll) = max(0.,zmean_ug(ll) - hlsp_elev_frac(ll)/soil_frac(ll))
-          else
-            elev_bottom(ll) = max(0.,zmean_ug(ll))
-          endif
-      enddo     
+      !soil_frac(lnd%ls:lnd%le) = 0.0
+      !hlsp_elev_frac(lnd%ls:lnd%le) = 0.0
+      !elev_bottom(lnd%ls:lnd%le) = 0.0
+      !do ll = lnd%ls, lnd%le
+      !    ce = first_elmt(land_tile_map(ll))
+      !    do while (loop_over_tiles(ce,tile,k=k))
+      !        if (.not.associated(tile%soil)) cycle
+      !        soil_frac(ll) = soil_frac(ll) + tile%frac
+      !        hlsp_elev_frac(ll) = hlsp_elev_frac(ll) + tile%frac * tile%soil%pars%tile_hlsp_elev
+      !    enddo
+      !    if(soil_frac(ll)>0.)then
+      !      elev_bottom(ll) = max(0.,zmean_ug(ll) - hlsp_elev_frac(ll)/soil_frac(ll))
+      !    else
+      !      elev_bottom(ll) = max(0.,zmean_ug(ll))
+      !    endif
+      !enddo     
 
-      do ll = lnd%ls, lnd%le
-          ce = first_elmt(land_tile_map(ll))
-          do while (loop_over_tiles(ce,tile,k=k))
-              if (.not.associated(tile%soil)) cycle
-              tile%soil%pars%tile_abs_elev = elev_bottom(ll) + tile%soil%pars%tile_hlsp_elev
-          enddo       
-      enddo     
-      deallocate(topo_mean, topo_mean_SG)
+      !do ll = lnd%ls, lnd%le
+      !    ce = first_elmt(land_tile_map(ll))
+      !    do while (loop_over_tiles(ce,tile,k=k))
+      !        if (.not.associated(tile%soil)) cycle
+      !        tile%soil%pars%tile_elevation = elev_bottom(ll) + tile%soil%pars%tile_hlsp_elev
+      !    enddo       
+      !enddo     
+      !deallocate(topo_mean, topo_mean_SG)
 
       if(use_obs_precip_slope)then
           pslope_exist = file_exist('INPUT/precip_s2p.nc', lnd%sg_domain)  
@@ -882,8 +882,7 @@ subroutine soil_init (id_ug,id_band,id_zfull,id_ptid)
 
   ! ---- static diagnostic section
   call send_tile_data_r0d_fptr(id_tau_gw,       soil_tau_groundwater_ptr)
-  call send_tile_data_r0d_fptr(id_slope_l,      soil_hillslope_length_ptr)
-  call send_tile_data_r0d_fptr(id_slope_e,      soil_tile_abs_elev_ptr)  
+  call send_tile_data_r0d_fptr(id_slope_l,      soil_hillslope_length_ptr) 
   call send_tile_data_r0d_fptr(id_slope_Z,      soil_hillslope_relief_ptr)
   call send_tile_data_r0d_fptr(id_zeta_bar,     soil_hillslope_zeta_bar_ptr)
   call send_tile_data_r0d_fptr(id_e_depth,      soil_soil_e_depth_ptr)
@@ -936,7 +935,7 @@ end function replace_text
 function register_hlsp_diag_fields(module_name, field_name, axes, init_time, &
      long_name, units, missing_value, range, op, standard_name) result (id)
 
-  integer :: id(MAX_HLSP_J)
+  integer :: id(MAX_HLSP_K, MAX_HLSP_J)
 
   character(len=*), intent(in) :: module_name
   character(len=*), intent(in) :: field_name
@@ -949,14 +948,25 @@ function register_hlsp_diag_fields(module_name, field_name, axes, init_time, &
   character(len=*), intent(in), optional :: op ! aggregation operation
   character(len=*), intent(in), optional :: standard_name
 
-  integer :: i
+  integer :: k,j
+  character(128) :: name
+  character(512) :: lname  
 
-  do i = 1, MAX_HLSP_J
-     id(i) = register_tiled_diag_field(module_name, &
-             trim(replace_text(field_name,'<jtype>',trim(hlsp_name(i)))), &
-             axes, init_time, &
-             trim(replace_text(long_name,'<jtype>',trim(hlsp_name(i)))), &
+  do j = 1, MAX_HLSP_J
+    do k = 1, MAX_HLSP_K
+     !id(k,j) = register_tiled_diag_field(module_name, &
+     !        trim(replace_text(field_name,'<type>',trim(hlspk_name(k))//'_'//trim(hlspj_name(j)) )), &
+     !        axes, init_time, &
+     !        trim(replace_text(long_name,'<type>',trim(hlspk_name(k))//'_'//trim(hlspj_name(j)) )), &
+     !        units, missing_value, range, op, standard_name)
+        name = replace_text(field_name,'<ktype>',trim(hlspk_name(k)))
+        name = replace_text(name,      '<jtype>',trim(hlspj_name(j)))
+        lname = replace_text(long_name,'<ktype>',trim(hlspk_name(k)))
+        lname = replace_text(lname,    '<jtype>',trim(hlspj_name(j)))
+        id(k,j) = register_tiled_diag_field(module_name, trim(name), axes, init_time, trim(lname), &
              units, missing_value, range, op, standard_name)
+
+    enddo
   enddo
 end function register_hlsp_diag_fields
 
@@ -1105,23 +1115,24 @@ subroutine soil_diag_init(id_ug,id_band,id_zfull,id_ptid)
        lnd%time, 'dissolved organic nitrogen', 'kg C/m3', missing_value=-100.0 )
 
   ! hillslope output
-  id_lprec_hlsp(:) = register_hlsp_diag_fields(module_name, '<jtype>_lprec', &
-       axes(1:1), lnd%time, '<jtype> rainfall', 'kg/(m2 s)', missing_value=initval )
-  id_fprec_hlsp(:) = register_hlsp_diag_fields(module_name, '<jtype>_fprec', &
-       axes(1:1), lnd%time, '<jtype> snowfall', 'kg/(m2 s)', missing_value=initval )
-  id_elev_hlsp(:) = register_hlsp_diag_fields(module_name, '<jtype>_elev', &
-       axes(1:1), lnd%time, '<jtype> elevation', 'm', missing_value=initval )  
-  id_tfrac_hlsp(:) = register_hlsp_diag_fields(module_name, '<jtype>_tfrac', &
-       axes(1:1), lnd%time, '<jtype> total tile fraction', 'unitless', missing_value=initval )    
-  id_lift_hlsp(:) = register_hlsp_diag_fields(module_name, '<jtype>_lift', &
-       axes(1:1), lnd%time, '<jtype> air lift compared to mean elevation of soil tiles', 'm', missing_value=initval ) 
-  id_pratio_hlsp(:) = register_hlsp_diag_fields(module_name, '<jtype>_pratio', &
-       axes(1:1), lnd%time, '<jtype> ratio of precitation to the mean precip', 'unitless', missing_value=initval )
-
   id_elevmean = register_tiled_diag_field ( module_name, 'elev_mean', axes(1:1), &
        lnd%time, 'mean elevation of soil tiles', 'm',  missing_value=initval )  
   id_pslope2p = register_tiled_diag_field ( module_name, 'pslope2p', axes(1:1), &
-       lnd%time, 'ratio of precitation slope to the mean precip', '1/m',  missing_value=initval )  
+       lnd%time, 'ratio of precitation slope to the mean precip', '1/m',  missing_value=initval ) 
+
+  id_lift_hlsp(:,:) = register_hlsp_diag_fields(module_name, '<ktype>_<jtype>_lift', &
+       axes(1:1), lnd%time, 'hillslope <ktype> <jtype> air lift compared to mean elevation of soil tiles', 'm', missing_value=initval ) 
+  id_pratio_hlsp(:,:) = register_hlsp_diag_fields(module_name, '<ktype>_<jtype>_pratio', &
+       axes(1:1), lnd%time, 'hillslope <ktype> <jtype> ratio of precitation to the mean precip', 'unitless', missing_value=initval )
+  id_lprec_hlsp(:,:) = register_hlsp_diag_fields(module_name, '<ktype>_<jtype>_lprec', &
+       axes(1:1), lnd%time, 'hillslope <ktype> <jtype> rainfall', 'kg/(m2 s)', missing_value=initval )
+  id_fprec_hlsp(:,:) = register_hlsp_diag_fields(module_name, '<ktype>_<jtype>_fprec', &
+       axes(1:1), lnd%time, 'hillslope <ktype> <jtype> snowfall', 'kg/(m2 s)', missing_value=initval )
+  id_elev_hlsp(:,:) = register_hlsp_diag_fields(module_name, '<ktype>_<jtype>_elev', &
+       axes(1:1), lnd%time, 'hillslope <ktype> <jtype> elevation', 'm', missing_value=initval )  
+  id_tfrac_hlsp(:,:) = register_hlsp_diag_fields(module_name, '<ktype>_<jtype>_tfrac', &
+       axes(1:1), lnd%time, 'hillslope <ktype> <jtype> total tile fraction', 'unitless', missing_value=initval )    
+ 
 
   ! by-carbon-species diag fields
   id_soil_C(:) = register_soilc_diag_fields(module_name, '<ctype>_soil_C', &
@@ -1397,9 +1408,7 @@ subroutine soil_diag_init(id_ug,id_band,id_zfull,id_ptid)
   id_tau_gw = register_tiled_static_field ( module_name, 'tau_gw',  &
        axes(1:1), 'groundwater residence time', 's', missing_value=-100.0 )
   id_slope_l = register_tiled_static_field ( module_name, 'slope_l',  &
-       axes(1:1), 'hillslope length', 'm', missing_value=-100.0 )
-  id_slope_e = register_tiled_static_field ( module_name, 'slope_elev',  &
-       axes(1:1), 'hillslope elevation', 'm', missing_value=-100.0 )  
+       axes(1:1), 'hillslope length', 'm', missing_value=-100.0 ) 
   id_slope_Z = register_tiled_static_field ( module_name, 'soil_rlief',  &
        axes(1:1), 'hillslope relief', 'm', missing_value=-100.0 )
   id_zeta_bar = register_tiled_static_field ( module_name, 'zeta_bar',  &
@@ -2192,7 +2201,7 @@ end subroutine soil_step_1
   real, dimension(vegn%n_cohorts) :: passive_N_uptake
 
   real :: frozen ! frozen soil indicator, used for calculating long-term frozen soil frequency
-  integer :: i
+  integer :: i,j
   ! --------------------------------------------------------------------------
   div_active(:) = 0.0
 
@@ -3229,17 +3238,18 @@ end subroutine soil_step_1
   if (id_lwc_std > 0) call send_tile_data(id_lwc_std,  soil%wl/dz(1:num_l), diag)
   if (id_swc_std > 0) call send_tile_data(id_swc_std,  soil%ws/dz(1:num_l), diag)
 
-  do i = 1, MAX_HLSP_J
-     call send_tile_data(id_lprec_hlsp(i), soil%lprec_hlsp(i), diag)
-     call send_tile_data(id_fprec_hlsp(i), soil%fprec_hlsp(i), diag)   
-     call send_tile_data(id_elev_hlsp(i),  soil%elev_hlsp(i),  diag) 
-     call send_tile_data(id_tfrac_hlsp(i), soil%tfrac_hlsp(i), diag) 
-     call send_tile_data(id_lift_hlsp(i),  soil%lift_hlsp(i),  diag)
-     call send_tile_data(id_pratio_hlsp(i), soil%lift_hlsp(i),  diag)             
-  enddo
   call send_tile_data(id_elevmean, soil%elevmean_hlsp, diag)
   call send_tile_data(id_pslope2p, soil%pslope2p_hlsp, diag)
-
+  do j = 1, MAX_HLSP_J
+    do i = 1, MAX_HLSP_K
+     call send_tile_data(id_lift_hlsp(i,j),  soil%lift_hlsp(i,j),  diag)
+     call send_tile_data(id_pratio_hlsp(i,j),soil%pratio_hlsp(i,j),  diag)          
+     call send_tile_data(id_lprec_hlsp(i,j), soil%lprec_hlsp(i,j), diag)
+     call send_tile_data(id_fprec_hlsp(i,j), soil%fprec_hlsp(i,j), diag)   
+     call send_tile_data(id_elev_hlsp(i,j),  soil%elev_hlsp(i,j),  diag) 
+     call send_tile_data(id_tfrac_hlsp(i,j), soil%tfrac_hlsp(i,j), diag)            
+    enddo
+  enddo
 
 end subroutine soil_step_2
 

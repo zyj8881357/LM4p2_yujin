@@ -107,14 +107,6 @@ real,    parameter :: g_RT             = grav / (rvgas*t_ref)
 real,    parameter :: K_rel_min        = 1.e-12
 real,    parameter, public :: initval  = 1.e36 ! For initializing variables
 
-integer, parameter, public :: MAX_HLSP_J = 20
-character(len=12), parameter, public :: &
- hlsp_name (MAX_HLSP_J) = [ 'hidx_j_1    ', 'hidx_j_2    ', 'hidx_j_3    ', 'hidx_j_4    ', &
-                            'hidx_j_5    ', 'hidx_j_6    ', 'hidx_j_7    ', 'hidx_j_8    ', &
-                            'hidx_j_9    ', 'hidx_j_10   ', 'hidx_j_11   ', 'hidx_j_12   ', &
-                            'hidx_j_13   ', 'hidx_j_14   ', 'hidx_j_15   ', 'hidx_j_16   ', &
-                            'hidx_j_17   ', 'hidx_j_18   ', 'hidx_j_19   ', 'hidx_j_20   ' ] 
-
 ! from the modis brdf/albedo product user guide:
 real, parameter :: g_iso  = 1.
 real, parameter :: g_vol  = 0.189184
@@ -149,7 +141,19 @@ character(16), parameter, public :: &
      l_diagname (N_LITTER_POOLS) = [ 'lf              ', 'cw              '  ]    ! for diag field names
 
 character(3), parameter, public :: month_name(12) = ['JAN','FEB','MAR','APR','MAY','JUN', &
-                                                     'JUL','AUG','SEP','OCT','NOV','DEC'  ]     
+                                                     'JUL','AUG','SEP','OCT','NOV','DEC'  ] 
+
+integer, parameter, public :: MAX_HLSP_K = 2
+integer, parameter, public :: MAX_HLSP_J = 20
+
+character(len=2), parameter, public :: &
+ hlspk_name (MAX_HLSP_K) = [ 'k1', 'k2']
+character(len=3), parameter, public :: &
+ hlspj_name (MAX_HLSP_J) = [ 'j1 ', 'j2 ', 'j3 ', 'j4 ', &
+                             'j5 ', 'j6 ', 'j7 ', 'j8 ', &
+                             'j9 ', 'j10', 'j11', 'j12', &
+                             'j13', 'j14', 'j15', 'j16', &
+                             'j17', 'j18', 'j19', 'j20' ]                                                          
 
 ! ==== types =================================================================
 type :: soil_pars_type
@@ -204,8 +208,7 @@ type :: soil_pars_type
                         ! tile area)
   real tile_hlsp_slope  ! vertical slope of tile (-)
   real tile_hlsp_elev   ! elevation of center of tile above streambed at hillslope bottom (m)
-
-  real tile_abs_elev
+  real tile_elevation    ! absolute elevation for each tile
   real precip_slope2p(12)
 
   real tile_hlsp_hpos   ! horizontal position of tile center along hillslope (m)
@@ -270,12 +273,12 @@ type :: soil_tile_type
 
    real :: elevmean_hlsp = initval   
    real :: pslope2p_hlsp = initval
-   real :: lift_hlsp(MAX_HLSP_J) = initval
-   real :: pratio_hlsp(MAX_HLSP_J) = initval   
-   real :: lprec_hlsp(MAX_HLSP_J) = initval
-   real :: fprec_hlsp(MAX_HLSP_J) = initval
-   real :: elev_hlsp(MAX_HLSP_J) = initval
-   real :: tfrac_hlsp(MAX_HLSP_J) = initval
+   real :: lift_hlsp(MAX_HLSP_K, MAX_HLSP_J) = initval
+   real :: pratio_hlsp(MAX_HLSP_K, MAX_HLSP_J) = initval   
+   real :: lprec_hlsp(MAX_HLSP_K, MAX_HLSP_J) = initval
+   real :: fprec_hlsp(MAX_HLSP_K, MAX_HLSP_J) = initval
+   real :: elev_hlsp(MAX_HLSP_K, MAX_HLSP_J) = initval
+   real :: tfrac_hlsp(MAX_HLSP_K, MAX_HLSP_J) = initval
 
    ! soil carbon
    ! CENTURY-style values
@@ -484,6 +487,7 @@ logical :: override_soil_e_depth = .FALSE.
 real :: soil_e_depth = 2.0
                                ! The two ways of calculating zfull are mathematically identical, but they differ
                                ! in the lowest bits of answer.
+
 namelist /soil_data_nml/ psi_wilt, &
      soil_to_use, soil_type_file, tile_names, input_cover_types, &
      comp, K_min, K_max_matrix, DThDP_max, psi_min, k_over_B, &
@@ -952,7 +956,7 @@ subroutine soil_data_init_0d(soil)
   soil%pars%tile_hlsp_length = initval
   soil%pars%tile_hlsp_slope = initval
   soil%pars%tile_hlsp_elev = initval
-  soil%pars%tile_abs_elev = initval
+  soil%pars%tile_elevation = initval
   soil%pars%tile_hlsp_hpos = initval
   soil%pars%tile_hlsp_width = initval
 
@@ -1091,6 +1095,7 @@ subroutine soil_data_init_0d_predefined(soil,tile_parameters,itile)
   soil%pars%tile_hlsp_length = tile_parameters%tile_hlsp_length(itile)
   soil%pars%tile_hlsp_slope = tile_parameters%tile_hlsp_slope(itile)
   soil%pars%tile_hlsp_elev = tile_parameters%tile_hlsp_elev(itile)
+  soil%pars%tile_elevation = tile_parameters%tile_elevation(itile)  
   soil%pars%tile_hlsp_hpos = tile_parameters%tile_hlsp_hpos(itile)
   soil%pars%tile_hlsp_width = tile_parameters%tile_hlsp_width(itile)
   soil%pars%tile_hlsp_frac = tile_parameters%tile_hlsp_frac(itile)
@@ -1138,6 +1143,7 @@ subroutine soil_data_init_0d_predefined(soil,tile_parameters,itile)
      call dpri('tile_hlsp_length',soil%pars%tile_hlsp_length); write(*,*)
      call dpri('tile_hlsp_slope',soil%pars%tile_hlsp_slope); write(*,*)
      call dpri('tile_hlsp_elev',soil%pars%tile_hlsp_elev); write(*,*)
+     call dpri('tile_elevation',soil%pars%tile_elevation); write(*,*)     
      call dpri('tile_hlsp_hpos',soil%pars%tile_hlsp_hpos); write(*,*)
      call dpri('tile_hlsp_width',soil%pars%tile_hlsp_width); write(*,*)
   endif

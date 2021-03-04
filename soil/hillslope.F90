@@ -34,8 +34,9 @@ use vegn_harvesting_mod , only : do_harvesting
 use hillslope_tile_mod , only : register_hlsp_selectors
 use constants_mod, only : tfreeze
 use soil_tile_mod, only : gw_option, GW_TILED, initval, soil_tile_type, &
-     gw_scale_length, gw_scale_relief, MAX_HLSP_J
+     gw_scale_length, gw_scale_relief, MAX_HLSP_K, MAX_HLSP_J
 use time_manager_mod, only : get_date     
+use predefined_tiles_mod, only : use_predefined_tiles
 
 implicit none
 private
@@ -155,7 +156,7 @@ character(len=24)   :: hlsp_surf_dimname = 'nhlsps'
 ! ---- diagnostic field IDs
 integer, protected, public :: &!id_soil_e_depth,
                     id_microtopo, id_tile_hlsp_length, id_tile_hlsp_slope, &
-                    id_tile_hlsp_elev, id_tile_hlsp_hpos, id_tile_hlsp_width, & !id_transm_bedrock, &
+                    id_tile_hlsp_elev, id_tile_elevation, id_tile_hlsp_hpos, id_tile_hlsp_width, & !id_transm_bedrock, &
                     id_hidx_j, id_hidx_k
 
 ! vars to save between subroutine calls during cold start
@@ -722,6 +723,7 @@ subroutine hlsp_init(id_ug)
         write(*,*)'tile_hlsp_length: ', tile%soil%pars%tile_hlsp_length
         write(*,*)'tile_hlsp_slope: ', tile%soil%pars%tile_hlsp_slope
         write(*,*)'tile_hlsp_elev: ', tile%soil%pars%tile_hlsp_elev
+        write(*,*)'tile_elevation: ', tile%soil%pars%tile_elevation
         write(*,*)'tile_hlsp_hpos: ', tile%soil%pars%tile_hlsp_hpos
         write(*,*)'tile_hlsp_width: ', tile%soil%pars%tile_hlsp_width
      end if
@@ -753,6 +755,7 @@ subroutine hlsp_init(id_ug)
    call send_tile_data_r0d_fptr(id_tile_hlsp_length,    soil_tile_hlsp_length_ptr)
    call send_tile_data_r0d_fptr(id_tile_hlsp_slope,     soil_tile_hlsp_slope_ptr)
    call send_tile_data_r0d_fptr(id_tile_hlsp_elev,      soil_tile_hlsp_elev_ptr)
+   call send_tile_data_r0d_fptr(id_tile_elevation,      soil_tile_elevation_ptr)
    call send_tile_data_r0d_fptr(id_tile_hlsp_hpos,      soil_tile_hlsp_hpos_ptr)
    call send_tile_data_r0d_fptr(id_tile_hlsp_width,     soil_tile_hlsp_width_ptr)
 !   call send_tile_data_r0d_fptr(id_transm_bedrock,      soil_transm_bedrock_ptr)
@@ -821,6 +824,7 @@ subroutine hlsp_init_predefined(id_ug)
     call send_tile_data_r0d_fptr(id_tile_hlsp_length, soil_tile_hlsp_length_ptr)
     call send_tile_data_r0d_fptr(id_tile_hlsp_slope,  soil_tile_hlsp_slope_ptr)
     call send_tile_data_r0d_fptr(id_tile_hlsp_elev,   soil_tile_hlsp_elev_ptr)
+    call send_tile_data_r0d_fptr(id_tile_elevation,   soil_tile_elevation_ptr)    
     call send_tile_data_r0d_fptr(id_tile_hlsp_hpos,   soil_tile_hlsp_hpos_ptr)
     call send_tile_data_r0d_fptr(id_tile_hlsp_width,  soil_tile_hlsp_width_ptr)
  !   call send_tile_data_r0d_fptr(id_transm_bedrock,  soil_transm_bedrock_ptr)
@@ -834,6 +838,7 @@ subroutine hlsp_init_predefined(id_ug)
        print*,'microtopo',tile%soil%pars%microtopo
        print*,'k_sat_gw',tile%soil%pars%k_sat_gw
        print*,'hlsp_elev',tile%soil%pars%tile_hlsp_elev
+       print*,'hlsp_elev',tile%soil%pars%tile_elevation
        print*,'hlsp_hpos',tile%soil%pars%tile_hlsp_hpos
        print*,'hlsp_width',tile%soil%pars%tile_hlsp_width
        print*,'hlsp_slope',tile%soil%pars%tile_hlsp_slope
@@ -880,6 +885,9 @@ subroutine hlsp_diag_init(id_ug)
    id_tile_hlsp_elev = register_tiled_static_field ( module_name, 'tile_hlsp_elev', &
       axes, 'vertical elevation of tiles in hillslope with respect to stream', 'm', &
       missing_value=-100.0 )
+   id_tile_elevation = register_tiled_static_field ( module_name, 'tile_elevation', &
+      axes, 'absolute tile elevation', 'm', &
+      missing_value=-100.0 )   
    id_tile_hlsp_hpos = register_tiled_static_field ( module_name, 'tile_hlsp_hposition', &
       axes, 'horizontal position of tile along the direction of hillslope', 'm', missing_value=-100.0 )
    id_tile_hlsp_width = register_tiled_static_field ( module_name, 'tile_hlsp_width', &
@@ -1138,27 +1146,29 @@ subroutine hlsp_disagg_precip(cplr2land)
   type(land_tile_type), pointer :: tile
   real :: h, frac, norm, adjust, kg, kgh
   integer :: l, k
-  real, dimension(lnd%ls:lnd%le, MAX_HLSP_J) :: lprec, fprec, elev, tfrac, lift, pratio
+  real, dimension(lnd%ls:lnd%le, MAX_HLSP_K, MAX_HLSP_J) :: lprec, fprec, elev, tfrac, lift, pratio
   real, dimension(lnd%ls:lnd%le) :: elevmean, pslope2p
-  integer :: hidx_j
+  integer :: hidx_k, hidx_j
   integer :: year,month,day,hour,minute,second
 
 
   if(.not.do_hlsp_disagg_precip) return
   if(.not.do_hillslope_model) &
     call error_mesg(module_name, 'do_hillslope_model must be activated when using do_hlsp_disagg_precip', FATAL)
+  if(.not.use_predefined_tiles) &
+    call error_mesg(module_name, 'Currently, hlsp_disagg_precip is only supported with predefined tiles', FATAL)  
 
   call get_date(lnd%time,year,month,day,hour,minute,second)
 
   !for output
   elevmean(lnd%ls:lnd%le)=initval
   pslope2p(lnd%ls:lnd%le)=initval
-  lift(lnd%ls:lnd%le, 1:MAX_HLSP_J)=initval 
-  pratio(lnd%ls:lnd%le, 1:MAX_HLSP_J)=initval   
-  lprec(lnd%ls:lnd%le, 1:MAX_HLSP_J)=initval
-  fprec(lnd%ls:lnd%le, 1:MAX_HLSP_J)=initval
-  elev(lnd%ls:lnd%le, 1:MAX_HLSP_J)=initval  
-  tfrac(lnd%ls:lnd%le, 1:MAX_HLSP_J)=initval    
+  lift(lnd%ls:lnd%le, 1:MAX_HLSP_K, 1:MAX_HLSP_J)=initval 
+  pratio(lnd%ls:lnd%le, 1:MAX_HLSP_K, 1:MAX_HLSP_J)=initval   
+  lprec(lnd%ls:lnd%le, 1:MAX_HLSP_K, 1:MAX_HLSP_J)=initval
+  fprec(lnd%ls:lnd%le, 1:MAX_HLSP_K, 1:MAX_HLSP_J)=initval
+  elev(lnd%ls:lnd%le, 1:MAX_HLSP_K, 1:MAX_HLSP_J)=initval  
+  tfrac(lnd%ls:lnd%le, 1:MAX_HLSP_K, 1:MAX_HLSP_J)=initval    
 
   soil_frac(lnd%ls:lnd%le) = 0.0
   elev_mean(lnd%ls:lnd%le) = 0.0
@@ -1168,8 +1178,8 @@ subroutine hlsp_disagg_precip(cplr2land)
      do while (loop_over_tiles(ce,tile,k=k))
        if (.not.associated(tile%soil)) cycle
        soil_frac(l) = soil_frac(l) + tile%frac       
-       elev_mean(l) = elev_mean(l) + tile%frac * tile%soil%pars%tile_abs_elev
-       if (tile%soil%pars%tile_abs_elev > elev_max(l)) elev_max(l) = tile%soil%pars%tile_abs_elev
+       elev_mean(l) = elev_mean(l) + tile%frac * tile%soil%pars%tile_elevation
+       if (tile%soil%pars%tile_elevation > elev_max(l)) elev_max(l) = tile%soil%pars%tile_elevation
      enddo
      if(soil_frac(l) > 0.) elev_mean(l) = elev_mean(l)/soil_frac(l)
      if(elev_max(l) <= 0.) elev_max(l) = epsilon(1.0) 
@@ -1182,9 +1192,9 @@ subroutine hlsp_disagg_precip(cplr2land)
      do while (loop_over_tiles(ce,tile,k=k))
        if (.not.associated(tile%soil)) cycle 
        if (cplr2land%bnv(l,k)>0.)then
-          h = min(tile%soil%pars%tile_abs_elev - elev_mean(l), cplr2land%ulow(l,k)/cplr2land%bnv(l,k))
+          h = min(tile%soil%pars%tile_elevation - elev_mean(l), cplr2land%ulow(l,k)/cplr2land%bnv(l,k))
        else
-          h = tile%soil%pars%tile_abs_elev - elev_mean(l)
+          h = tile%soil%pars%tile_elevation - elev_mean(l)
        endif
        frac = tile%frac/soil_frac(l)
        if(use_obs_precip_slope)then
@@ -1198,10 +1208,11 @@ subroutine hlsp_disagg_precip(cplr2land)
        norm_tot(l) = norm_tot(l) + norm
        tile%soil%pslope2p_hlsp = kgh
 
+       hidx_k =  tile%soil%hidx_k
        hidx_j =  tile%soil%hidx_j
        elevmean(l) = elev_mean(l)
        pslope2p(l) = kg       
-       lift(l,hidx_j) = h
+       lift(l,hidx_k,hidx_j) = h
      enddo
   enddo
 
@@ -1214,23 +1225,24 @@ subroutine hlsp_disagg_precip(cplr2land)
        cplr2land%lprec(l,k) = cplr2land%lprec(l,k) * adjust
        cplr2land%fprec(l,k) = cplr2land%fprec(l,k) * adjust
 
+       hidx_k =  tile%soil%hidx_k
        hidx_j =  tile%soil%hidx_j
-       pratio(l,hidx_j) = adjust
+       pratio(l,hidx_k,hidx_j) = adjust
      enddo
   enddo
 
-  !at here we assume only one hillslope is represented within a gridcell
   do l = lnd%ls, lnd%le
      ce = first_elmt(land_tile_map(l))
      do while (loop_over_tiles(ce,tile,k=k))
-       if (.not.associated(tile%soil)) cycle 
+       if (.not.associated(tile%soil)) cycle
+       hidx_k =  tile%soil%hidx_k 
        hidx_j =  tile%soil%hidx_j
-       ! this assumes cplr2land%lprec(l,k) are same for tiles with a same hidx_j
-       lprec(l,hidx_j) = cplr2land%lprec(l,k) 
-       fprec(l,hidx_j) = cplr2land%fprec(l,k)
-       elev(l,hidx_j) = tile%soil%pars%tile_abs_elev
-       if(tfrac(l,hidx_j)==initval) tfrac(l,hidx_j) = 0.
-       tfrac(l,hidx_j) = tfrac(l,hidx_j) + tile%frac
+       ! this assumes cplr2land%lprec(l,k) are same for tiles with same hidx_k and hidx_j
+       lprec(l,hidx_k,hidx_j) = cplr2land%lprec(l,k) 
+       fprec(l,hidx_k,hidx_j) = cplr2land%fprec(l,k)
+       elev(l,hidx_k,hidx_j) = tile%soil%pars%tile_elevation
+       if(tfrac(l,hidx_k,hidx_j)==initval) tfrac(l,hidx_k,hidx_j) = 0.
+       tfrac(l,hidx_k,hidx_j) = tfrac(l,hidx_k,hidx_j) + tile%frac
      enddo
   enddo
 
@@ -1241,12 +1253,12 @@ subroutine hlsp_disagg_precip(cplr2land)
        if (.not.associated(tile%soil)) cycle
        tile%soil%elevmean_hlsp = elevmean(l)
        tile%soil%pslope2p_hlsp = pslope2p(l)
-       tile%soil%lift_hlsp(:) = lift(l,:)
-       tile%soil%pratio_hlsp(:) = pratio(l,:)
-       tile%soil%lprec_hlsp(:) = lprec(l,:)
-       tile%soil%fprec_hlsp(:) = fprec(l,:)
-       tile%soil%elev_hlsp(:) = elev(l,:)
-       tile%soil%tfrac_hlsp(:) = tfrac(l,:)
+       tile%soil%lift_hlsp(:,:) = lift(l,:,:)
+       tile%soil%pratio_hlsp(:,:) = pratio(l,:,:)
+       tile%soil%lprec_hlsp(:,:) = lprec(l,:,:)
+       tile%soil%fprec_hlsp(:,:) = fprec(l,:,:)
+       tile%soil%elev_hlsp(:,:) = elev(l,:,:)
+       tile%soil%tfrac_hlsp(:,:) = tfrac(l,:,:)
      enddo
   enddo       
   
@@ -1271,6 +1283,7 @@ DEFINE_SOIL_COMPONENT_ACCESSOR_0D(real,pars, microtopo)
 DEFINE_SOIL_COMPONENT_ACCESSOR_0D(real,pars, tile_hlsp_length)
 DEFINE_SOIL_COMPONENT_ACCESSOR_0D(real,pars, tile_hlsp_slope)
 DEFINE_SOIL_COMPONENT_ACCESSOR_0D(real,pars, tile_hlsp_elev)
+DEFINE_SOIL_COMPONENT_ACCESSOR_0D(real,pars, tile_elevation)
 DEFINE_SOIL_COMPONENT_ACCESSOR_0D(real,pars, tile_hlsp_hpos)
 DEFINE_SOIL_COMPONENT_ACCESSOR_0D(real,pars, tile_hlsp_width)
 !DEFINE_SOIL_COMPONENT_ACCESSOR_0D(real,pars, transm_bedrock)
