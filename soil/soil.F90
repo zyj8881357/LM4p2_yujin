@@ -592,7 +592,7 @@ subroutine soil_init (id_ug,id_band,id_zfull,id_ptid)
      call set_current_point(ll,k)
      if (init_wtdep .gt. 0. .or. use_predefined_tiles)then
         if (.not. use_coldstart_wtt_data) then
-           if (horiz_init_wt .and. gw_option == GW_TILED .and. use_predefined_tiles .eq. .False.) then
+           if (horiz_init_wt .and. gw_option == GW_TILED .and. .not.use_predefined_tiles) then
               call horiz_wt_depth_to_init(tile%soil, prev_elmt(ce), local_wt_depth)
               ! Note: if restart_exists, then this function returns dummy local_wt_depth == 0.
               ! prev_elmt(ce) passed because indices will be needed.
@@ -610,7 +610,7 @@ subroutine soil_init (id_ug,id_band,id_zfull,id_ptid)
            else
               drypoint = .true.
            end if
-           if (gw_option == GW_TILED .and. use_predefined_tiles .eq. .False.) then
+           if (gw_option == GW_TILED .and. .not.use_predefined_tiles) then
               call horiz_wt_depth_to_init(tile%soil, prev_elmt(ce), local_wt_depth, dry=drypoint)
               psi = zfull(1:num_l) - local_wt_depth
            else if (drypoint) then
@@ -2850,6 +2850,9 @@ end subroutine soil_step_1
   hlrunf_if = clw*sum(div_if*(soil%T-tfreeze))
   hlrunf_al = clw*sum(div_al*(soil%T-tfreeze))
   hlrunf_sc = clw*lrunf_sc  *(soil%groundwater_T(1)-tfreeze)
+! slm : BUG? With intel  (GW_TILED .eq. .True.) gives FALSE, so the code can go on a wrong branch.
+! Perhaps it should be:
+! if (lrunf_from_div .or. gw_option == GW_TILED) then !MUST BE TRUE WITH TILED HILLSLOPES???
   if (lrunf_from_div .or. GW_TILED .eq. .True.) then !MUST BE TRUE WITH TILED HILLSLOPES???
      if (gw_option /= GW_TILED) then
          soil_hlrunf = hlrunf_sn + hlrunf_ie +  clw*sum(div*(soil%T-tfreeze)) &
@@ -4036,7 +4039,7 @@ end subroutine richards_clean
            flow(l+1) = flow(l+1) + w_to_move_down
         enddo
      endif
-  end subroutine move_down_revisited  
+  end subroutine move_down_revisited
 
   subroutine move_all_revisited(w_l, dW_l, flow, w_shortage, num_l, l_internal, dz, vwc_sat)
   real, intent(in), dimension(num_l) :: w_l,dz
@@ -4080,10 +4083,10 @@ end subroutine richards_clean
            endif
         endif
      enddo
-     
+
      print*,'WARNING: negative soil water storage, Th=', -w_shortage/(dens_h2o*dz(l_internal)*vwc_sat)
-  
-  end subroutine move_all_revisited 
+
+  end subroutine move_all_revisited
 
 ! ============================================================================
   subroutine move_up(dW_l, flow, w_shortage, num_l, l_internal)
@@ -4328,7 +4331,7 @@ subroutine advection_tri(soil, flow, dW_l, tflow, d_GW, div, delta_time, t_soil_
    ! NWC If there are NaNs then sen del_t to 0. If not this will crash. Probably
    ! want to revisit this at some point.
    do l =1,num_l
-    if (isnan(del_t(l)) .eq. .true.)del_t(l) = 0.0
+    if (isnan(del_t(l))) del_t(l) = 0.0
    enddo
    t_soil_tridiag(1:num_l) = soil%T(1:num_l) + del_t(1:num_l)
 

@@ -658,11 +658,11 @@ subroutine retrieve_soil_parameters(tile_parameters,cid)
   call get_parameter_data(grpid,"ksat_200cm",nsoil,soil%ksat200cm)
 
   !Do some basic QC (should be done in the preprocessing...)
-  where(isnan(soil%gw_soil_e_depth) .eq. .True.)soil%gw_soil_e_depth = 3.0
+  where(isnan(soil%gw_soil_e_depth))soil%gw_soil_e_depth = 3.0
   !where(soil%gw_soil_e_depth .lt. 1.0)soil%gw_soil_e_depth = 1.0
-  where(isnan(soil%gw_perm) .eq. .True.)soil%gw_perm = 2e-13 !HACK
-  where(isnan(soil%soil_depth) .eq. .True.)soil%soil_depth = 2.0
-  where(isnan(soil%depth_to_bedrock) .eq. .True.)soil%depth_to_bedrock = 10.0
+  where(isnan(soil%gw_perm))soil%gw_perm = 2e-13 !HACK
+  where(isnan(soil%soil_depth))soil%soil_depth = 2.0
+  where(isnan(soil%depth_to_bedrock))soil%depth_to_bedrock = 10.0
   soil%gw_soil_e_depth = soil%soil_depth !Remove dependence on input soil_e_depth
   !Turn everything below DTB to hard rock...
   !soil%gw_perm = 10**(-15.2)!1e-20
@@ -676,10 +676,10 @@ subroutine retrieve_soil_parameters(tile_parameters,cid)
   !Correct psi_sat_ref
   !soil%dat_psi_sat_ref = 10*soil%dat_psi_sat_ref !Need to move back to original
   !where(soil%dat_psi_sat_ref .gt. -0.01)soil%dat_psi_sat_ref = -0.01 !HACK
-  where(isnan(soil%dat_k_sat_ref) .eq. .True.)soil%dat_k_sat_ref = 0.003 !HACK
-  where(isnan(soil%bl) .eq. .True.)soil%bl = 0.0
-  where(isnan(soil%br) .eq. .True.)soil%br = 0.0
-  where(isnan(soil%bsw) .eq. .True.)soil%bsw = 0.0
+  where(isnan(soil%dat_k_sat_ref))soil%dat_k_sat_ref = 0.003 !HACK
+  where(isnan(soil%bl))soil%bl = 0.0
+  where(isnan(soil%br))soil%br = 0.0
+  where(isnan(soil%bsw))soil%bsw = 0.0
   where(soil%bwood .gt. 10**10)soil%bwood = 0.0
   where(soil%bl .gt. 10**10)soil%bl = 0.0
   where(soil%br .gt. 10**10)soil%br = 0.0

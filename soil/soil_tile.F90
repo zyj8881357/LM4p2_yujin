@@ -1967,7 +1967,7 @@ subroutine soil_data_hydraulics_alt3 (soil, vlc, vsc, &
     !If below depth to bedrock then effectively kill off Ksat
     if (use_depth_to_bedrock)then
      if (zhalf(l+1) .gt. soil%pars%depth_to_bedrock)then
-      Ksat = 10.0**-10.0
+      Ksat = 10.0**(-10.0)
       Psat = -1500.0
       !Ksat = soil%pars%k_sat_ref*10**-10
       !Psat = soil%pars%psi_sat_ref/10**-5

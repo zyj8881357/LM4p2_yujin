@@ -696,7 +696,7 @@ function reg_field(static, module_name, field_name, init_time, axes, &
      ! are horizontal coordinates, so their size is not taken into account
      fields(id)%size = 1
      do i = 2, size(axes(:))
-        if(present(sm) .and. (sm .eq. .False.))then
+        if(present(sm) .and. (sm .eqv. .False.))then
          fields(id)%size = 1 !Temporary fix to allow for tile outptu
         else
          fields(id)%size = fields(id)%size * get_axis_length(axes(i))

@@ -6,7 +6,7 @@ use mpp_mod, only: input_nml_file
 use fms_mod, only: open_namelist_file
 #endif
 
-use fms_mod, only : check_nml_error, stdlog, error_mesg, FATAL
+use fms_mod, only : file_exist, close_file, check_nml_error, stdlog, error_mesg, FATAL
 use land_data_mod, only : log_version
 
 implicit none

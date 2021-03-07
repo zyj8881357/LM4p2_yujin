@@ -1347,7 +1347,7 @@ subroutine check_mask_match(idx)
             enddo
             write(*,*)
          enddo
-         write(*,'(a,": ",i," mask mismatches ",i," grid points")') trim(tag), k, count(map_g>0)
+         write(*,'(a,": ",i5," mask mismatches ",i5," grid points")') trim(tag), k, count(map_g>0)
          write(*,'(a,": ",a)')trim(tag), 'Legend: G - point in gridSpec but not in restart, R - in restart but not in gridSpec.'
          call mpp_error(FATAL,'land_model_init :: land masks from gridSpec and restart do not match, grep "^'//trim(tag)//'" stdout to see map.')
      endif
@@ -4268,7 +4268,7 @@ subroutine land_diag_init(clonb, clatb, clon, clat, time, id_band, id_ug, id_pti
   max_npt = lnd%max_npt
   call mpp_max(max_npt)
   !Initialize the parent id array
-  if (allocated(lnd%pids) .eq. .False.)then
+  if (.not.allocated(lnd%pids))then
    allocate(lnd%pids(max_npt))
    do i = 1,max_npt
     lnd%pids(i) = i
