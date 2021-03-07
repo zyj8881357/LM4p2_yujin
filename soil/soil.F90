@@ -2542,11 +2542,11 @@ end subroutine soil_step_1
   END SELECT
 
   div = div_bf + div_if + div_al + div_it ! div includes inter-tile flow
-  !if (gw_option .eq. GW_TILED)then
-  ! lrunf_bf = sum(div_gtos)
-  !else
-  lrunf_bf = sum(div_bf + div_it) ! baseflow runoff includes inter-tile flow
-  !endif
+  if (gw_option .eq. GW_TILED)then
+   lrunf_bf = sum(div_gtos)
+  else
+   lrunf_bf = sum(div_bf + div_it) ! baseflow runoff includes inter-tile flow
+  endif
   lrunf_if = sum(div_if)
   lrunf_al = sum(div_al)
 
@@ -2840,12 +2840,12 @@ end subroutine soil_step_1
 
   flow_macro = (macro_inf-extra_cum)/delta_time
 
-  !if (gw_option .eq. GW_TILED)then
-  ! hlrunf_bf = sum(hdiv_gtos)
-  !else
-  ! hlrunf_bf = clw*sum(div_bf*(soil%T-tfreeze))
-  !endif
-  hlrunf_bf = clw*sum(div_bf*(soil%T-tfreeze)) + sum(hdiv_it)
+  if (gw_option .eq. GW_TILED)then
+   hlrunf_bf = sum(hdiv_gtos)
+  else
+   hlrunf_bf = clw*sum(div_bf*(soil%T-tfreeze))
+  endif
+  !hlrunf_bf = clw*sum(div_bf*(soil%T-tfreeze)) + sum(hdiv_it)
   ! div_bf is 0. for GW_TILED, else hdiv_it == zero
   hlrunf_if = clw*sum(div_if*(soil%T-tfreeze))
   hlrunf_al = clw*sum(div_al*(soil%T-tfreeze))
@@ -3898,13 +3898,31 @@ end subroutine soil_push_down_excess
   endif
 
   if (fix_neg_subsurface_wl_revisited) then
-    do l=2, num_l
+    !do l=1, num_l
+    !  if ((soil%wl(l)+dW_l(l))/(dens_h2o*dz(l)*soil%pars%vwc_sat) < thetathresh) then
+    !    call get_current_point(ipt,jpt,kpt,fpt)
+    !    !write(*,*) '=== warning: fixing neg wl=',soil%wl(l)+dW_l(l),'at',l,ipt,jpt,kpt,fpt
+    !    l_internal = l
+    !    w_shortage = -(soil%wl(l_internal)+dW_l(l_internal))
+    !    call move_up_revisited(soil%wl, dW_l, flow, w_shortage, num_l, l_internal,dz)
+    !  endif
+    !enddo
+    !do l=1, num_l
+    !  if ((soil%wl(l)+dW_l(l))/(dens_h2o*dz(l)*soil%pars%vwc_sat) < thetathresh) then
+    !    call get_current_point(ipt,jpt,kpt,fpt)
+    !    !write(*,*) '=== warning: fixing neg wl=',soil%wl(l)+dW_l(l),'at',l,ipt,jpt,kpt,fpt
+    !    l_internal = l
+    !    w_shortage = -(soil%wl(l_internal)+dW_l(l_internal))
+    !    call move_down_revisited(soil%wl, dW_l, flow, w_shortage, num_l, l_internal,dz)
+    !  endif
+    !enddo
+    do l=1, num_l
       if ((soil%wl(l)+dW_l(l))/(dens_h2o*dz(l)*soil%pars%vwc_sat) < thetathresh) then
         call get_current_point(ipt,jpt,kpt,fpt)
         !write(*,*) '=== warning: fixing neg wl=',soil%wl(l)+dW_l(l),'at',l,ipt,jpt,kpt,fpt
         l_internal = l
         w_shortage = -(soil%wl(l_internal)+dW_l(l_internal))
-        call move_up_revisited(soil%wl, dW_l, flow, w_shortage, num_l, l_internal,dz)
+        call move_all_revisited(soil%wl, dW_l, flow, w_shortage, num_l, l_internal,dz, soil%pars%vwc_sat)
       endif
     enddo
   endif
@@ -3982,6 +4000,90 @@ end subroutine richards_clean
         enddo
      endif
   end subroutine move_up_revisited
+
+  subroutine move_down_revisited(w_l, dW_l, flow, w_shortage, num_l, l_internal, dz)
+  real, intent(in), dimension(num_l) :: w_l,dz
+  real, intent(inout), dimension(num_l)   :: dW_l
+  real, intent(inout), dimension(num_l+1) :: flow
+  real, intent(in)                        ::  w_shortage
+  integer, intent(in)                     ::  num_l, l_internal
+  ! ---- local vars ----------------------------------------------------------
+  integer l, l_source
+  real dW_l_source, w_to_move_down
+
+  !If a layer doesn't have enough water move the remaining extraction to lower layers
+     l_source = l_internal
+     dW_l_source = -1.e20
+     do l = l_internal-1, 1, -1
+        !if (dW_l(l).gt.dW_l_source) then
+        if ((w_l(l)+dW_l(l)-w_shortage) .gt. 0.01*dz(l)) then
+           l_source = l
+           dW_l_source = dW_l(l)
+           exit
+        endif
+     enddo
+     !w_to_move_up = min(dW_l_source, w_shortage)
+     !w_to_move_up = max(w_to_move_up, 0.)
+     w_to_move_down = w_shortage
+     !write(*,*) 'l_internal,l_source=',l_internal,l_source
+     !write(*,*) 'dW_l_source=',dW_l_source
+     !write(*,*) 'w_shortage=',w_shortage
+     !write(*,*) 'w_to_move_up=',w_to_move_up
+     if (l_source.lt.l_internal) then
+        dW_l(l_internal)   = dW_l(l_internal)   + w_to_move_down
+        dW_l(l_source) = dW_l(l_source) - w_to_move_down
+        do l = l_source, l_internal-1
+           flow(l+1) = flow(l+1) + w_to_move_down
+        enddo
+     endif
+  end subroutine move_down_revisited  
+
+  subroutine move_all_revisited(w_l, dW_l, flow, w_shortage, num_l, l_internal, dz, vwc_sat)
+  real, intent(in), dimension(num_l) :: w_l,dz
+  real, intent(in) :: vwc_sat
+  real, intent(inout), dimension(num_l)   :: dW_l
+  real, intent(inout), dimension(num_l+1) :: flow
+  real, intent(inout)                        ::  w_shortage
+  integer, intent(in)                     ::  num_l, l_internal
+  ! ---- local vars ----------------------------------------------------------
+  integer l, l2
+  real w_to_move_up, w_to_move_down
+
+  !If a layer doesn't have enough water move the remaining extraction to lower layers
+
+     do l = l_internal+1, num_l
+        if ((w_l(l)+dW_l(l)) .gt. 0.01*dz(l)) then
+           w_to_move_up = min(w_l(l)+dW_l(l)-0.01*dz(l),w_shortage)
+           dW_l(l_internal)   = dW_l(l_internal)   + w_to_move_up
+           dW_l(l) = dW_l(l) - w_to_move_up
+           do l2 = l_internal+1, l
+             flow(l2) = flow(l2) - w_to_move_up
+           enddo
+           w_shortage = w_shortage - w_to_move_up
+           if (w_shortage <= -thetathresh*(dens_h2o*dz(l_internal)*vwc_sat))then
+             return
+           endif
+        endif
+     enddo
+
+     do l = l_internal-1, 1, -1
+        if ((w_l(l)+dW_l(l)) .gt. 0.01*dz(l)) then
+           w_to_move_down = min(w_l(l)+dW_l(l)-0.01*dz(l),w_shortage)
+           dW_l(l_internal)   = dW_l(l_internal)   + w_to_move_down
+           dW_l(l) = dW_l(l) - w_to_move_down
+           do l2 = l, l_internal-1
+              flow(l2+1) = flow(l2+1) + w_to_move_down
+           enddo
+           w_shortage = w_shortage - w_to_move_down
+           if (w_shortage <= -thetathresh*(dens_h2o*dz(l_internal)*vwc_sat))then
+             return
+           endif
+        endif
+     enddo
+     
+     print*,'WARNING: negative soil water storage, Th=', -w_shortage/(dens_h2o*dz(l_internal)*vwc_sat)
+  
+  end subroutine move_all_revisited 
 
 ! ============================================================================
   subroutine move_up(dW_l, flow, w_shortage, num_l, l_internal)

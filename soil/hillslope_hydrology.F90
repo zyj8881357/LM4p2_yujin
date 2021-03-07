@@ -263,7 +263,7 @@ subroutine hlsp_hydrology_1(num_species)
    real    ::     div_above(1:num_l)   ! running sum of contributing tile water flux (mm/s)
    real    ::     div_level(1:num_l)   ! running sum of tile water flux from same hillslope level (mm/s)
    real    ::     div_below(1:num_l)   ! running sum of tile water flux downslope (mm/s)
-   real    ::     div_hlsp(1:num_l),div_hlsp_heat(1:num_l),div_hlsp_DOC(num_species,1:num_l)
+!   real    ::     div_hlsp(1:num_l),div_hlsp_heat(1:num_l),div_hlsp_DOC(num_species,1:num_l)
    real    ::     hdiv_above(1:num_l)  ! running sum of contributing tile energy flux (W/m^2)
    real    ::     hdiv_level(1:num_l)  ! running sum of tile energy flux from same hillslope level (W/m^2)
    real    ::     hdiv_below(1:num_l)  ! running sum of tile energy flux downslope  (W/m^2) (+ out of tile)
@@ -704,8 +704,8 @@ subroutine hlsp_hydrology_1(num_species)
             ! Add to outputs
             if (area_above > 0.) then
                !print*,'above',div_above/area_above*tile%frac
-               div_hlsp(:) = div_hlsp(:) + div_above(:) / area_above
-               div_hlsp_heat(:) = div_hlsp_heat(:) + hdiv_above(:) / area_above
+               soil%div_hlsp(:) = soil%div_hlsp(:) + div_above(:) / area_above
+               soil%div_hlsp_heat(:) = soil%div_hlsp_heat(:) + hdiv_above(:) / area_above
                do s=1,num_species
                   soil%div_hlsp_DOC(s,:) = soil%div_hlsp_DOC(s,:) + docdiv_above(:,s) / area_above
                   soil%div_hlsp_DON(s,:) = soil%div_hlsp_DON(s,:) + dondiv_above(:,s) / area_above
@@ -718,8 +718,8 @@ subroutine hlsp_hydrology_1(num_species)
                ! Add current tile to area_level
                area_level = area_level + tile%soil%pars%tile_hlsp_frac
                !print*,'level',div_level/area_level
-               div_hlsp(:) = div_hlsp(:) + div_level(:) / area_level
-               div_hlsp_heat(:) = div_hlsp_heat(:) + hdiv_level(:) / area_level
+               soil%div_hlsp(:) = soil%div_hlsp(:) + div_level(:) / area_level
+               soil%div_hlsp_heat(:) = soil%div_hlsp_heat(:) + hdiv_level(:) / area_level
                do s=1,num_species
                   soil%div_hlsp_DOC(s,:) = soil%div_hlsp_DOC(s,:) + docdiv_level(:,s) / area_level
                   soil%div_hlsp_DON(s,:) = soil%div_hlsp_DON(s,:) + dondiv_level(:,s) / area_level
@@ -730,8 +730,8 @@ subroutine hlsp_hydrology_1(num_species)
 
             if (area_below > 0.) then
                !print*,'below',div_below/area_below*tile%frac
-               div_hlsp(:) = div_hlsp(:) + div_below(:) / area_below
-               div_hlsp_heat(:) = div_hlsp_heat(:) + hdiv_below(:) / area_below
+               soil%div_hlsp(:) = soil%div_hlsp(:) + div_below(:) / area_below
+               soil%div_hlsp_heat(:) = soil%div_hlsp_heat(:) + hdiv_below(:) / area_below
                do s=1,num_species
                   soil%div_hlsp_DOC(s,:) = soil%div_hlsp_DOC(s,:) + docdiv_below(:,s) / area_below
                   soil%div_hlsp_DON(s,:) = soil%div_hlsp_DON(s,:) + dondiv_below(:,s) / area_below
@@ -743,8 +743,8 @@ subroutine hlsp_hydrology_1(num_species)
 
             ! Debug
             if (is_watch_cell()) then
-               write(*,*)'Total divergence of water, heat (1:num_l) = ', div_hlsp(1:num_l), &
-                           ', ', div_hlsp_heat(1:num_l), '.'
+               write(*,*)'Total divergence of water, heat (1:num_l) = ', soil%div_hlsp(1:num_l), &
+                           ', ', soil%div_hlsp_heat(1:num_l), '.'
             end if
 
             ! Calculate flows directly to stream
@@ -832,7 +832,8 @@ subroutine hlsp_hydrology_1(num_species)
                      ! For diagnostics
                      gtos_bytile(k,l) = wflux(l)
                      gtosh_bytile(k,l) = eflux(l)
-
+                     soil%gtos(l) = wflux(l)
+                     soil%gtosh(l) = eflux(l)
                      ! In units flowing into stream
                      ground_to_stream(ll) = ground_to_stream(ll) + wflux(l) * A1
                      ground_to_stream_heat(ll) = ground_to_stream_heat(ll) + eflux(l) * A1
@@ -868,9 +869,9 @@ subroutine hlsp_hydrology_1(num_species)
             end if ! Stream
 
             !Prepare output
-            soil%div_hlsp = div_hlsp
-            soil%div_hlsp_heat = div_hlsp_heat
-            soil%div_hlsp_DOC = div_hlsp_DOC
+            !soil%div_hlsp = div_hlsp
+            !soil%div_hlsp_heat = div_hlsp_heat
+            !soil%div_hlsp_DOC = div_hlsp_DOC
 
             k=k+1
 
