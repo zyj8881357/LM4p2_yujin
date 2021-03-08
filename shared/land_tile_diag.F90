@@ -691,12 +691,20 @@ function reg_field(static, module_name, field_name, init_time, axes, &
      else
         fields(id)%offset = current_offset
      endif
+     ! store the summary flag
+     if(present(sm)) then
+      fields(id)%sm=sm
+     else
+      fields(id)%sm=.TRUE.
+     endif
      ! calculate field size per tile and increment current offset to
-     ! reserve space in per-tile buffers. We assume that the first two axes
-     ! are horizontal coordinates, so their size is not taken into account
+     ! reserve space in per-tile buffers. We assume that the first axis
+     ! is representing horizontal coordinates in unstructured grid,
+     ! so its size is not taken into account
      fields(id)%size = 1
      do i = 2, size(axes(:))
-        if(present(sm) .and. (sm .eqv. .False.))then
+        if(.not.fields(id)%sm)then
+!        if(present(sm) .and. (sm .eqv. .False.))then
          fields(id)%size = 1 !Temporary fix to allow for tile outptu
         else
          fields(id)%size = fields(id)%size * get_axis_length(axes(i))
@@ -734,12 +742,6 @@ function reg_field(static, module_name, field_name, init_time, axes, &
            if (fields(id)%ids(i) <= 0) cycle
            call diag_field_add_attribute(fields(id)%ids(i),'ocean_fillvalue',0.0)
         enddo
-     endif
-     ! store the summary flag
-     if(present(sm)) then
-      fields(id)%sm=sm
-     else
-      fields(id)%sm=.TRUE.
      endif
      ! increment the field id by some (large) number to distinguish it from the
      ! IDs of regular FMS diagnostic fields
