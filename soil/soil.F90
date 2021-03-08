@@ -2850,16 +2850,13 @@ end subroutine soil_step_1
   hlrunf_if = clw*sum(div_if*(soil%T-tfreeze))
   hlrunf_al = clw*sum(div_al*(soil%T-tfreeze))
   hlrunf_sc = clw*lrunf_sc  *(soil%groundwater_T(1)-tfreeze)
-! slm : BUG? With intel  (GW_TILED .eq. .True.) gives FALSE, so the code can go on a wrong branch.
-! Perhaps it should be:
-! if (lrunf_from_div .or. gw_option == GW_TILED) then !MUST BE TRUE WITH TILED HILLSLOPES???
-  if (lrunf_from_div .or. GW_TILED .eq. .True.) then !MUST BE TRUE WITH TILED HILLSLOPES???
+  if (lrunf_from_div) then
      if (gw_option /= GW_TILED) then
-         soil_hlrunf = hlrunf_sn + hlrunf_ie +  clw*sum(div*(soil%T-tfreeze)) &
+        soil_hlrunf = hlrunf_sn + hlrunf_ie +  clw*sum(div*(soil%T-tfreeze)) &
                                                       + hlrunf_nu + hlrunf_sc
         soil_lrunf  =  lrunf_sn +  lrunf_ie +  sum(div) +  lrunf_nu +  lrunf_sc
      else
-         soil_hlrunf = hlrunf_sn + hlrunf_ie +  sum(hdiv_it) &
+        soil_hlrunf = hlrunf_sn + hlrunf_ie +  sum(hdiv_it) &
              + hlrunf_nu + hlrunf_sc
         !soil_lrunf  =  lrunf_sn +  lrunf_ie +  sum(div_gtos) +  lrunf_nu +  lrunf_sc
         soil_lrunf  =  lrunf_sn +  lrunf_ie +  sum(div_it) +  lrunf_nu +  lrunf_sc
