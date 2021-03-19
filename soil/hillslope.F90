@@ -1148,6 +1148,7 @@ subroutine hlsp_disagg_precip(cplr2land)
   integer :: l, k
   real, dimension(lnd%ls:lnd%le, MAX_HLSP_K, MAX_HLSP_J) :: lprec, fprec, elev, tfrac, lift, pratio
   real, dimension(lnd%ls:lnd%le) :: elevmean, pslope2p
+  integer, dimension(lnd%ls:lnd%le) :: nk, nj
   integer :: hidx_k, hidx_j
   integer :: year,month,day,hour,minute,second
 
@@ -1161,6 +1162,8 @@ subroutine hlsp_disagg_precip(cplr2land)
   call get_date(lnd%time,year,month,day,hour,minute,second)
 
   !for output
+  nk(lnd%ls:lnd%le)=0
+  nj(lnd%ls:lnd%le)=0  
   elevmean(lnd%ls:lnd%le)=initval
   pslope2p(lnd%ls:lnd%le)=initval
   lift(lnd%ls:lnd%le, 1:MAX_HLSP_K, 1:MAX_HLSP_J)=initval 
@@ -1210,6 +1213,8 @@ subroutine hlsp_disagg_precip(cplr2land)
 
        hidx_k =  tile%soil%hidx_k
        hidx_j =  tile%soil%hidx_j
+       if(hidx_k>nk(l)) nk(l)=hidx_k
+       if(hidx_j>nj(l)) nj(l)=hidx_j
        elevmean(l) = elev_mean(l)
        pslope2p(l) = kg       
        lift(l,hidx_k,hidx_j) = h
@@ -1251,6 +1256,8 @@ subroutine hlsp_disagg_precip(cplr2land)
      ce = first_elmt(land_tile_map(l))
      do while (loop_over_tiles(ce,tile,k=k))
        if (.not.associated(tile%soil)) cycle
+       tile%soil%nk_hlsp = nk(l)
+       tile%soil%nj_hlsp = nj(l)       
        tile%soil%elevmean_hlsp = elevmean(l)
        tile%soil%pslope2p_hlsp = pslope2p(l)
        tile%soil%lift_hlsp(:,:) = lift(l,:,:)

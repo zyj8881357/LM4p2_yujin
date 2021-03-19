@@ -218,6 +218,15 @@ subroutine soil_hillslope_zeta_bar_ptr(t,p)
     endif
 end subroutine
 
+subroutine soil_tile_elevation_ptr(t,p)
+    type(land_tile_type),pointer::t
+    real,pointer::p
+    p=>NULL()
+    if(associated(t))then
+        if(associated(t%soil))p=>t%soil%pars%tile_elevation
+    endif
+end subroutine
+
 subroutine soil_soil_e_depth_ptr(t,p)
     type(land_tile_type),pointer::t
     real,pointer::p

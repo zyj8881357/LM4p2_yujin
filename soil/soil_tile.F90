@@ -143,17 +143,27 @@ character(16), parameter, public :: &
 character(3), parameter, public :: month_name(12) = ['JAN','FEB','MAR','APR','MAY','JUN', &
                                                      'JUL','AUG','SEP','OCT','NOV','DEC'  ] 
 
-integer, parameter, public :: MAX_HLSP_K = 2
-integer, parameter, public :: MAX_HLSP_J = 20
+integer, parameter, public :: MAX_HLSP_K = 30
+integer, parameter, public :: MAX_HLSP_J = 30
 
 character(len=2), parameter, public :: &
- hlspk_name (MAX_HLSP_K) = [ 'k1', 'k2']
+ hlspk_name (MAX_HLSP_K) = [ 'k1 ', 'k2 ', 'k3 ', 'k4 ', &
+                             'k5 ', 'k6 ', 'k7 ', 'k8 ', &
+                             'k9 ', 'k10', 'k11', 'k12', &
+                             'k13', 'k14', 'k15', 'k16', &
+                             'k17', 'k18', 'k19', 'k20', &
+                             'k21', 'k22', 'k23', 'k24', &
+                             'k25', 'k26', 'k27', 'k28', &
+                             'k29', 'k30']   
 character(len=3), parameter, public :: &
  hlspj_name (MAX_HLSP_J) = [ 'j1 ', 'j2 ', 'j3 ', 'j4 ', &
                              'j5 ', 'j6 ', 'j7 ', 'j8 ', &
                              'j9 ', 'j10', 'j11', 'j12', &
                              'j13', 'j14', 'j15', 'j16', &
-                             'j17', 'j18', 'j19', 'j20' ]                                                          
+                             'j17', 'j18', 'j19', 'j20', &
+                             'j21', 'j22', 'j23', 'j24', &
+                             'j25', 'j26', 'j27', 'j28', &
+                             'j29', 'j30']  
 
 ! ==== types =================================================================
 type :: soil_pars_type
@@ -271,6 +281,8 @@ type :: soil_tile_type
    real*8, allocatable :: gtos(:) ! groundwater from tile to stream [mm/s]
    real, allocatable :: gtosh(:) ! heat flux to stream [W/m^2]
 
+   integer :: nk_hlsp = 0
+   integer :: nj_hlsp = 0
    real :: elevmean_hlsp = initval   
    real :: pslope2p_hlsp = initval
    real :: lift_hlsp(MAX_HLSP_K, MAX_HLSP_J) = initval

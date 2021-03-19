@@ -279,7 +279,8 @@ integer, dimension(N_LITTER_POOLS,N_C_TYPES) :: &
     id_litter_rsoil_C,     id_litter_rsoil_N, &
     id_litter_C_leaching, id_litter_DON_leaching
 
-integer :: id_elevmean, id_pslope2p
+integer :: id_tile_elev
+integer :: id_nk, id_nj, id_elevmean, id_pslope2p
 integer, dimension(MAX_HLSP_K, MAX_HLSP_J) :: &
     id_lift_hlsp, id_pratio_hlsp, id_lprec_hlsp, id_fprec_hlsp, id_elev_hlsp, id_tfrac_hlsp
 
@@ -885,6 +886,7 @@ subroutine soil_init (id_ug,id_band,id_zfull,id_ptid)
   call send_tile_data_r0d_fptr(id_slope_l,      soil_hillslope_length_ptr) 
   call send_tile_data_r0d_fptr(id_slope_Z,      soil_hillslope_relief_ptr)
   call send_tile_data_r0d_fptr(id_zeta_bar,     soil_hillslope_zeta_bar_ptr)
+  call send_tile_data_r0d_fptr(id_tile_elev,    soil_tile_elevation_ptr)  
   call send_tile_data_r0d_fptr(id_e_depth,      soil_soil_e_depth_ptr)
   call send_tile_data_r0d_fptr(id_zeta,         soil_zeta_ptr)
   call send_tile_data_r0d_fptr(id_tau,          soil_tau_ptr)
@@ -907,6 +909,7 @@ subroutine soil_init (id_ug,id_band,id_zfull,id_ptid)
   call send_tile_data_r1d_fptr(id_f_vol_sat,    soil_f_vol_sat_ptr)
   call send_tile_data_r1d_fptr(id_f_geo_sat,    soil_f_geo_sat_ptr)
   call send_tile_data_i0d_fptr(id_type,         soil_tag_ptr)
+
   if (id_mrsofc>0) then
      total_soil_depth = sum(dz(1:num_l))
      ce = first_elmt(land_tile_map)
@@ -1115,6 +1118,10 @@ subroutine soil_diag_init(id_ug,id_band,id_zfull,id_ptid)
        lnd%time, 'dissolved organic nitrogen', 'kg C/m3', missing_value=-100.0 )
 
   ! hillslope output
+  id_nk = register_tiled_diag_field ( module_name, 'nk', axes(1:1), &
+       lnd%time, 'maximum hidx_k', '-',  missing_value=-1.0 ) 
+  id_nj = register_tiled_diag_field ( module_name, 'nj', axes(1:1), &
+       lnd%time, 'maximum hidx_j', '-',  missing_value=-1.0 )   
   id_elevmean = register_tiled_diag_field ( module_name, 'elev_mean', axes(1:1), &
        lnd%time, 'mean elevation of soil tiles', 'm',  missing_value=initval )  
   id_pslope2p = register_tiled_diag_field ( module_name, 'pslope2p', axes(1:1), &
@@ -1403,6 +1410,8 @@ subroutine soil_diag_init(id_ug,id_band,id_zfull,id_ptid)
   id_macro_infilt = register_tiled_diag_field (module_name, 'macro_inf', axes(1:1), &
        lnd%time, 'infiltration (decrease to IE runoff) at soil surface due to vertical macroporosity', 'mm/s', missing_value=-100.0 )
 
+  id_tile_elev = register_tiled_static_field ( module_name, 'tile_elev', &
+      axes(1:1), 'absolute tile elevation', 'm', missing_value=-100.0 )
   id_type = register_tiled_static_field ( module_name, 'soil_type',  &
        axes(1:1), 'soil type', missing_value=-1.0 )
   id_tau_gw = register_tiled_static_field ( module_name, 'tau_gw',  &
@@ -3245,6 +3254,8 @@ end subroutine soil_step_1
   if (id_lwc_std > 0) call send_tile_data(id_lwc_std,  soil%wl/dz(1:num_l), diag)
   if (id_swc_std > 0) call send_tile_data(id_swc_std,  soil%ws/dz(1:num_l), diag)
 
+  call send_tile_data(id_nk,float(soil%nk_hlsp), diag)
+  call send_tile_data(id_nj,float(soil%nj_hlsp), diag)  
   call send_tile_data(id_elevmean, soil%elevmean_hlsp, diag)
   call send_tile_data(id_pslope2p, soil%pslope2p_hlsp, diag)
   do j = 1, MAX_HLSP_J
