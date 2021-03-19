@@ -2997,6 +2997,14 @@ end subroutine soil_step_1
   hlrunf_if = clw*sum(div_if*(soil%T-tfreeze))
   hlrunf_al = clw*sum(div_al*(soil%T-tfreeze))
   hlrunf_sc = clw*lrunf_sc  *(soil%groundwater_T(1)-tfreeze)
+
+  IF (PUSH_DOWN_SFC_EXCESS) THEN
+     CALL SOIL_PUSH_DOWN_EXCESS ( soil, diag, lrunf_nu, hlrunf_nu, frunf, hfrunf)
+  endif
+  if (push_up_sfc_excess) then
+     call soil_push_up_excess ( soil, diag, lrunf_nu, hlrunf_nu, frunf, hfrunf)
+  endif
+
   if (lrunf_from_div .or. GW_TILED .eq. .True.) then !MUST BE TRUE WITH TILED HILLSLOPES???
      if (gw_option /= GW_TILED) then
          soil_hlrunf = hlrunf_sn + hlrunf_ie +  clw*sum(div*(soil%T-tfreeze)) &
@@ -3022,7 +3030,6 @@ end subroutine soil_step_1
      __DEBUG3__(soil%hidx_j, soil_lrunf, lrunf_bf)
      __DEBUG5__(lrunf_sn, lrunf_ie, lrunf_if, lrunf_al, lrunf_sc)
   end if
-
 
   do l = 1, num_l
      ! ---- compute explicit melt/freeze --------------------------------------
