@@ -37,7 +37,7 @@ use soil_tile_mod, only : num_l, dz, zfull, zhalf, &
      soil_type_file, &
      soil_tile_stock_pe, initval, comp, soil_theta, soil_ice_porosity, &
      N_LITTER_POOLS,LEAF,CWOOD,l_shortname,l_longname,l_diagname, &
-     MAX_HLSP_K, MAX_HLSP_J, hlspk_name, hlspj_name
+     MAX_HLSP_K, MAX_HLSP_J, MAX_HLSP_KJ, hlspk_name, hlspj_name
 use soil_util_mod, only: soil_util_init, rhizosphere_frac
 use soil_accessors_mod ! use everything
 
@@ -281,7 +281,7 @@ integer, dimension(N_LITTER_POOLS,N_C_TYPES) :: &
 
 integer :: id_tile_elev
 integer :: id_nk, id_nj, id_elevmean, id_pslope2p
-integer, dimension(MAX_HLSP_K, MAX_HLSP_J) :: &
+integer :: &
     id_lift_hlsp, id_pratio_hlsp, id_lprec_hlsp, id_fprec_hlsp, id_elev_hlsp, id_tfrac_hlsp
 
 
@@ -1074,6 +1074,10 @@ subroutine soil_diag_init(id_ug,id_band,id_zfull,id_ptid)
   integer :: axes(2)
   integer :: id_zhalf
   integer :: l
+  integer :: id_kj
+  integer :: i
+  real, dimension(MAX_HLSP_KJ) :: kj
+ 
 
   ! define vertical axis and its edges
   id_zhalf = diag_axis_init ( &
@@ -1081,6 +1085,12 @@ subroutine soil_diag_init(id_ug,id_band,id_zfull,id_ptid)
   id_zfull = diag_axis_init ( &
        'zfull_soil', zfull(1:num_l),   'meters', 'z', 'full level',  -1, set_name='soil', &
        edges=id_zhalf )
+
+  do i = 1, MAX_HLSP_KJ
+    kj(i) = i
+  enddo
+  id_kj = diag_axis_init ( &
+       'hidx_kj', kj(1:MAX_HLSP_KJ),   'unitless', 'z', 'hidx_kj number',  -1, set_name='soil' )
 
   ! define array of axis indices
   axes = (/id_ug,id_zfull/)
@@ -1127,19 +1137,18 @@ subroutine soil_diag_init(id_ug,id_band,id_zfull,id_ptid)
   id_pslope2p = register_tiled_diag_field ( module_name, 'pslope2p', axes(1:1), &
        lnd%time, 'ratio of precitation slope to the mean precip', '1/m',  missing_value=initval ) 
 
-  id_lift_hlsp(:,:) = register_hlsp_diag_fields(module_name, '<ktype>_<jtype>_lift', &
-       axes(1:1), lnd%time, 'hillslope <ktype> <jtype> air lift compared to mean elevation of soil tiles', 'm', missing_value=initval ) 
-  id_pratio_hlsp(:,:) = register_hlsp_diag_fields(module_name, '<ktype>_<jtype>_pratio', &
-       axes(1:1), lnd%time, 'hillslope <ktype> <jtype> ratio of precitation to the mean precip', 'unitless', missing_value=initval )
-  id_lprec_hlsp(:,:) = register_hlsp_diag_fields(module_name, '<ktype>_<jtype>_lprec', &
-       axes(1:1), lnd%time, 'hillslope <ktype> <jtype> rainfall', 'kg/(m2 s)', missing_value=initval )
-  id_fprec_hlsp(:,:) = register_hlsp_diag_fields(module_name, '<ktype>_<jtype>_fprec', &
-       axes(1:1), lnd%time, 'hillslope <ktype> <jtype> snowfall', 'kg/(m2 s)', missing_value=initval )
-  id_elev_hlsp(:,:) = register_hlsp_diag_fields(module_name, '<ktype>_<jtype>_elev', &
-       axes(1:1), lnd%time, 'hillslope <ktype> <jtype> elevation', 'm', missing_value=initval )  
-  id_tfrac_hlsp(:,:) = register_hlsp_diag_fields(module_name, '<ktype>_<jtype>_tfrac', &
-       axes(1:1), lnd%time, 'hillslope <ktype> <jtype> total tile fraction', 'unitless', missing_value=initval )    
- 
+  id_lift_hlsp = register_tiled_diag_field ( module_name, 'lift_hlsp', (/id_ug,id_kj/), &
+       lnd%time, 'hillslope air lift compared to mean elevation of soil tiles', 'm', missing_value=initval )
+  id_pratio_hlsp = register_tiled_diag_field ( module_name, 'pratio_hlsp', (/id_ug,id_kj/), &
+       lnd%time, 'hillslope ratio of precitation to the mean precip', 'unitless', missing_value=initval )  
+  id_lprec_hlsp = register_tiled_diag_field ( module_name, 'lprec_hlsp', (/id_ug,id_kj/), &
+       lnd%time, 'hillslope rainfall', 'kg/(m2 s)', missing_value=initval )  
+  id_fprec_hlsp = register_tiled_diag_field ( module_name, 'fprec_hlsp', (/id_ug,id_kj/), &
+       lnd%time, 'hillslope snowfall', 'kg/(m2 s)', missing_value=initval )  
+  id_elev_hlsp = register_tiled_diag_field ( module_name, 'elev_hlsp', (/id_ug,id_kj/), &
+       lnd%time, 'hillslope elevation', 'm', missing_value=initval )  
+  id_tfrac_hlsp = register_tiled_diag_field ( module_name, 'tfrac_hlsp', (/id_ug,id_kj/), &
+       lnd%time, 'hillslope total tile fraction', 'unitless', missing_value=initval )           
 
   ! by-carbon-species diag fields
   id_soil_C(:) = register_soilc_diag_fields(module_name, '<ctype>_soil_C', &
@@ -3255,19 +3264,17 @@ end subroutine soil_step_1
   if (id_swc_std > 0) call send_tile_data(id_swc_std,  soil%ws/dz(1:num_l), diag)
 
   call send_tile_data(id_nk,float(soil%nk_hlsp), diag)
-  call send_tile_data(id_nj,float(soil%nj_hlsp), diag)  
+  call send_tile_data(id_nj,float(soil%nj_hlsp), diag) 
   call send_tile_data(id_elevmean, soil%elevmean_hlsp, diag)
   call send_tile_data(id_pslope2p, soil%pslope2p_hlsp, diag)
-  do j = 1, MAX_HLSP_J
-    do i = 1, MAX_HLSP_K
-     call send_tile_data(id_lift_hlsp(i,j),  soil%lift_hlsp(i,j),  diag)
-     call send_tile_data(id_pratio_hlsp(i,j),soil%pratio_hlsp(i,j),  diag)          
-     call send_tile_data(id_lprec_hlsp(i,j), soil%lprec_hlsp(i,j), diag)
-     call send_tile_data(id_fprec_hlsp(i,j), soil%fprec_hlsp(i,j), diag)   
-     call send_tile_data(id_elev_hlsp(i,j),  soil%elev_hlsp(i,j),  diag) 
-     call send_tile_data(id_tfrac_hlsp(i,j), soil%tfrac_hlsp(i,j), diag)            
-    enddo
-  enddo
+
+  call send_tile_data(id_lift_hlsp,  pack(soil%lift_hlsp(:,:),.true.),  diag)
+  call send_tile_data(id_pratio_hlsp,pack(soil%pratio_hlsp(:,:),.true.),diag)          
+  call send_tile_data(id_lprec_hlsp, pack(soil%lprec_hlsp(:,:),.true.), diag)
+  call send_tile_data(id_fprec_hlsp, pack(soil%fprec_hlsp(:,:),.true.), diag)   
+  call send_tile_data(id_elev_hlsp,  pack(soil%elev_hlsp(:,:),.true.),  diag) 
+  call send_tile_data(id_tfrac_hlsp, pack(soil%tfrac_hlsp(:,:),.true.), diag)            
+
 
 end subroutine soil_step_2
 
