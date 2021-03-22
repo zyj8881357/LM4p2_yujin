@@ -3252,12 +3252,12 @@ end subroutine soil_step_1
   call send_tile_data(id_elev_hlsp,  pack(soil%elev_hlsp,.true.),  diag) 
   call send_tile_data(id_tfrac_hlsp, pack(soil%tfrac_hlsp,.true.), diag)  
 
-  call send_tile_data(id_lwc1_hlsp, pack(soil%soilwl1_hlsp/dz(1),.true.), diag)          
-  call send_tile_data(id_lwc2_hlsp, pack(soil%soilwl2_hlsp/dz(2),.true.), diag)  
-  call send_tile_data(id_lwc3_hlsp, pack(soil%soilwl3_hlsp/dz(3),.true.), diag)  
-  call send_tile_data(id_lwc4_hlsp, pack(soil%soilwl4_hlsp/dz(4),.true.), diag)  
-  call send_tile_data(id_lwc5_hlsp, pack(soil%soilwl5_hlsp/dz(5),.true.), diag)  
-  call send_tile_data(id_lwc6_hlsp, pack(soil%soilwl6_hlsp/dz(6),.true.), diag)  
+  call send_tile_data(id_lwc1_hlsp, pack(soil%soilwl1_hlsp,.true.), diag)          
+  call send_tile_data(id_lwc2_hlsp, pack(soil%soilwl2_hlsp,.true.), diag)  
+  call send_tile_data(id_lwc3_hlsp, pack(soil%soilwl3_hlsp,.true.), diag)  
+  call send_tile_data(id_lwc4_hlsp, pack(soil%soilwl4_hlsp,.true.), diag)  
+  call send_tile_data(id_lwc5_hlsp, pack(soil%soilwl5_hlsp,.true.), diag)  
+  call send_tile_data(id_lwc6_hlsp, pack(soil%soilwl6_hlsp,.true.), diag)  
 
 
 end subroutine soil_step_2

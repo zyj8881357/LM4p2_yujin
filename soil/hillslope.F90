@@ -1147,7 +1147,7 @@ subroutine hlsp_disagg_precip(cplr2land)
   real :: h, frac, norm, adjust, kg, kgh
   integer :: l, k
   real, dimension(lnd%ls:lnd%le, MAX_HLSP_K, MAX_HLSP_J) :: lprec, fprec, elev, tfrac, lift, pratio
-  real, dimension(lnd%ls:lnd%le, MAX_HLSP_K, MAX_HLSP_J, 6) :: soilwl
+  real, dimension(lnd%ls:lnd%le, MAX_HLSP_K, MAX_HLSP_J) :: soilwl1,soilwl2,soilwl3,soilwl4,soilwl5,soilwl6
   real, dimension(lnd%ls:lnd%le) :: elevmean, pslope2p
   integer, dimension(lnd%ls:lnd%le) :: nk, nj
   integer :: hidx_k, hidx_j
@@ -1173,8 +1173,13 @@ subroutine hlsp_disagg_precip(cplr2land)
   fprec(lnd%ls:lnd%le, 1:MAX_HLSP_K, 1:MAX_HLSP_J)=initval
   elev(lnd%ls:lnd%le, 1:MAX_HLSP_K, 1:MAX_HLSP_J)=initval  
   tfrac(lnd%ls:lnd%le, 1:MAX_HLSP_K, 1:MAX_HLSP_J)=initval 
-  soilwl(lnd%ls:lnd%le, 1:MAX_HLSP_K, 1:MAX_HLSP_J, 1:6)=initval 
- 
+
+  soilwl1(lnd%ls:lnd%le, 1:MAX_HLSP_K, 1:MAX_HLSP_J)=initval 
+  soilwl2(lnd%ls:lnd%le, 1:MAX_HLSP_K, 1:MAX_HLSP_J)=initval 
+  soilwl3(lnd%ls:lnd%le, 1:MAX_HLSP_K, 1:MAX_HLSP_J)=initval 
+  soilwl4(lnd%ls:lnd%le, 1:MAX_HLSP_K, 1:MAX_HLSP_J)=initval 
+  soilwl5(lnd%ls:lnd%le, 1:MAX_HLSP_K, 1:MAX_HLSP_J)=initval 
+  soilwl6(lnd%ls:lnd%le, 1:MAX_HLSP_K, 1:MAX_HLSP_J)=initval          
 
   soil_frac(lnd%ls:lnd%le) = 0.0
   elev_mean(lnd%ls:lnd%le) = 0.0
@@ -1230,8 +1235,8 @@ subroutine hlsp_disagg_precip(cplr2land)
        if (.not.associated(tile%soil)) cycle 
        kgh = tile%soil%pslope2p_hlsp
        adjust = (1. + kgh)/norm_tot(l)
-       cplr2land%lprec(l,k) = cplr2land%lprec(l,k) * adjust
-       cplr2land%fprec(l,k) = cplr2land%fprec(l,k) * adjust
+       !cplr2land%lprec(l,k) = cplr2land%lprec(l,k) * adjust
+       !cplr2land%fprec(l,k) = cplr2land%fprec(l,k) * adjust
 
        hidx_k =  tile%soil%hidx_k
        hidx_j =  tile%soil%hidx_j
@@ -1251,21 +1256,34 @@ subroutine hlsp_disagg_precip(cplr2land)
        elev(l,hidx_k,hidx_j) = tile%soil%pars%tile_elevation
        if(tfrac(l,hidx_k,hidx_j)==initval) tfrac(l,hidx_k,hidx_j) = 0.
        tfrac(l,hidx_k,hidx_j) = tfrac(l,hidx_k,hidx_j) + tile%frac
-       if(soilwl(l,hidx_k,hidx_j,1)==initval) soilwl(l,hidx_k,hidx_j,:) = 0.
-       soilwl(l,hidx_k,hidx_j,:) = soilwl(l,hidx_k,hidx_j,:) + tile%soil%wl(1:6)*tile%frac
+
+       if(soilwl1(l,hidx_k,hidx_j)==initval) soilwl1(l,hidx_k,hidx_j) = 0.
+       soilwl1(l,hidx_k,hidx_j) = soilwl1(l,hidx_k,hidx_j) + tile%soil%wl(1)*tile%frac
+       if(soilwl2(l,hidx_k,hidx_j)==initval) soilwl2(l,hidx_k,hidx_j) = 0.
+       soilwl2(l,hidx_k,hidx_j) = soilwl2(l,hidx_k,hidx_j) + tile%soil%wl(2)*tile%frac
+       if(soilwl3(l,hidx_k,hidx_j)==initval) soilwl3(l,hidx_k,hidx_j) = 0.
+       soilwl3(l,hidx_k,hidx_j) = soilwl3(l,hidx_k,hidx_j) + tile%soil%wl(3)*tile%frac
+       if(soilwl4(l,hidx_k,hidx_j)==initval) soilwl4(l,hidx_k,hidx_j) = 0.
+       soilwl4(l,hidx_k,hidx_j) = soilwl4(l,hidx_k,hidx_j) + tile%soil%wl(4)*tile%frac
+       if(soilwl5(l,hidx_k,hidx_j)==initval) soilwl5(l,hidx_k,hidx_j) = 0.
+       soilwl5(l,hidx_k,hidx_j) = soilwl5(l,hidx_k,hidx_j) + tile%soil%wl(5)*tile%frac
+       if(soilwl6(l,hidx_k,hidx_j)==initval) soilwl6(l,hidx_k,hidx_j) = 0.
+       soilwl6(l,hidx_k,hidx_j) = soilwl6(l,hidx_k,hidx_j) + tile%soil%wl(6)*tile%frac
+
+
      enddo
   enddo
 
 
-  do l = lnd%ls, lnd%le
-     ce = first_elmt(land_tile_map(l))
-     do while (loop_over_tiles(ce,tile,k=k))
-       if (.not.associated(tile%soil)) cycle
-       hidx_k =  tile%soil%hidx_k 
-       hidx_j =  tile%soil%hidx_j
-       soilwl(l,hidx_k,hidx_j,:) = soilwl(l,hidx_k,hidx_j,:)/tfrac(l,hidx_k,hidx_j)
-     enddo
-  enddo         
+  !do l = lnd%ls, lnd%le
+  !   ce = first_elmt(land_tile_map(l))
+  !   do while (loop_over_tiles(ce,tile,k=k))
+  !     if (.not.associated(tile%soil)) cycle
+  !     hidx_k =  tile%soil%hidx_k 
+  !     hidx_j =  tile%soil%hidx_j
+  !     soilwl(l,hidx_k,hidx_j,:) = soilwl(l,hidx_k,hidx_j,:)/tfrac(l,hidx_k,hidx_j)
+  !   enddo
+  !enddo         
 
 
   do l = lnd%ls, lnd%le
@@ -1283,12 +1301,12 @@ subroutine hlsp_disagg_precip(cplr2land)
        tile%soil%elev_hlsp(:,:) = elev(l,:,:)
        tile%soil%tfrac_hlsp(:,:) = tfrac(l,:,:)
 
-       tile%soil%soilwl1_hlsp(:,:) = soilwl(l,:,:,1)
-       tile%soil%soilwl2_hlsp(:,:) = soilwl(l,:,:,2)
-       tile%soil%soilwl3_hlsp(:,:) = soilwl(l,:,:,3)
-       tile%soil%soilwl4_hlsp(:,:) = soilwl(l,:,:,4)
-       tile%soil%soilwl5_hlsp(:,:) = soilwl(l,:,:,5)
-       tile%soil%soilwl6_hlsp(:,:) = soilwl(l,:,:,6)
+       tile%soil%soilwl1_hlsp(:,:) = soilwl1(l,:,:)
+       tile%soil%soilwl2_hlsp(:,:) = soilwl2(l,:,:)
+       tile%soil%soilwl3_hlsp(:,:) = soilwl3(l,:,:)
+       tile%soil%soilwl4_hlsp(:,:) = soilwl4(l,:,:)
+       tile%soil%soilwl5_hlsp(:,:) = soilwl5(l,:,:)
+       tile%soil%soilwl6_hlsp(:,:) = soilwl6(l,:,:)
      enddo
   enddo       
   
