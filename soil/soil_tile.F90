@@ -143,21 +143,26 @@ character(16), parameter, public :: &
 character(3), parameter, public :: month_name(12) = ['JAN','FEB','MAR','APR','MAY','JUN', &
                                                      'JUL','AUG','SEP','OCT','NOV','DEC'  ] 
 
-integer, parameter, public :: MAX_HLSP_K = 33
-integer, parameter, public :: MAX_HLSP_J = 2
+integer, parameter, public :: MAX_HLSP_K = 1
+integer, parameter, public :: MAX_HLSP_J = 20
 integer, parameter, public :: MAX_HLSP_KJ= MAX_HLSP_K*MAX_HLSP_J
 
-character(len=2), parameter, public :: &
- hlspk_name (MAX_HLSP_K) = [ 'k1 ', 'k2 ', 'k3 ', 'k4 ', &
-                             'k5 ', 'k6 ', 'k7 ', 'k8 ', &
-                             'k9 ', 'k10', 'k11', 'k12', &
-                             'k13', 'k14', 'k15', 'k16', &
-                             'k17', 'k18', 'k19', 'k20', &
-                             'k21', 'k22', 'k23', 'k24', &
-                             'k25', 'k26', 'k27', 'k28', &
-                             'k29', 'k30', 'k31', 'k32', 'k33' ]   
-character(len=3), parameter, public :: &
- hlspj_name (MAX_HLSP_J) = [ 'j1 ', 'j2 ' ]
+!character(len=2), parameter, public :: &
+! hlspk_name (MAX_HLSP_K) = [ 'k1 ', 'k2 ', 'k3 ', 'k4 ', &
+!                             'k5 ', 'k6 ', 'k7 ', 'k8 ', &
+!                             'k9 ', 'k10', 'k11', 'k12', &
+!                             'k13', 'k14', 'k15', 'k16', &
+!                             'k17', 'k18', 'k19', 'k20', &
+!                             'k21', 'k22', 'k23', 'k24', &
+!                             'k25', 'k26', 'k27', 'k28', &
+!                             'k29', 'k30', 'k31', 'k32', 'k33' ]   
+!character(len=3), parameter, public :: &
+! hlspj_name (MAX_HLSP_J) = [ 'j1 ', 'j2 ' ]
+
+!character(len=2), parameter, public :: &
+! hlspk_name (MAX_HLSP_K) = [ 'k1 ', 
+
+
 !character(len=3), parameter, public :: &
  !hlspj_name (MAX_HLSP_J) = [ 'j1 ', 'j2 ', 'j3 ', 'j4 ', &
  !                            'j5 ', 'j6 ', 'j7 ', 'j8 ', &
@@ -294,6 +299,12 @@ type :: soil_tile_type
    real :: fprec_hlsp(MAX_HLSP_K, MAX_HLSP_J) = initval
    real :: elev_hlsp(MAX_HLSP_K, MAX_HLSP_J) = initval
    real :: tfrac_hlsp(MAX_HLSP_K, MAX_HLSP_J) = initval
+   real :: soilwl1_hlsp(MAX_HLSP_K, MAX_HLSP_J) = initval
+   real :: soilwl2_hlsp(MAX_HLSP_K, MAX_HLSP_J) = initval
+   real :: soilwl3_hlsp(MAX_HLSP_K, MAX_HLSP_J) = initval
+   real :: soilwl4_hlsp(MAX_HLSP_K, MAX_HLSP_J) = initval
+   real :: soilwl5_hlsp(MAX_HLSP_K, MAX_HLSP_J) = initval
+   real :: soilwl6_hlsp(MAX_HLSP_K, MAX_HLSP_J) = initval      
 
    ! soil carbon
    ! CENTURY-style values

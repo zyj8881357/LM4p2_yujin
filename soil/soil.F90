@@ -37,7 +37,7 @@ use soil_tile_mod, only : num_l, dz, zfull, zhalf, &
      soil_type_file, &
      soil_tile_stock_pe, initval, comp, soil_theta, soil_ice_porosity, &
      N_LITTER_POOLS,LEAF,CWOOD,l_shortname,l_longname,l_diagname, &
-     MAX_HLSP_K, MAX_HLSP_J, MAX_HLSP_KJ, hlspk_name, hlspj_name
+     MAX_HLSP_K, MAX_HLSP_J, MAX_HLSP_KJ
 use soil_util_mod, only: soil_util_init, rhizosphere_frac
 use soil_accessors_mod ! use everything
 
@@ -283,6 +283,8 @@ integer :: id_tile_elev
 integer :: id_nk, id_nj, id_elevmean, id_pslope2p
 integer :: &
     id_lift_hlsp, id_pratio_hlsp, id_lprec_hlsp, id_fprec_hlsp, id_elev_hlsp, id_tfrac_hlsp
+integer :: &
+    id_lwc1_hlsp, id_lwc2_hlsp, id_lwc3_hlsp, id_lwc4_hlsp, id_lwc5_hlsp, id_lwc6_hlsp
 
 
 ! FIXME: add N leaching terms to diagnostics?
@@ -935,45 +937,7 @@ end do
 end function replace_text
 
 ! ============================================================================
-function register_hlsp_diag_fields(module_name, field_name, axes, init_time, &
-     long_name, units, missing_value, range, op, standard_name) result (id)
 
-  integer :: id(MAX_HLSP_K, MAX_HLSP_J)
-
-  character(len=*), intent(in) :: module_name
-  character(len=*), intent(in) :: field_name
-  integer,          intent(in) :: axes(:)
-  type(time_type),  intent(in) :: init_time
-  character(len=*), intent(in), optional :: long_name
-  character(len=*), intent(in), optional :: units
-  real,             intent(in), optional :: missing_value
-  real,             intent(in), optional :: range(2)
-  character(len=*), intent(in), optional :: op ! aggregation operation
-  character(len=*), intent(in), optional :: standard_name
-
-  integer :: k,j
-  character(128) :: name
-  character(512) :: lname  
-
-  do j = 1, MAX_HLSP_J
-    do k = 1, MAX_HLSP_K
-     !id(k,j) = register_tiled_diag_field(module_name, &
-     !        trim(replace_text(field_name,'<type>',trim(hlspk_name(k))//'_'//trim(hlspj_name(j)) )), &
-     !        axes, init_time, &
-     !        trim(replace_text(long_name,'<type>',trim(hlspk_name(k))//'_'//trim(hlspj_name(j)) )), &
-     !        units, missing_value, range, op, standard_name)
-        name = replace_text(field_name,'<ktype>',trim(hlspk_name(k)))
-        name = replace_text(name,      '<jtype>',trim(hlspj_name(j)))
-        lname = replace_text(long_name,'<ktype>',trim(hlspk_name(k)))
-        lname = replace_text(lname,    '<jtype>',trim(hlspj_name(j)))
-        id(k,j) = register_tiled_diag_field(module_name, trim(name), axes, init_time, trim(lname), &
-             units, missing_value, range, op, standard_name)
-
-    enddo
-  enddo
-end function register_hlsp_diag_fields
-
-! ============================================================================
 function register_soilc_diag_fields(module_name, field_name, axes, init_time, &
      long_name, units, missing_value, range, op, standard_name) result (id)
 
@@ -1148,7 +1112,20 @@ subroutine soil_diag_init(id_ug,id_band,id_zfull,id_ptid)
   id_elev_hlsp = register_tiled_diag_field ( module_name, 'elev_hlsp', (/id_ug,id_kj/), &
        lnd%time, 'hillslope elevation', 'm', missing_value=initval )  
   id_tfrac_hlsp = register_tiled_diag_field ( module_name, 'tfrac_hlsp', (/id_ug,id_kj/), &
-       lnd%time, 'hillslope total tile fraction', 'unitless', missing_value=initval )           
+       lnd%time, 'hillslope total tile fraction', 'unitless', missing_value=initval )  
+
+  id_lwc1_hlsp = register_tiled_diag_field ( module_name, 'lwc1_hlsp', (/id_ug,id_kj/),  &
+       lnd%time, 'bulk density of liquid water (layer 1)', 'kg/m3', missing_value=initval )              
+  id_lwc2_hlsp = register_tiled_diag_field ( module_name, 'lwc2_hlsp', (/id_ug,id_kj/),  &
+       lnd%time, 'bulk density of liquid water (layer 2)', 'kg/m3', missing_value=initval ) 
+  id_lwc3_hlsp = register_tiled_diag_field ( module_name, 'lwc3_hlsp', (/id_ug,id_kj/),  &
+       lnd%time, 'bulk density of liquid water (layer 3)', 'kg/m3', missing_value=initval )          
+  id_lwc4_hlsp = register_tiled_diag_field ( module_name, 'lwc4_hlsp', (/id_ug,id_kj/),  &
+       lnd%time, 'bulk density of liquid water (layer 4)', 'kg/m3', missing_value=initval )   
+  id_lwc5_hlsp = register_tiled_diag_field ( module_name, 'lwc5_hlsp', (/id_ug,id_kj/),  &
+       lnd%time, 'bulk density of liquid water (layer 5)', 'kg/m3', missing_value=initval )     
+  id_lwc6_hlsp = register_tiled_diag_field ( module_name, 'lwc6_hlsp', (/id_ug,id_kj/),  &
+       lnd%time, 'bulk density of liquid water (layer 6)', 'kg/m3', missing_value=initval )     
 
   ! by-carbon-species diag fields
   id_soil_C(:) = register_soilc_diag_fields(module_name, '<ctype>_soil_C', &
@@ -3268,12 +3245,19 @@ end subroutine soil_step_1
   call send_tile_data(id_elevmean, soil%elevmean_hlsp, diag)
   call send_tile_data(id_pslope2p, soil%pslope2p_hlsp, diag)
 
-  call send_tile_data(id_lift_hlsp,  pack(soil%lift_hlsp(:,:),.true.),  diag)
-  call send_tile_data(id_pratio_hlsp,pack(soil%pratio_hlsp(:,:),.true.),diag)          
-  call send_tile_data(id_lprec_hlsp, pack(soil%lprec_hlsp(:,:),.true.), diag)
-  call send_tile_data(id_fprec_hlsp, pack(soil%fprec_hlsp(:,:),.true.), diag)   
-  call send_tile_data(id_elev_hlsp,  pack(soil%elev_hlsp(:,:),.true.),  diag) 
-  call send_tile_data(id_tfrac_hlsp, pack(soil%tfrac_hlsp(:,:),.true.), diag)            
+  call send_tile_data(id_lift_hlsp,  pack(soil%lift_hlsp,.true.),  diag)
+  call send_tile_data(id_pratio_hlsp,pack(soil%pratio_hlsp,.true.),diag)          
+  call send_tile_data(id_lprec_hlsp, pack(soil%lprec_hlsp,.true.), diag)
+  call send_tile_data(id_fprec_hlsp, pack(soil%fprec_hlsp,.true.), diag)   
+  call send_tile_data(id_elev_hlsp,  pack(soil%elev_hlsp,.true.),  diag) 
+  call send_tile_data(id_tfrac_hlsp, pack(soil%tfrac_hlsp,.true.), diag)  
+
+  call send_tile_data(id_lwc1_hlsp, pack(soil%soilwl1_hlsp/dz(1),.true.), diag)          
+  call send_tile_data(id_lwc2_hlsp, pack(soil%soilwl2_hlsp/dz(2),.true.), diag)  
+  call send_tile_data(id_lwc3_hlsp, pack(soil%soilwl3_hlsp/dz(3),.true.), diag)  
+  call send_tile_data(id_lwc4_hlsp, pack(soil%soilwl4_hlsp/dz(4),.true.), diag)  
+  call send_tile_data(id_lwc5_hlsp, pack(soil%soilwl5_hlsp/dz(5),.true.), diag)  
+  call send_tile_data(id_lwc6_hlsp, pack(soil%soilwl6_hlsp/dz(6),.true.), diag)  
 
 
 end subroutine soil_step_2
