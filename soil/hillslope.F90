@@ -1146,19 +1146,31 @@ subroutine hlsp_disagg_precip(cplr2land)
   type(land_tile_type), pointer :: tile
   real :: h, frac, norm, adjust, kg, kgh
   integer :: l, k, lev
-  real, dimension(lnd%ls:lnd%le, MAX_HLSP_K, MAX_HLSP_J) :: lprec, fprec, elev, tfrac, lift, pratio
-  real, dimension(lnd%ls:lnd%le, MAX_HLSP_K, MAX_HLSP_J, 6) :: soilwl
+  real, allocatable, dimension(:,:,:) :: lprec, fprec, elev, tfrac, lift, pratio
+  real, allocatable, dimension(:,:,:,:) :: soilwl, soilws
   real, dimension(lnd%ls:lnd%le) :: elevmean, pslope2p
   integer, dimension(lnd%ls:lnd%le) :: nk, nj
   integer :: hidx_k, hidx_j
   integer :: year,month,day,hour,minute,second
 
+  !if(.not.do_hlsp_disagg_precip) return
+  if(.not.do_hillslope_model) then 
+    call error_mesg(module_name, 'do_hillslope_model must be activated when using do_hlsp_disagg_precip', NOTE)
+    return
+  endif  
+  if(.not.use_predefined_tiles) then
+    call error_mesg(module_name, 'Currently, hlsp_disagg_precip is only supported with predefined tiles', NOTE)
+    return 
+  endif 
 
-  if(.not.do_hlsp_disagg_precip) return
-  if(.not.do_hillslope_model) &
-    call error_mesg(module_name, 'do_hillslope_model must be activated when using do_hlsp_disagg_precip', FATAL)
-  if(.not.use_predefined_tiles) &
-    call error_mesg(module_name, 'Currently, hlsp_disagg_precip is only supported with predefined tiles', FATAL)  
+  allocate( lprec(lnd%ls:lnd%le, MAX_HLSP_K, MAX_HLSP_J), &
+            fprec(lnd%ls:lnd%le, MAX_HLSP_K, MAX_HLSP_J), &
+            elev(lnd%ls:lnd%le, MAX_HLSP_K, MAX_HLSP_J), &
+            tfrac(lnd%ls:lnd%le, MAX_HLSP_K, MAX_HLSP_J), &
+            lift(lnd%ls:lnd%le, MAX_HLSP_K, MAX_HLSP_J), &
+            pratio(lnd%ls:lnd%le, MAX_HLSP_K, MAX_HLSP_J), &
+            soilwl(lnd%ls:lnd%le, MAX_HLSP_K, MAX_HLSP_J, 6), &
+            soilws(lnd%ls:lnd%le, MAX_HLSP_K, MAX_HLSP_J, 6) )
 
   call get_date(lnd%time,year,month,day,hour,minute,second)
 
@@ -1173,7 +1185,8 @@ subroutine hlsp_disagg_precip(cplr2land)
   fprec(lnd%ls:lnd%le, 1:MAX_HLSP_K, 1:MAX_HLSP_J)=initval
   elev(lnd%ls:lnd%le, 1:MAX_HLSP_K, 1:MAX_HLSP_J)=initval  
   tfrac(lnd%ls:lnd%le, 1:MAX_HLSP_K, 1:MAX_HLSP_J)=initval 
-  soilwl(lnd%ls:lnd%le, 1:MAX_HLSP_K, 1:MAX_HLSP_J, 1:6)=initval       
+  soilwl(lnd%ls:lnd%le, 1:MAX_HLSP_K, 1:MAX_HLSP_J, 1:6)=initval   
+  soilws(lnd%ls:lnd%le, 1:MAX_HLSP_K, 1:MAX_HLSP_J, 1:6)=initval         
 
   soil_frac(lnd%ls:lnd%le) = 0.0
   elev_mean(lnd%ls:lnd%le) = 0.0
@@ -1229,8 +1242,11 @@ subroutine hlsp_disagg_precip(cplr2land)
        if (.not.associated(tile%soil)) cycle 
        kgh = tile%soil%pslope2p_hlsp
        adjust = (1. + kgh)/norm_tot(l)
-       !cplr2land%lprec(l,k) = cplr2land%lprec(l,k) * adjust
-       !cplr2land%fprec(l,k) = cplr2land%fprec(l,k) * adjust
+
+       if(do_hlsp_disagg_precip)then
+         cplr2land%lprec(l,k) = cplr2land%lprec(l,k) * adjust
+         cplr2land%fprec(l,k) = cplr2land%fprec(l,k) * adjust
+       endif
 
        hidx_k =  tile%soil%hidx_k
        hidx_j =  tile%soil%hidx_j
@@ -1253,22 +1269,15 @@ subroutine hlsp_disagg_precip(cplr2land)
 
        if(soilwl(l,hidx_k,hidx_j,1)==initval) soilwl(l,hidx_k,hidx_j,1:6) = 0.
        soilwl(l,hidx_k,hidx_j,:) = soilwl(l,hidx_k,hidx_j,:) + tile%soil%wl(1:6)*tile%frac
+       if(soilws(l,hidx_k,hidx_j,1)==initval) soilws(l,hidx_k,hidx_j,1:6) = 0.
+       soilws(l,hidx_k,hidx_j,:) = soilws(l,hidx_k,hidx_j,:) + tile%soil%ws(1:6)*tile%frac
      enddo
   enddo
   
   do lev=1,6
     where(soilwl(:,:,:,1)/=initval) soilwl(:,:,:,lev)=soilwl(:,:,:,lev)/dz(lev)/tfrac
-  enddo 
-
-  !do l = lnd%ls, lnd%le
-  !   ce = first_elmt(land_tile_map(l))
-  !   do while (loop_over_tiles(ce,tile,k=k))
-  !     if (.not.associated(tile%soil)) cycle
-  !     hidx_k =  tile%soil%hidx_k 
-  !     hidx_j =  tile%soil%hidx_j
-  !     soilwl(l,hidx_k,hidx_j,:) = soilwl(l,hidx_k,hidx_j,:)/tfrac(l,hidx_k,hidx_j)
-  !   enddo
-  !enddo         
+    where(soilws(:,:,:,1)/=initval) soilws(:,:,:,lev)=soilws(:,:,:,lev)/dz(lev)/tfrac    
+  enddo      
 
 
   do l = lnd%ls, lnd%le
@@ -1292,9 +1301,17 @@ subroutine hlsp_disagg_precip(cplr2land)
        tile%soil%soilwl4_hlsp(:,:) = soilwl(l,:,:,4)
        tile%soil%soilwl5_hlsp(:,:) = soilwl(l,:,:,5)
        tile%soil%soilwl6_hlsp(:,:) = soilwl(l,:,:,6)
+
+       tile%soil%soilws1_hlsp(:,:) = soilws(l,:,:,1)
+       tile%soil%soilws2_hlsp(:,:) = soilws(l,:,:,2)
+       tile%soil%soilws3_hlsp(:,:) = soilws(l,:,:,3)
+       tile%soil%soilws4_hlsp(:,:) = soilws(l,:,:,4)
+       tile%soil%soilws5_hlsp(:,:) = soilws(l,:,:,5)
+       tile%soil%soilws6_hlsp(:,:) = soilws(l,:,:,6)       
      enddo
   enddo       
   
+  deallocate( lprec, fprec, elev, tfrac, lift, pratio, soilwl, soilws )
 
 end subroutine hlsp_disagg_precip
 

@@ -143,36 +143,6 @@ character(16), parameter, public :: &
 character(3), parameter, public :: month_name(12) = ['JAN','FEB','MAR','APR','MAY','JUN', &
                                                      'JUL','AUG','SEP','OCT','NOV','DEC'  ] 
 
-integer, parameter, public :: MAX_HLSP_K = 1
-integer, parameter, public :: MAX_HLSP_J = 20
-integer, parameter, public :: MAX_HLSP_KJ= MAX_HLSP_K*MAX_HLSP_J
-
-!character(len=2), parameter, public :: &
-! hlspk_name (MAX_HLSP_K) = [ 'k1 ', 'k2 ', 'k3 ', 'k4 ', &
-!                             'k5 ', 'k6 ', 'k7 ', 'k8 ', &
-!                             'k9 ', 'k10', 'k11', 'k12', &
-!                             'k13', 'k14', 'k15', 'k16', &
-!                             'k17', 'k18', 'k19', 'k20', &
-!                             'k21', 'k22', 'k23', 'k24', &
-!                             'k25', 'k26', 'k27', 'k28', &
-!                             'k29', 'k30', 'k31', 'k32', 'k33' ]   
-!character(len=3), parameter, public :: &
-! hlspj_name (MAX_HLSP_J) = [ 'j1 ', 'j2 ' ]
-
-!character(len=2), parameter, public :: &
-! hlspk_name (MAX_HLSP_K) = [ 'k1 ', 
-
-
-!character(len=3), parameter, public :: &
- !hlspj_name (MAX_HLSP_J) = [ 'j1 ', 'j2 ', 'j3 ', 'j4 ', &
- !                            'j5 ', 'j6 ', 'j7 ', 'j8 ', &
- !                            'j9 ', 'j10', 'j11', 'j12', &
- !                            'j13', 'j14', 'j15', 'j16', &
- !                            'j17', 'j18', 'j19', 'j20', &
- !                            'j21', 'j22', 'j23', 'j24', &
- !                            'j25', 'j26', 'j27', 'j28', &
- !                            'j29', 'j30']                                                          
-
 ! ==== types =================================================================
 type :: soil_pars_type
   real vwc_sat
@@ -293,18 +263,27 @@ type :: soil_tile_type
    integer :: nj_hlsp = 0
    real :: elevmean_hlsp = initval   
    real :: pslope2p_hlsp = initval
-   real :: lift_hlsp(MAX_HLSP_K, MAX_HLSP_J) = initval
-   real :: pratio_hlsp(MAX_HLSP_K, MAX_HLSP_J) = initval   
-   real :: lprec_hlsp(MAX_HLSP_K, MAX_HLSP_J) = initval
-   real :: fprec_hlsp(MAX_HLSP_K, MAX_HLSP_J) = initval
-   real :: elev_hlsp(MAX_HLSP_K, MAX_HLSP_J) = initval
-   real :: tfrac_hlsp(MAX_HLSP_K, MAX_HLSP_J) = initval
-   real :: soilwl1_hlsp(MAX_HLSP_K, MAX_HLSP_J) = initval
-   real :: soilwl2_hlsp(MAX_HLSP_K, MAX_HLSP_J) = initval
-   real :: soilwl3_hlsp(MAX_HLSP_K, MAX_HLSP_J) = initval
-   real :: soilwl4_hlsp(MAX_HLSP_K, MAX_HLSP_J) = initval
-   real :: soilwl5_hlsp(MAX_HLSP_K, MAX_HLSP_J) = initval
-   real :: soilwl6_hlsp(MAX_HLSP_K, MAX_HLSP_J) = initval      
+
+   real, allocatable :: lift_hlsp(:, :) 
+   real, allocatable :: pratio_hlsp(:, :)  
+   real, allocatable :: lprec_hlsp(:, :) 
+   real, allocatable :: fprec_hlsp(:, :) 
+   real, allocatable :: elev_hlsp(:, :) 
+   real, allocatable :: tfrac_hlsp(:, :) 
+
+   real, allocatable :: soilwl1_hlsp(:, :) 
+   real, allocatable :: soilwl2_hlsp(:, :) 
+   real, allocatable :: soilwl3_hlsp(:, :) 
+   real, allocatable :: soilwl4_hlsp(:, :) 
+   real, allocatable :: soilwl5_hlsp(:, :) 
+   real, allocatable :: soilwl6_hlsp(:, :)   
+
+   real, allocatable :: soilws1_hlsp(:, :) 
+   real, allocatable :: soilws2_hlsp(:, :)
+   real, allocatable :: soilws3_hlsp(:, :) 
+   real, allocatable :: soilws4_hlsp(:, :)
+   real, allocatable :: soilws5_hlsp(:, :) 
+   real, allocatable :: soilws6_hlsp(:, :)       
 
    ! soil carbon
    ! CENTURY-style values
@@ -512,7 +491,10 @@ logical :: repro_zms = .FALSE. ! if true, changes calculations of zfull to repro
 logical :: override_soil_e_depth = .FALSE.
 real :: soil_e_depth = 2.0
                                ! The two ways of calculating zfull are mathematically identical, but they differ
-                               ! in the lowest bits of answer.
+                               ! in the lowest bits of answer.                           
+integer, public :: MAX_HLSP_K = 1
+integer, public :: MAX_HLSP_J = 20  
+
 
 namelist /soil_data_nml/ psi_wilt, &
      soil_to_use, soil_type_file, tile_names, input_cover_types, &
@@ -545,7 +527,8 @@ namelist /soil_data_nml/ psi_wilt, &
      dat_emis_dry,              dat_emis_sat,                &
      dat_z0_momentum,           dat_tf_depr,     clay,       &
      peat_soil_e_depth,         peat_kx0, repro_zms, &
-     anisotropy_ratio, use_depth_to_bedrock, override_soil_e_depth, soil_e_depth
+     anisotropy_ratio, use_depth_to_bedrock, override_soil_e_depth, soil_e_depth, &
+     MAX_HLSP_K, MAX_HLSP_J
 !---- end of namelist --------------------------------------------------------
 
 real    :: gw_hillslope_length   = 1000.
@@ -772,6 +755,26 @@ function soil_tile_ctor(tag, hidx_j, hidx_k) result(ptr)
             ptr%gtos          (num_l),  &
             ptr%gtosh     (num_l)         )
 
+ allocate(  ptr%lift_hlsp(MAX_HLSP_K, MAX_HLSP_J), &
+            ptr%pratio_hlsp(MAX_HLSP_K, MAX_HLSP_J), &
+            ptr%lprec_hlsp(MAX_HLSP_K, MAX_HLSP_J), &
+            ptr%fprec_hlsp(MAX_HLSP_K, MAX_HLSP_J), &
+            ptr%elev_hlsp(MAX_HLSP_K, MAX_HLSP_J), &
+            ptr%tfrac_hlsp(MAX_HLSP_K, MAX_HLSP_J), &
+            ptr%soilwl1_hlsp(MAX_HLSP_K, MAX_HLSP_J), &
+            ptr%soilwl2_hlsp(MAX_HLSP_K, MAX_HLSP_J), &
+            ptr%soilwl3_hlsp(MAX_HLSP_K, MAX_HLSP_J), &
+            ptr%soilwl4_hlsp(MAX_HLSP_K, MAX_HLSP_J), &
+            ptr%soilwl5_hlsp(MAX_HLSP_K, MAX_HLSP_J), &
+            ptr%soilwl6_hlsp(MAX_HLSP_K, MAX_HLSP_J), &
+            ptr%soilws1_hlsp(MAX_HLSP_K, MAX_HLSP_J), &
+            ptr%soilws2_hlsp(MAX_HLSP_K, MAX_HLSP_J), &
+            ptr%soilws3_hlsp(MAX_HLSP_K, MAX_HLSP_J), &
+            ptr%soilws4_hlsp(MAX_HLSP_K, MAX_HLSP_J), &
+            ptr%soilws5_hlsp(MAX_HLSP_K, MAX_HLSP_J), &
+            ptr%soilws6_hlsp(MAX_HLSP_K, MAX_HLSP_J) ) 
+
+
   ! Initialize to catch use before appropriate
   !ptr%psi(:) = initval
   ptr%hyd_cond_horz(:) = initval
@@ -783,6 +786,25 @@ function soil_tile_ctor(tag, hidx_j, hidx_k) result(ptr)
   ptr%div_hlsp_NH4(:) = initval
   ptr%gtos(:)      = initval
   ptr%gtosh(:) = initval
+
+  ptr%lift_hlsp(:, :) = initval 
+  ptr%pratio_hlsp(:, :) = initval  
+  ptr%lprec_hlsp(:, :) = initval 
+  ptr%fprec_hlsp(:, :) = initval 
+  ptr%elev_hlsp(:, :) = initval 
+  ptr%tfrac_hlsp(:, :) = initval 
+  ptr%soilwl1_hlsp(:, :) = initval 
+  ptr%soilwl2_hlsp(:, :) = initval 
+  ptr%soilwl3_hlsp(:, :) = initval 
+  ptr%soilwl4_hlsp(:, :) = initval 
+  ptr%soilwl5_hlsp(:, :) = initval 
+  ptr%soilwl6_hlsp(:, :) = initval   
+  ptr%soilws1_hlsp(:, :) = initval 
+  ptr%soilws2_hlsp(:, :) = initval
+  ptr%soilws3_hlsp(:, :) = initval 
+  ptr%soilws4_hlsp(:, :) = initval
+  ptr%soilws5_hlsp(:, :) = initval 
+  ptr%soilws6_hlsp(:, :) = initval   
 
   call soil_data_init_0d(ptr)
   do i=1,num_l
@@ -846,6 +868,25 @@ function soil_tile_ctor_predefined(hidx_j, hidx_k, tile_parameters, &
             ptr%gtos          (num_l),  &
             ptr%gtosh     (num_l)  )
 
+ allocate(  ptr%lift_hlsp(MAX_HLSP_K, MAX_HLSP_J), &
+            ptr%pratio_hlsp(MAX_HLSP_K, MAX_HLSP_J), &
+            ptr%lprec_hlsp(MAX_HLSP_K, MAX_HLSP_J), &
+            ptr%fprec_hlsp(MAX_HLSP_K, MAX_HLSP_J), &
+            ptr%elev_hlsp(MAX_HLSP_K, MAX_HLSP_J), &
+            ptr%tfrac_hlsp(MAX_HLSP_K, MAX_HLSP_J), &
+            ptr%soilwl1_hlsp(MAX_HLSP_K, MAX_HLSP_J), &
+            ptr%soilwl2_hlsp(MAX_HLSP_K, MAX_HLSP_J), &
+            ptr%soilwl3_hlsp(MAX_HLSP_K, MAX_HLSP_J), &
+            ptr%soilwl4_hlsp(MAX_HLSP_K, MAX_HLSP_J), &
+            ptr%soilwl5_hlsp(MAX_HLSP_K, MAX_HLSP_J), &
+            ptr%soilwl6_hlsp(MAX_HLSP_K, MAX_HLSP_J), &
+            ptr%soilws1_hlsp(MAX_HLSP_K, MAX_HLSP_J), &
+            ptr%soilws2_hlsp(MAX_HLSP_K, MAX_HLSP_J), &
+            ptr%soilws3_hlsp(MAX_HLSP_K, MAX_HLSP_J), &
+            ptr%soilws4_hlsp(MAX_HLSP_K, MAX_HLSP_J), &
+            ptr%soilws5_hlsp(MAX_HLSP_K, MAX_HLSP_J), &
+            ptr%soilws6_hlsp(MAX_HLSP_K, MAX_HLSP_J) ) 
+
   ! Initialize to catch use before appropriate
   !ptr%psi(:) = initval
   ptr%hyd_cond_horz(:) = initval
@@ -857,6 +898,25 @@ function soil_tile_ctor_predefined(hidx_j, hidx_k, tile_parameters, &
   ptr%div_hlsp_NH4(:) = initval
   ptr%gtos(:)      = initval
   ptr%gtosh(:) = initval
+
+  ptr%lift_hlsp(:, :) = initval 
+  ptr%pratio_hlsp(:, :) = initval  
+  ptr%lprec_hlsp(:, :) = initval 
+  ptr%fprec_hlsp(:, :) = initval 
+  ptr%elev_hlsp(:, :) = initval 
+  ptr%tfrac_hlsp(:, :) = initval 
+  ptr%soilwl1_hlsp(:, :) = initval 
+  ptr%soilwl2_hlsp(:, :) = initval 
+  ptr%soilwl3_hlsp(:, :) = initval 
+  ptr%soilwl4_hlsp(:, :) = initval 
+  ptr%soilwl5_hlsp(:, :) = initval 
+  ptr%soilwl6_hlsp(:, :) = initval   
+  ptr%soilws1_hlsp(:, :) = initval 
+  ptr%soilws2_hlsp(:, :) = initval
+  ptr%soilws3_hlsp(:, :) = initval 
+  ptr%soilws4_hlsp(:, :) = initval
+  ptr%soilws5_hlsp(:, :) = initval 
+  ptr%soilws6_hlsp(:, :) = initval    
 
   call soil_data_init_0d_predefined(ptr,tile_parameters,itile)
   do i=1,num_l

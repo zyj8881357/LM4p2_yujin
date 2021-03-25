@@ -37,7 +37,7 @@ use soil_tile_mod, only : num_l, dz, zfull, zhalf, &
      soil_type_file, &
      soil_tile_stock_pe, initval, comp, soil_theta, soil_ice_porosity, &
      N_LITTER_POOLS,LEAF,CWOOD,l_shortname,l_longname,l_diagname, &
-     MAX_HLSP_K, MAX_HLSP_J, MAX_HLSP_KJ
+     MAX_HLSP_K, MAX_HLSP_J
 use soil_util_mod, only: soil_util_init, rhizosphere_frac
 use soil_accessors_mod ! use everything
 
@@ -285,6 +285,8 @@ integer :: &
     id_lift_hlsp, id_pratio_hlsp, id_lprec_hlsp, id_fprec_hlsp, id_elev_hlsp, id_tfrac_hlsp
 integer :: &
     id_lwc1_hlsp, id_lwc2_hlsp, id_lwc3_hlsp, id_lwc4_hlsp, id_lwc5_hlsp, id_lwc6_hlsp
+integer :: &
+    id_swc1_hlsp, id_swc2_hlsp, id_swc3_hlsp, id_swc4_hlsp, id_swc5_hlsp, id_swc6_hlsp
 
 
 ! FIXME: add N leaching terms to diagnostics?
@@ -1040,8 +1042,9 @@ subroutine soil_diag_init(id_ug,id_band,id_zfull,id_ptid)
   integer :: l
   integer :: id_kj
   integer :: i
-  real, dimension(MAX_HLSP_KJ) :: kj
+  real, allocatable :: kj(:)
  
+
 
   ! define vertical axis and its edges
   id_zhalf = diag_axis_init ( &
@@ -1050,12 +1053,13 @@ subroutine soil_diag_init(id_ug,id_band,id_zfull,id_ptid)
        'zfull_soil', zfull(1:num_l),   'meters', 'z', 'full level',  -1, set_name='soil', &
        edges=id_zhalf )
 
-  do i = 1, MAX_HLSP_KJ
+  allocate(kj(MAX_HLSP_K*MAX_HLSP_J))
+  do i = 1, MAX_HLSP_K*MAX_HLSP_J
     kj(i) = i
   enddo
   id_kj = diag_axis_init ( &
-       'hidx_kj', kj(1:MAX_HLSP_KJ),   'unitless', 'z', 'hidx_kj number',  -1, set_name='soil' )
-
+       'hidx_kj', kj(1:MAX_HLSP_K*MAX_HLSP_J),   'unitless', 'z', 'hidx_kj number',  -1, set_name='soil' )
+  deallocate(kj)
   ! define array of axis indices
   axes = (/id_ug,id_zfull/)
 
@@ -1126,6 +1130,20 @@ subroutine soil_diag_init(id_ug,id_band,id_zfull,id_ptid)
        lnd%time, 'bulk density of liquid water (layer 5)', 'kg/m3', missing_value=initval )     
   id_lwc6_hlsp = register_tiled_diag_field ( module_name, 'lwc6_hlsp', (/id_ug,id_kj/),  &
        lnd%time, 'bulk density of liquid water (layer 6)', 'kg/m3', missing_value=initval )     
+
+  id_swc1_hlsp = register_tiled_diag_field ( module_name, 'swc1_hlsp', (/id_ug,id_kj/),  &
+       lnd%time, 'bulk density of solid water (layer 1)', 'kg/m3', missing_value=initval )  
+  id_swc2_hlsp = register_tiled_diag_field ( module_name, 'swc2_hlsp', (/id_ug,id_kj/),  &
+       lnd%time, 'bulk density of solid water (layer 2)', 'kg/m3', missing_value=initval ) 
+  id_swc3_hlsp = register_tiled_diag_field ( module_name, 'swc3_hlsp', (/id_ug,id_kj/),  &
+       lnd%time, 'bulk density of solid water (layer 3)', 'kg/m3', missing_value=initval ) 
+  id_swc4_hlsp = register_tiled_diag_field ( module_name, 'swc4_hlsp', (/id_ug,id_kj/),  &
+       lnd%time, 'bulk density of solid water (layer 4)', 'kg/m3', missing_value=initval ) 
+  id_swc5_hlsp = register_tiled_diag_field ( module_name, 'swc5_hlsp', (/id_ug,id_kj/),  &
+       lnd%time, 'bulk density of solid water (layer 5)', 'kg/m3', missing_value=initval ) 
+  id_swc6_hlsp = register_tiled_diag_field ( module_name, 'swc6_hlsp', (/id_ug,id_kj/),  &
+       lnd%time, 'bulk density of solid water (layer 6)', 'kg/m3', missing_value=initval )                        
+
 
   ! by-carbon-species diag fields
   id_soil_C(:) = register_soilc_diag_fields(module_name, '<ctype>_soil_C', &
@@ -3259,6 +3277,12 @@ end subroutine soil_step_1
   call send_tile_data(id_lwc5_hlsp, pack(soil%soilwl5_hlsp,.true.), diag)  
   call send_tile_data(id_lwc6_hlsp, pack(soil%soilwl6_hlsp,.true.), diag)  
 
+  call send_tile_data(id_swc1_hlsp, pack(soil%soilws1_hlsp,.true.), diag)          
+  call send_tile_data(id_swc2_hlsp, pack(soil%soilws2_hlsp,.true.), diag)  
+  call send_tile_data(id_swc3_hlsp, pack(soil%soilws3_hlsp,.true.), diag)  
+  call send_tile_data(id_swc4_hlsp, pack(soil%soilws4_hlsp,.true.), diag)  
+  call send_tile_data(id_swc5_hlsp, pack(soil%soilws5_hlsp,.true.), diag)  
+  call send_tile_data(id_swc6_hlsp, pack(soil%soilws6_hlsp,.true.), diag)  
 
 end subroutine soil_step_2
 
