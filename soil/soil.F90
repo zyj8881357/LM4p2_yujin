@@ -648,7 +648,7 @@ subroutine soil_init (id_ug,id_band,id_zfull,id_ptid)
               ce = first_elmt(land_tile_map(ll))
               do while (loop_over_tiles(ce,tile,k=k))
                   if (.not.associated(tile%soil)) cycle
-                  where(precip_s2p(ll,:)<0.) precip_s2p(ll,:)=0.
+                  where(precip_s2p(ll,:)==-9999.) precip_s2p(ll,:)=0.
                   tile%soil%pars%precip_slope2p(:)=precip_s2p(ll,:)
               enddo       
           enddo               
