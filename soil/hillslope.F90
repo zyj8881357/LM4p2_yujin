@@ -1216,7 +1216,7 @@ subroutine hlsp_disagg_precip(cplr2land)
        endif
        frac = tile%frac/soil_frac(l)
        if(use_obs_precip_slope)then
-         kg = tile%soil%pars%precip_slope2p(month)
+         kg = 0.0005 !tile%soil%pars%precip_slope2p(month)
          kgh = max(kg*h,-0.9999)
        else
          kg =  1./elev_max(l)
