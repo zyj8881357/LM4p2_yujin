@@ -78,7 +78,7 @@ use uptake_mod, only : UPTAKE_LINEAR, UPTAKE_DARCY2D, UPTAKE_DARCY2D_LIN, &
 use hillslope_mod, only : do_hillslope_model, max_num_topo_hlsps, &
      num_vertclusters, hlsp_coldfracs, use_geohydrodata, & !pond, &
      horiz_wt_depth_to_init, calculate_wt_init, simple_inundation, &
-     use_obs_precip_slope
+     elev_scale_to_use
 use land_io_mod, only : &
      init_cover_field
 use soil_tile_mod, only : n_dim_soil_types, soil_to_use, &
@@ -632,7 +632,7 @@ subroutine soil_init (id_ug,id_band,id_zfull,id_ptid)
       !enddo     
       !deallocate(topo_mean, topo_mean_SG)
 
-      if(use_obs_precip_slope)then
+      if(trim(elev_scale_to_use)=="OBS")then
           pslope_exist = file_exist('INPUT/precip_s2p.nc', lnd%sg_domain)  
           if (pslope_exist) then
               call error_mesg('soil_init', 'reading precipitation slope from file', NOTE)

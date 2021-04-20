@@ -131,7 +131,8 @@ logical, protected, public :: sat_from_edecay = .true.
 real, protected, public :: sat_from_edecay_parameter = 0.1
 
 logical, protected :: do_hlsp_disagg_precip = .FALSE.
-logical, protected, public :: use_obs_precip_slope = .FALSE.
+character(32), protected, public :: elev_scale_to_use = "ERMM"
+real,protected :: elev_scale = 1050.
 
 character(len=256)  :: hillslope_surfdata = 'INPUT/hillslope.nc'
 character(len=24)   :: hlsp_interpmethod = 'nearest'
@@ -146,7 +147,7 @@ namelist /hlsp_nml/ num_vertclusters, max_num_topo_hlsps, hillslope_horz_subdiv,
                     simple_inundation, surf_flow_velocity, dl, equal_length_tiles, &
                     limit_intertile_flow, flow_ratio_limit, exp_inundation, tiled_DOC_flux, &
                     sat_frac_from_hand, turn_gtos_off, sat_from_edecay,sat_from_edecay_parameter, &
-                    do_hlsp_disagg_precip, use_obs_precip_slope
+                    do_hlsp_disagg_precip, elev_scale_to_use, elev_scale
 ! hardwired: fixed_num_vertclusters, hillslope_topo_subdiv, stiff_do_explicit
 !---- end of namelist --------------------------------------------------------
 
@@ -1215,12 +1216,24 @@ subroutine hlsp_disagg_precip(cplr2land)
           h = tile%soil%pars%tile_elevation - elev_mean(l)
        endif
        frac = tile%frac/soil_frac(l)
-       if(use_obs_precip_slope)then
-         kg = 0.0005 !tile%soil%pars%precip_slope2p(month)
+       if(trim(elev_scale_to_use)=="OBS")then
+         kg = tile%soil%pars%precip_slope2p(month)
          kgh = max(kg*h,-0.9999)
-       else
+       else if(trim(elev_scale_to_use)=="constant")then
+         if(elev_scale>0.)then
+           kg = 1./elev_scale
+         else
+           kg = 0.
+         endif
+         kgh = max(kg*h,-0.9999)      
+       else if(trim(elev_scale_to_use)=="ERMM")then
          kg =  1./elev_max(l)
          kgh = kg*h
+       else if(do_hlsp_disagg_precip)then
+         call error_mesg(module_name, 'unrecognized precipitation slope method', FATAL)
+       else 
+         kg = 0.
+         kgh = 0.
        endif
        norm = frac * (1. + kgh)
        norm_tot(l) = norm_tot(l) + norm
