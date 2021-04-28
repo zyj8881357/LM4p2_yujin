@@ -78,7 +78,7 @@ use uptake_mod, only : UPTAKE_LINEAR, UPTAKE_DARCY2D, UPTAKE_DARCY2D_LIN, &
 use hillslope_mod, only : do_hillslope_model, max_num_topo_hlsps, &
      num_vertclusters, hlsp_coldfracs, use_geohydrodata, & !pond, &
      horiz_wt_depth_to_init, calculate_wt_init, simple_inundation, &
-     elev_scale_to_use
+     elev_scale_to_use, elev_scale, do_hlsp_disagg_precip
 use land_io_mod, only : &
      init_cover_field
 use soil_tile_mod, only : n_dim_soil_types, soil_to_use, &
@@ -401,12 +401,18 @@ subroutine soil_init (id_ug,id_band,id_zfull,id_ptid)
   real :: psi(num_l), mwc(num_l)
   real :: sum_frac
 
-  real, dimension(lnd%ls:lnd%le) :: zmean_ug, soil_frac, elev_bottom, hlsp_elev_frac   
+  real, dimension(lnd%ls:lnd%le) :: zmean_ug, elev_bottom, hlsp_elev_frac   
   real, allocatable :: topo_mean(:)
   real, allocatable :: topo_mean_SG(:,:)
   logical  ::  answer
   logical :: pslope_exist
   real, allocatable :: precip_s2p(:,:)  
+
+  real, dimension(lnd%ls:lnd%le) :: elev_mean, soil_frac, elevmax !elev_max, pslope2p
+  real, allocatable, dimension(:,:,:) :: elev, tfrac
+  integer, dimension(lnd%ls:lnd%le) :: nk, nj
+  integer :: hidx_k, hidx_j
+
   integer :: ls, le, isc, iec, jsc, jec                         ! compute domain decomposition  
 
   type(land_restart_type) :: restart, restart1
@@ -591,7 +597,7 @@ subroutine soil_init (id_ug,id_band,id_zfull,id_ptid)
 
 
   !---initialize absolute elevation for each soil tile-----
-  if(do_hillslope_model)then
+  if(use_predefined_tiles)then
 
       !call mpp_get_UG_compute_domain(lnd%ug_domain, ls, le)
       !allocate(topo_mean(ls:le))
@@ -654,6 +660,54 @@ subroutine soil_init (id_ug,id_band,id_zfull,id_ptid)
           enddo               
           deallocate(precip_s2p)
       endif 
+
+      allocate( elev(lnd%ls:lnd%le, MAX_HLSP_K, MAX_HLSP_J), &
+                tfrac(lnd%ls:lnd%le, MAX_HLSP_K, MAX_HLSP_J) )
+
+      nk(lnd%ls:lnd%le)=0
+      nj(lnd%ls:lnd%le)=0  
+      soil_frac(lnd%ls:lnd%le) = 0.0
+      elev_mean(lnd%ls:lnd%le) = 0.0
+      elevmax(lnd%ls:lnd%le) = 0.0
+      !pslope2p(lnd%ls:lnd%le)=initval
+      elev(lnd%ls:lnd%le, 1:MAX_HLSP_K, 1:MAX_HLSP_J)=initval  
+      tfrac(lnd%ls:lnd%le, 1:MAX_HLSP_K, 1:MAX_HLSP_J)=initval  
+      !l
+      do ll = lnd%ls, lnd%le
+         ce = first_elmt(land_tile_map(ll))
+         do while (loop_over_tiles(ce,tile,k=k))
+           if (.not.associated(tile%soil)) cycle
+           soil_frac(ll) = soil_frac(ll) + tile%frac       
+           elev_mean(ll) = elev_mean(ll) + tile%frac * tile%soil%pars%tile_elevation
+           if (tile%soil%pars%tile_elevation > elevmax(ll)) elevmax(ll) = tile%soil%pars%tile_elevation
+           hidx_k =  tile%soil%hidx_k
+           hidx_j =  tile%soil%hidx_j
+           if(hidx_k>nk(ll)) nk(ll)=hidx_k
+           if(hidx_j>nj(ll)) nj(ll)=hidx_j     
+           elev(ll,hidx_k,hidx_j) = tile%soil%pars%tile_elevation    
+           if(tfrac(ll,hidx_k,hidx_j)==initval) tfrac(ll,hidx_k,hidx_j) = 0.
+           tfrac(ll,hidx_k,hidx_j) = tfrac(ll,hidx_k,hidx_j) + tile%frac                
+         enddo
+         if(soil_frac(ll) > 0.) elev_mean(ll) = elev_mean(ll)/soil_frac(ll)
+         if(elevmax(ll) <= 0.) elevmax(ll) = epsilon(1.0)               
+      enddo           
+
+      do ll = lnd%ls, lnd%le
+        ce = first_elmt(land_tile_map(ll))
+        do while (loop_over_tiles(ce,tile,k=k))
+          if (.not.associated(tile%soil)) cycle
+          tile%soil%nk_hlsp = nk(ll)
+          tile%soil%nj_hlsp = nj(ll)  
+          tile%soil%elevmean_hlsp = elev_mean(ll)  
+          tile%soil%elevmax_hlsp = elevmax(ll)
+          tile%soil%soilfrac_hlsp = soil_frac(ll)
+          !tile%soil%pslope2p_hlsp = pslope2p(ll)
+          tile%soil%elev_hlsp(:,:) = elev(ll,:,:)
+          tile%soil%tfrac_hlsp(:,:) = tfrac(ll,:,:)     
+        enddo
+      enddo    
+
+      deallocate(elev,tfrac)   
 
   endif
   !--------------------------------------------------------

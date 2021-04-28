@@ -3778,6 +3778,12 @@ subroutine update_land_bc_fast (tile, N, l,k, land2cplr, is_init)
   land2cplr%dws_t_atm (l,k) = tile%dws_tavg(month)
   land2cplr%dws_prec (l,k) = tile%dws_prec(month)
 
+  if(use_predefined_tiles.and.associated(tile%soil))then
+    land2cplr%h_ref (l,k) = tile%soil%pars%tile_elevation - tile%soil%elevmean_hlsp
+  else
+    land2cplr%h_ref (l,k) = 0.
+  endif
+
   if(is_watch_point()) then
      write(*,*)'#### update_land_bc_fast ### output ####'
      call dpri('land2cplr%mask',land2cplr%mask(l,k));             write(*,*)
@@ -4964,6 +4970,8 @@ subroutine realloc_land2cplr ( bnd )
   bnd%dws_t_atm = init_value
   bnd%dws_prec = init_value
 
+  allocate( bnd%h_ref(lnd%ls:lnd%le,n_tiles) )
+  bnd%h_ref = init_value
 
 end subroutine realloc_land2cplr
 
@@ -4995,6 +5003,7 @@ subroutine dealloc_land2cplr ( bnd, dealloc_discharges )
   __DEALLOC__( bnd%mask )
   __DEALLOC__( bnd%dws_t_atm )
   __DEALLOC__( bnd%dws_prec )
+  __DEALLOC__( bnd%h_ref )  
 
   if (dealloc_discharges) then
      __DEALLOC__( bnd%discharge           )

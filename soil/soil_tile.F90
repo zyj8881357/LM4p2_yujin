@@ -262,6 +262,8 @@ type :: soil_tile_type
    integer :: nk_hlsp = 0
    integer :: nj_hlsp = 0
    real :: elevmean_hlsp = initval   
+   real :: elevmax_hlsp = initval
+   real :: soilfrac_hlsp = initval
    real :: pslope2p_hlsp = initval
 
    real, allocatable :: lift_hlsp(:, :) 

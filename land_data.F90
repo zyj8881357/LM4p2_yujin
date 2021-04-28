@@ -99,7 +99,8 @@ type :: land_data_type
         rough_scale    => NULL()     ! topographic scaler for momentum drag, m
    real, pointer, dimension(:,:)   :: & !(grid index, tile)
         dws_t_atm      => NULL(),  & ! downscaling weights for temperature
-        dws_prec       => NULL()      ! downscaling weights for precipitation
+        dws_prec       => NULL(),  & ! downscaling weights for precipitation
+        h_ref          => NULL()
 
    real, pointer, dimension(:,:,:)   :: &  ! (grid index, tile, tracer)
         tr    => NULL()              ! tracers, including canopy air specific humidity
