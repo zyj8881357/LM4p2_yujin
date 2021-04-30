@@ -133,6 +133,8 @@ real, protected, public :: sat_from_edecay_parameter = 0.1
 logical, protected,public :: do_hlsp_disagg_precip = .FALSE.
 character(32), protected, public :: elev_scale_to_use = "ERMM"
 real,protected,public :: elev_scale = 1050.
+logical, protected,public :: do_hlsp_disagg_tpq = .FALSE.
+real,protected,public :: tlapse = -6.5e-3 !K/m
 
 character(len=256)  :: hillslope_surfdata = 'INPUT/hillslope.nc'
 character(len=24)   :: hlsp_interpmethod = 'nearest'
@@ -147,7 +149,8 @@ namelist /hlsp_nml/ num_vertclusters, max_num_topo_hlsps, hillslope_horz_subdiv,
                     simple_inundation, surf_flow_velocity, dl, equal_length_tiles, &
                     limit_intertile_flow, flow_ratio_limit, exp_inundation, tiled_DOC_flux, &
                     sat_frac_from_hand, turn_gtos_off, sat_from_edecay,sat_from_edecay_parameter, &
-                    do_hlsp_disagg_precip, elev_scale_to_use, elev_scale
+                    do_hlsp_disagg_precip, elev_scale_to_use, elev_scale, &
+                    do_hlsp_disagg_tpq, tlapse
 ! hardwired: fixed_num_vertclusters, hillslope_topo_subdiv, stiff_do_explicit
 !---- end of namelist --------------------------------------------------------
 

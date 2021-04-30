@@ -114,7 +114,7 @@ use nitrogen_sources_mod, only : nitrogen_sources_init, nitrogen_sources_end, &
      update_nitrogen_sources, nitrogen_sources
 use hillslope_mod, only: do_hillslope_model, retrieve_hlsp_indices, save_hlsp_restart, hlsp_end, &
                          read_hlsp_namelist, hlsp_init, hlsp_config_check, &
-                         hlsp_init_predefined, hlsp_disagg_precip
+                         hlsp_init_predefined, hlsp_disagg_precip, do_hlsp_disagg_tpq, tlapse
 use hillslope_hydrology_mod, only: hlsp_hydrology_1, hlsp_hydro_init
 use hdf5
 use predefined_tiles_mod, only : read_predefined_tiles_namelist, &
@@ -143,6 +143,8 @@ public :: Lnd_stock_pe          ! return stocks of conservative quantities
 ! re-export land diagnostic subroutines for tiled diag in flux exchange
 public set_default_diag_filter, register_tiled_diag_field, send_tile_data, dump_tile_diag_fields
 public send_global_land_diag
+
+public do_hlsp_disagg_tpq, tlapse
 ! ==== end of public interfaces ==============================================
 
 ! ==== module constants ======================================================
