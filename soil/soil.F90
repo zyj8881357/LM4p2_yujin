@@ -287,6 +287,8 @@ integer :: &
     id_lwc1_hlsp, id_lwc2_hlsp, id_lwc3_hlsp, id_lwc4_hlsp, id_lwc5_hlsp, id_lwc6_hlsp
 integer :: &
     id_swc1_hlsp, id_swc2_hlsp, id_swc3_hlsp, id_swc4_hlsp, id_swc5_hlsp, id_swc6_hlsp
+integer :: &
+    id_zatm_hlsp, id_tatm_hlsp, id_patm_hlsp, id_psurf_hlsp, id_qatm_hlsp, id_tatm_nodis_hlsp
 
 
 ! FIXME: add N leaching terms to diagnostics?
@@ -1171,6 +1173,19 @@ subroutine soil_diag_init(id_ug,id_band,id_zfull,id_ptid)
        lnd%time, 'hillslope elevation', 'm', missing_value=initval )  
   id_tfrac_hlsp = register_tiled_diag_field ( module_name, 'tfrac_hlsp', (/id_ug,id_kj/), &
        lnd%time, 'hillslope total tile fraction', 'unitless', missing_value=initval )  
+
+  id_zatm_hlsp = register_tiled_diag_field ( module_name, 'zatm_hlsp', (/id_ug,id_kj/), &
+       lnd%time, 'disaggregated height above the surface for the lowest atmos level', 'm', missing_value=initval )
+  id_tatm_hlsp = register_tiled_diag_field ( module_name, 'tatm_hlsp', (/id_ug,id_kj/), &
+       lnd%time, 'disaggregated temperature at lowest atmos level', 'degK', missing_value=initval ) 
+  id_patm_hlsp = register_tiled_diag_field ( module_name, 'patm_hlsp', (/id_ug,id_kj/), &
+       lnd%time, 'disaggregated pressure at lowest atmos level', 'Pa', missing_value=initval )         
+  id_psurf_hlsp = register_tiled_diag_field ( module_name, 'psurf_hlsp', (/id_ug,id_kj/), &
+       lnd%time, 'disaggregated disaggregated surface pressure', 'Pa', missing_value=initval ) 
+  id_qatm_hlsp = register_tiled_diag_field ( module_name, 'qatm_hlsp', (/id_ug,id_kj/), &
+       lnd%time, 'disaggregated specific humidity at lowest atmos level', 'kg/kg', missing_value=initval )      
+  id_tatm_nodis_hlsp = register_tiled_diag_field ( module_name, 'tatm_nodis_hlsp', (/id_ug,id_kj/), &
+       lnd%time, 'non-disaggregated temperature at lowest atmos level', 'degK', missing_value=initval )              
 
   id_lwc1_hlsp = register_tiled_diag_field ( module_name, 'lwc1_hlsp', (/id_ug,id_kj/),  &
        lnd%time, 'bulk density of liquid water (layer 1)', 'kg/m3', missing_value=initval )              
@@ -3323,6 +3338,13 @@ end subroutine soil_step_1
   call send_tile_data(id_fprec_hlsp, pack(soil%fprec_hlsp,.true.), diag)   
   call send_tile_data(id_elev_hlsp,  pack(soil%elev_hlsp,.true.),  diag) 
   call send_tile_data(id_tfrac_hlsp, pack(soil%tfrac_hlsp,.true.), diag)  
+
+  call send_tile_data(id_zatm_hlsp,  pack(soil%zatm_hlsp,.true.),  diag)
+  call send_tile_data(id_tatm_hlsp,  pack(soil%tatm_hlsp,.true.),  diag) 
+  call send_tile_data(id_patm_hlsp,  pack(soil%patm_hlsp,.true.),  diag)
+  call send_tile_data(id_psurf_hlsp, pack(soil%psurf_hlsp,.true.), diag) 
+  call send_tile_data(id_qatm_hlsp,  pack(soil%qatm_hlsp,.true.),  diag)
+  call send_tile_data(id_tatm_nodis_hlsp,  pack(soil%tatm_nodis_hlsp,.true.),  diag) 
 
   call send_tile_data(id_lwc1_hlsp, pack(soil%soilwl1_hlsp,.true.), diag)          
   call send_tile_data(id_lwc2_hlsp, pack(soil%soilwl2_hlsp,.true.), diag)  

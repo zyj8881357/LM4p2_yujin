@@ -54,6 +54,16 @@ type :: atmos_land_boundary_type
         tprec     => NULL(), &   ! temperature of precipitation, degK
         bnv       => NULL(), &       
         ulow      => NULL(), & 
+        z_atm_dis => NULL(), & 
+        t_atm_dis => NULL(), &
+        p_atm_dis => NULL(), &
+        p_surf_dis=> NULL(), &
+        q_atm_dis => NULL(), & 
+        z_atm_nodis => NULL(), & 
+        t_atm_nodis => NULL(), &
+        p_atm_nodis => NULL(), &
+        p_surf_nodis=> NULL(), &
+        q_atm_nodis => NULL(), &         
    ! components of downward shortwave flux, W/m2
         sw_flux_down_vis_dir   => NULL(), & ! visible direct
         sw_flux_down_total_dir => NULL(), & ! total direct

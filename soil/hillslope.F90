@@ -1152,6 +1152,7 @@ subroutine hlsp_disagg_precip(cplr2land)
   integer :: l, k, lev
   real, allocatable, dimension(:,:,:) :: lprec, fprec, lift, pratio, tfrac !elev
   real, allocatable, dimension(:,:,:,:) :: soilwl, soilws
+  real, allocatable, dimension(:,:,:) :: zatm,tatm,patm,psurf,qatm,tatm_nodis
   real, dimension(lnd%ls:lnd%le) :: pslope2p ! elevmean
   !integer, dimension(lnd%ls:lnd%le) :: nk, nj
   integer :: hidx_k, hidx_j
@@ -1172,6 +1173,12 @@ subroutine hlsp_disagg_precip(cplr2land)
             tfrac(lnd%ls:lnd%le, 1:MAX_HLSP_K, 1:MAX_HLSP_J), &
             lift(lnd%ls:lnd%le, MAX_HLSP_K, MAX_HLSP_J), &
             pratio(lnd%ls:lnd%le, MAX_HLSP_K, MAX_HLSP_J), &
+            zatm(lnd%ls:lnd%le, MAX_HLSP_K, MAX_HLSP_J), &
+            tatm(lnd%ls:lnd%le, MAX_HLSP_K, MAX_HLSP_J), &
+            patm(lnd%ls:lnd%le, MAX_HLSP_K, MAX_HLSP_J), &
+            psurf(lnd%ls:lnd%le, MAX_HLSP_K, MAX_HLSP_J), &
+            qatm(lnd%ls:lnd%le, MAX_HLSP_K, MAX_HLSP_J), &
+            tatm_nodis(lnd%ls:lnd%le, MAX_HLSP_K, MAX_HLSP_J), &
             soilwl(lnd%ls:lnd%le, MAX_HLSP_K, MAX_HLSP_J, 6), &
             soilws(lnd%ls:lnd%le, MAX_HLSP_K, MAX_HLSP_J, 6) )
 
@@ -1187,7 +1194,13 @@ subroutine hlsp_disagg_precip(cplr2land)
   lprec(lnd%ls:lnd%le, 1:MAX_HLSP_K, 1:MAX_HLSP_J)=initval
   fprec(lnd%ls:lnd%le, 1:MAX_HLSP_K, 1:MAX_HLSP_J)=initval
   !elev(lnd%ls:lnd%le, 1:MAX_HLSP_K, 1:MAX_HLSP_J)=initval  
-  tfrac(lnd%ls:lnd%le, 1:MAX_HLSP_K, 1:MAX_HLSP_J)=initval 
+  tfrac(lnd%ls:lnd%le, 1:MAX_HLSP_K, 1:MAX_HLSP_J)=initval
+  zatm(lnd%ls:lnd%le, 1:MAX_HLSP_K, 1:MAX_HLSP_J)=initval
+  tatm(lnd%ls:lnd%le, 1:MAX_HLSP_K, 1:MAX_HLSP_J)=initval
+  patm(lnd%ls:lnd%le, 1:MAX_HLSP_K, 1:MAX_HLSP_J)=initval
+  psurf(lnd%ls:lnd%le, 1:MAX_HLSP_K, 1:MAX_HLSP_J)=initval
+  qatm(lnd%ls:lnd%le, 1:MAX_HLSP_K, 1:MAX_HLSP_J)=initval  
+  tatm_nodis(lnd%ls:lnd%le, 1:MAX_HLSP_K, 1:MAX_HLSP_J)=initval
   soilwl(lnd%ls:lnd%le, 1:MAX_HLSP_K, 1:MAX_HLSP_J, 1:6)=initval   
   soilws(lnd%ls:lnd%le, 1:MAX_HLSP_K, 1:MAX_HLSP_J, 1:6)=initval         
 
@@ -1284,6 +1297,19 @@ subroutine hlsp_disagg_precip(cplr2land)
        soilwl(l,hidx_k,hidx_j,:) = soilwl(l,hidx_k,hidx_j,:) + tile%soil%wl(1:6)*tile%frac
        if(soilws(l,hidx_k,hidx_j,1)==initval) soilws(l,hidx_k,hidx_j,1:6) = 0.
        soilws(l,hidx_k,hidx_j,:) = soilws(l,hidx_k,hidx_j,:) + tile%soil%ws(1:6)*tile%frac
+
+       if(zatm(l,hidx_k,hidx_j)==initval) zatm(l,hidx_k,hidx_j) = 0.
+       zatm(l,hidx_k,hidx_j) = zatm(l,hidx_k,hidx_j) + cplr2land%z_atm_dis(l,k)*tile%frac
+       if(tatm(l,hidx_k,hidx_j)==initval) tatm(l,hidx_k,hidx_j) = 0.
+       tatm(l,hidx_k,hidx_j) = tatm(l,hidx_k,hidx_j) + cplr2land%t_atm_dis(l,k)*tile%frac
+       if(patm(l,hidx_k,hidx_j)==initval) patm(l,hidx_k,hidx_j) = 0.
+       patm(l,hidx_k,hidx_j) = patm(l,hidx_k,hidx_j) + cplr2land%p_atm_dis(l,k)*tile%frac 
+       if(psurf(l,hidx_k,hidx_j)==initval) psurf(l,hidx_k,hidx_j) = 0.
+       psurf(l,hidx_k,hidx_j) = psurf(l,hidx_k,hidx_j) + cplr2land%p_surf_dis(l,k)*tile%frac  
+       if(qatm(l,hidx_k,hidx_j)==initval) qatm(l,hidx_k,hidx_j) = 0.
+       qatm(l,hidx_k,hidx_j) = qatm(l,hidx_k,hidx_j) + cplr2land%q_atm_dis(l,k)*tile%frac  
+       if(tatm_nodis(l,hidx_k,hidx_j)==initval) tatm_nodis(l,hidx_k,hidx_j) = 0.
+       tatm_nodis(l,hidx_k,hidx_j) = tatm_nodis(l,hidx_k,hidx_j) + cplr2land%t_atm_nodis(l,k)*tile%frac                              
      enddo
   enddo
   
@@ -1291,6 +1317,12 @@ subroutine hlsp_disagg_precip(cplr2land)
     where(soilwl(:,:,:,1)/=initval) soilwl(:,:,:,lev)=soilwl(:,:,:,lev)/dz(lev)/tfrac
     where(soilws(:,:,:,1)/=initval) soilws(:,:,:,lev)=soilws(:,:,:,lev)/dz(lev)/tfrac    
   enddo      
+  where(zatm/=initval) zatm=zatm/tfrac
+  where(tatm/=initval) tatm=tatm/tfrac  
+  where(patm/=initval) patm=patm/tfrac
+  where(psurf/=initval) psurf=psurf/tfrac
+  where(qatm/=initval) qatm=qatm/tfrac
+  where(tatm_nodis/=initval) tatm_nodis=tatm_nodis/tfrac  
 
 
   do l = lnd%ls, lnd%le
@@ -1307,6 +1339,12 @@ subroutine hlsp_disagg_precip(cplr2land)
        tile%soil%fprec_hlsp(:,:) = fprec(l,:,:)
        !tile%soil%elev_hlsp(:,:) = elev(l,:,:)
        !tile%soil%tfrac_hlsp(:,:) = tfrac(l,:,:)
+       tile%soil%zatm_hlsp(:,:) = zatm(l,:,:)
+       tile%soil%tatm_hlsp(:,:) = tatm(l,:,:)
+       tile%soil%patm_hlsp(:,:) = patm(l,:,:)
+       tile%soil%psurf_hlsp(:,:)= psurf(l,:,:)
+       tile%soil%qatm_hlsp(:,:) = qatm(l,:,:)
+       tile%soil%tatm_nodis_hlsp(:,:) = tatm_nodis(l,:,:)
 
        tile%soil%soilwl1_hlsp(:,:) = soilwl(l,:,:,1)
        tile%soil%soilwl2_hlsp(:,:) = soilwl(l,:,:,2)
