@@ -45,7 +45,7 @@ use lake_mod, only : read_lake_namelist, lake_init, lake_init_predefined, lake_e
 use soil_mod, only : read_soil_namelist, soil_init, soil_end, soil_get_sfc_temp, &
      soil_radiation, soil_step_1, soil_step_2, soil_step_3, save_soil_restart, &
      ! moved here to eliminate circular dependencies with hillslope mods:
-     soil_cover_cold_start, retrieve_soil_tags
+     soil_cover_cold_start, retrieve_soil_tags, soil_hlsp_diag
 use soil_carbon_mod, only : read_soil_carbon_namelist, N_C_TYPES, soil_carbon_option, &
     SOILC_CORPSE_N
 use snow_mod, only : read_snow_namelist, snow_init, snow_end, snow_get_sfc_temp, &
@@ -1450,6 +1450,8 @@ subroutine update_land_model_fast ( cplr2land, land2cplr )
      call mpp_pass_SG_to_UG(lnd%ug_domain, twsr_sg, tws)
   endif
 
+  call soil_hlsp_diag()
+
   ce = first_elmt(land_tile_map, ls=lbound(cplr2land%t_flux,1) )
   do while(loop_over_tiles(ce,tile,l,k))
      cana_VMASS = 0. ;                   cana_HEAT = 0.
@@ -2589,6 +2591,10 @@ subroutine update_land_model_fast_0d ( tile, l,itile, N, land2cplr, &
 
   ! TODO: go through the diagnostics and verify that they do the right thing in PPA case
   ! ---- diagnostic section ----------------------------------------------
+  if(associated(tile%soil))then
+    tile%soil%runf_tile = snow_lrunf+snow_frunf+subs_lrunf
+  endif
+
   call send_tile_data(id_total_C, cmass1,                             tile%diag)
   call send_tile_data(id_total_N, nmass1,                             tile%diag)
   call send_tile_data(id_frac,    tile%frac,                          tile%diag)

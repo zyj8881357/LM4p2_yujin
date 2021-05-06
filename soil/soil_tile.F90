@@ -266,6 +266,8 @@ type :: soil_tile_type
    real :: soilfrac_hlsp = initval
    real :: pslope2p_hlsp = initval
 
+   real :: runf_tile = initval
+
    real, allocatable :: lift_hlsp(:, :) 
    real, allocatable :: pratio_hlsp(:, :)  
    real, allocatable :: lprec_hlsp(:, :) 

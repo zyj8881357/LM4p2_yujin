@@ -50,7 +50,7 @@ use soil_carbon_mod, only: soil_pool, poolTotals, poolTotals1, soilMaxCohorts, l
 
 
 use land_tile_mod, only : land_tile_map, land_tile_type, land_tile_enum_type, &
-     first_elmt, prev_elmt, loop_over_tiles
+     first_elmt, prev_elmt, loop_over_tiles, fptr_r0
 use land_utils_mod, only : put_to_tiles_r0d_fptr, put_to_tiles_r1d_fptr
 use land_tile_diag_mod, only : diag_buff_type, set_default_diag_filter, &
      register_tiled_static_field, register_tiled_diag_field, &
@@ -114,6 +114,8 @@ public :: active_root_N_uptake
 public :: myc_scavenger_N_uptake
 public :: myc_miner_N_uptake
 public :: redistribute_peat_carbon
+
+public :: soil_hlsp_diag
 
 ! helper functions that may be better moved elsewhere:
 public :: register_litter_soilc_diag_fields
@@ -289,6 +291,8 @@ integer :: &
     id_swc1_hlsp, id_swc2_hlsp, id_swc3_hlsp, id_swc4_hlsp, id_swc5_hlsp, id_swc6_hlsp
 integer :: &
     id_zatm_hlsp, id_tatm_hlsp, id_patm_hlsp, id_psurf_hlsp, id_qatm_hlsp, id_tatm_nodis_hlsp
+integer :: &
+    id_runf_hlsp
 
 
 ! FIXME: add N leaching terms to diagnostics?
@@ -1173,6 +1177,9 @@ subroutine soil_diag_init(id_ug,id_band,id_zfull,id_ptid)
        lnd%time, 'hillslope elevation', 'm', missing_value=initval )  
   id_tfrac_hlsp = register_tiled_diag_field ( module_name, 'tfrac_hlsp', (/id_ug,id_kj/), &
        lnd%time, 'hillslope total tile fraction', 'unitless', missing_value=initval )  
+
+  id_runf_hlsp = register_tiled_diag_field ( module_name, 'runf_hlsp', (/id_ug,id_kj/), &
+       lnd%time, 'total runoff', 'kg/(m2 s)', missing_value=initval )
 
   id_zatm_hlsp = register_tiled_diag_field ( module_name, 'zatm_hlsp', (/id_ug,id_kj/), &
        lnd%time, 'disaggregated height above the surface for the lowest atmos level', 'm', missing_value=initval )
@@ -5534,6 +5541,68 @@ subroutine init_soil_twc(soil, ref_soil_t, mwc)
       end do
    end if
 end subroutine init_soil_twc
+! ============================================================================
+! hillslope output
+subroutine soil_hlsp_diag()
+
+  call send_hlsp_data_r2d_fptr(id_runf_hlsp, soil_runf_tile_ptr)
+
+end subroutine soil_hlsp_diag
+
+! ============================================================================
+subroutine send_hlsp_data_r2d_fptr(id, fptr)
+  integer, intent(in) :: id
+  procedure(fptr_r0)  :: fptr
+
+  type(land_tile_enum_type)     :: ce      ! tile list enumerator
+  type(land_tile_type), pointer :: tile    ! pointer to tile
+  real                , pointer :: ptr     ! pointer to the data element within a tile
+  real, allocatable, dimension(:,:,:) :: tfrac, data_hlsp
+  integer :: l, k, hidx_k, hidx_j
+
+  if(id <= 0) return
+  allocate( tfrac(lnd%ls:lnd%le, MAX_HLSP_K, MAX_HLSP_J) )
+  allocate( data_hlsp(lnd%ls:lnd%le, MAX_HLSP_K, MAX_HLSP_J) )
+
+  tfrac(lnd%ls:lnd%le, 1:MAX_HLSP_K, 1:MAX_HLSP_J)=initval
+  data_hlsp(lnd%ls:lnd%le, 1:MAX_HLSP_K, 1:MAX_HLSP_J)=initval
+
+  do l = lnd%ls, lnd%le
+     ce = first_elmt(land_tile_map(l))
+     do while (loop_over_tiles(ce,tile,k=k))
+        if (.not.associated(tile%soil)) cycle
+        hidx_k =  tile%soil%hidx_k 
+        hidx_j =  tile%soil%hidx_j
+        tfrac(l,:,:) = tile%soil%tfrac_hlsp
+        if(data_hlsp(l,hidx_k,hidx_j)==initval) data_hlsp(l,hidx_k,hidx_j) = 0.
+        call fptr(tile,ptr) !tileptr
+        if(associated(ptr))then
+          data_hlsp(l,hidx_k,hidx_j) = data_hlsp(l,hidx_k,hidx_j) + ptr*tile%frac 
+        else
+          call error_mesg(module_name, 'unrecognized soil variable', FATAL)
+        endif  
+     enddo
+  enddo
+  where(data_hlsp/=initval) data_hlsp=data_hlsp/tfrac
+  do l = lnd%ls, lnd%le
+     ce = first_elmt(land_tile_map(l))
+     do while (loop_over_tiles(ce,tile,k=k))
+        if (.not.associated(tile%soil)) cycle
+        call send_tile_data(id,  pack(data_hlsp(l,:,:),.true.),  tile%diag)      
+     enddo
+  enddo
+
+  deallocate(tfrac,data_hlsp)
+
+end subroutine send_hlsp_data_r2d_fptr
+! ============================================================================
+#define DEFINE_SOIL_ACCESSOR_0D(xtype,x) subroutine soil_ ## x ## _ptr(t,p);\
+type(land_tile_type),pointer::t;xtype,pointer::p;p=>NULL();if(associated(t))then;if(associated(t%soil))p=>t%soil%x;endif;\
+end subroutine
+
+DEFINE_SOIL_ACCESSOR_0D(real,runf_tile)
+
+! ============================================================================
 
 end module soil_mod
 
