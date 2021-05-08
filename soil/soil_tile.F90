@@ -267,6 +267,8 @@ type :: soil_tile_type
    real :: pslope2p_hlsp = initval
 
    real :: runf_tile = initval
+   real, allocatable :: lwc_soil(:)
+   real, allocatable :: swc_soil(:)   
 
    real, allocatable :: lift_hlsp(:, :) 
    real, allocatable :: pratio_hlsp(:, :)  
@@ -280,21 +282,7 @@ type :: soil_tile_type
    real, allocatable :: patm_hlsp(:,:)
    real, allocatable :: psurf_hlsp(:,:)
    real, allocatable :: qatm_hlsp(:,:)
-   real, allocatable :: tatm_nodis_hlsp(:,:)
-
-   real, allocatable :: soilwl1_hlsp(:, :) 
-   real, allocatable :: soilwl2_hlsp(:, :) 
-   real, allocatable :: soilwl3_hlsp(:, :) 
-   real, allocatable :: soilwl4_hlsp(:, :) 
-   real, allocatable :: soilwl5_hlsp(:, :) 
-   real, allocatable :: soilwl6_hlsp(:, :)   
-
-   real, allocatable :: soilws1_hlsp(:, :) 
-   real, allocatable :: soilws2_hlsp(:, :)
-   real, allocatable :: soilws3_hlsp(:, :) 
-   real, allocatable :: soilws4_hlsp(:, :)
-   real, allocatable :: soilws5_hlsp(:, :) 
-   real, allocatable :: soilws6_hlsp(:, :)       
+   real, allocatable :: tatm_nodis_hlsp(:,:)    
 
    ! soil carbon
    ! CENTURY-style values
@@ -777,20 +765,10 @@ function soil_tile_ctor(tag, hidx_j, hidx_k) result(ptr)
             ptr%patm_hlsp(MAX_HLSP_K, MAX_HLSP_J), &
             ptr%psurf_hlsp(MAX_HLSP_K, MAX_HLSP_J), &
             ptr%qatm_hlsp(MAX_HLSP_K, MAX_HLSP_J), &
-            ptr%tatm_nodis_hlsp(MAX_HLSP_K, MAX_HLSP_J), &
-            ptr%soilwl1_hlsp(MAX_HLSP_K, MAX_HLSP_J), &
-            ptr%soilwl2_hlsp(MAX_HLSP_K, MAX_HLSP_J), &
-            ptr%soilwl3_hlsp(MAX_HLSP_K, MAX_HLSP_J), &
-            ptr%soilwl4_hlsp(MAX_HLSP_K, MAX_HLSP_J), &
-            ptr%soilwl5_hlsp(MAX_HLSP_K, MAX_HLSP_J), &
-            ptr%soilwl6_hlsp(MAX_HLSP_K, MAX_HLSP_J), &
-            ptr%soilws1_hlsp(MAX_HLSP_K, MAX_HLSP_J), &
-            ptr%soilws2_hlsp(MAX_HLSP_K, MAX_HLSP_J), &
-            ptr%soilws3_hlsp(MAX_HLSP_K, MAX_HLSP_J), &
-            ptr%soilws4_hlsp(MAX_HLSP_K, MAX_HLSP_J), &
-            ptr%soilws5_hlsp(MAX_HLSP_K, MAX_HLSP_J), &
-            ptr%soilws6_hlsp(MAX_HLSP_K, MAX_HLSP_J) ) 
+            ptr%tatm_nodis_hlsp(MAX_HLSP_K, MAX_HLSP_J) ) 
 
+ allocate ( ptr%lwc_soil(num_l), &
+            ptr%swc_soil(num_l) )
 
   ! Initialize to catch use before appropriate
   !ptr%psi(:) = initval
@@ -816,18 +794,9 @@ function soil_tile_ctor(tag, hidx_j, hidx_k) result(ptr)
   ptr%psurf_hlsp(:, :) = initval
   ptr%qatm_hlsp(:, :) = initval
   ptr%tatm_nodis_hlsp(:, :) = initval
-  ptr%soilwl1_hlsp(:, :) = initval 
-  ptr%soilwl2_hlsp(:, :) = initval 
-  ptr%soilwl3_hlsp(:, :) = initval 
-  ptr%soilwl4_hlsp(:, :) = initval 
-  ptr%soilwl5_hlsp(:, :) = initval 
-  ptr%soilwl6_hlsp(:, :) = initval   
-  ptr%soilws1_hlsp(:, :) = initval 
-  ptr%soilws2_hlsp(:, :) = initval
-  ptr%soilws3_hlsp(:, :) = initval 
-  ptr%soilws4_hlsp(:, :) = initval
-  ptr%soilws5_hlsp(:, :) = initval 
-  ptr%soilws6_hlsp(:, :) = initval   
+
+  ptr%lwc_soil(:) = initval
+  ptr%swc_soil(:) = initval
 
   call soil_data_init_0d(ptr)
   do i=1,num_l
@@ -902,19 +871,10 @@ function soil_tile_ctor_predefined(hidx_j, hidx_k, tile_parameters, &
             ptr%patm_hlsp(MAX_HLSP_K, MAX_HLSP_J), &
             ptr%psurf_hlsp(MAX_HLSP_K, MAX_HLSP_J), &
             ptr%qatm_hlsp(MAX_HLSP_K, MAX_HLSP_J), &
-            ptr%tatm_nodis_hlsp(MAX_HLSP_K, MAX_HLSP_J), &            
-            ptr%soilwl1_hlsp(MAX_HLSP_K, MAX_HLSP_J), &
-            ptr%soilwl2_hlsp(MAX_HLSP_K, MAX_HLSP_J), &
-            ptr%soilwl3_hlsp(MAX_HLSP_K, MAX_HLSP_J), &
-            ptr%soilwl4_hlsp(MAX_HLSP_K, MAX_HLSP_J), &
-            ptr%soilwl5_hlsp(MAX_HLSP_K, MAX_HLSP_J), &
-            ptr%soilwl6_hlsp(MAX_HLSP_K, MAX_HLSP_J), &
-            ptr%soilws1_hlsp(MAX_HLSP_K, MAX_HLSP_J), &
-            ptr%soilws2_hlsp(MAX_HLSP_K, MAX_HLSP_J), &
-            ptr%soilws3_hlsp(MAX_HLSP_K, MAX_HLSP_J), &
-            ptr%soilws4_hlsp(MAX_HLSP_K, MAX_HLSP_J), &
-            ptr%soilws5_hlsp(MAX_HLSP_K, MAX_HLSP_J), &
-            ptr%soilws6_hlsp(MAX_HLSP_K, MAX_HLSP_J) ) 
+            ptr%tatm_nodis_hlsp(MAX_HLSP_K, MAX_HLSP_J) ) 
+
+ allocate ( ptr%lwc_soil(num_l), &
+            ptr%swc_soil(num_l) )
 
   ! Initialize to catch use before appropriate
   !ptr%psi(:) = initval
@@ -939,19 +899,10 @@ function soil_tile_ctor_predefined(hidx_j, hidx_k, tile_parameters, &
   ptr%patm_hlsp(:, :) = initval
   ptr%psurf_hlsp(:, :) = initval
   ptr%qatm_hlsp(:, :) = initval
-  ptr%tatm_nodis_hlsp(:, :) = initval  
-  ptr%soilwl1_hlsp(:, :) = initval 
-  ptr%soilwl2_hlsp(:, :) = initval 
-  ptr%soilwl3_hlsp(:, :) = initval 
-  ptr%soilwl4_hlsp(:, :) = initval 
-  ptr%soilwl5_hlsp(:, :) = initval 
-  ptr%soilwl6_hlsp(:, :) = initval   
-  ptr%soilws1_hlsp(:, :) = initval 
-  ptr%soilws2_hlsp(:, :) = initval
-  ptr%soilws3_hlsp(:, :) = initval 
-  ptr%soilws4_hlsp(:, :) = initval
-  ptr%soilws5_hlsp(:, :) = initval 
-  ptr%soilws6_hlsp(:, :) = initval    
+  ptr%tatm_nodis_hlsp(:, :) = initval    
+
+  ptr%lwc_soil(:) = initval   
+  ptr%swc_soil(:) = initval
 
   call soil_data_init_0d_predefined(ptr,tile_parameters,itile)
   do i=1,num_l

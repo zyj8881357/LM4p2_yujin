@@ -50,7 +50,7 @@ use soil_carbon_mod, only: soil_pool, poolTotals, poolTotals1, soilMaxCohorts, l
 
 
 use land_tile_mod, only : land_tile_map, land_tile_type, land_tile_enum_type, &
-     first_elmt, prev_elmt, loop_over_tiles, fptr_r0
+     first_elmt, prev_elmt, loop_over_tiles, fptr_r0, fptr_r0i
 use land_utils_mod, only : put_to_tiles_r0d_fptr, put_to_tiles_r1d_fptr
 use land_tile_diag_mod, only : diag_buff_type, set_default_diag_filter, &
      register_tiled_static_field, register_tiled_diag_field, &
@@ -82,7 +82,7 @@ use hillslope_mod, only : do_hillslope_model, max_num_topo_hlsps, &
 use land_io_mod, only : &
      init_cover_field
 use soil_tile_mod, only : n_dim_soil_types, soil_to_use, &
-     soil_index_constant, input_cover_types, month_name
+     soil_index_constant, input_cover_types, month_name, max_lev
 use hillslope_hydrology_mod, only: hlsp_hydro_lev_init, hlsp_hydrology_2, &
      stiff_explicit_gwupdate
 use river_mod, only : river_tracer_index
@@ -286,13 +286,9 @@ integer :: id_nk, id_nj, id_elevmean, id_pslope2p
 integer :: &
     id_lift_hlsp, id_pratio_hlsp, id_lprec_hlsp, id_fprec_hlsp, id_elev_hlsp, id_tfrac_hlsp
 integer :: &
-    id_lwc1_hlsp, id_lwc2_hlsp, id_lwc3_hlsp, id_lwc4_hlsp, id_lwc5_hlsp, id_lwc6_hlsp
-integer :: &
-    id_swc1_hlsp, id_swc2_hlsp, id_swc3_hlsp, id_swc4_hlsp, id_swc5_hlsp, id_swc6_hlsp
-integer :: &
     id_zatm_hlsp, id_tatm_hlsp, id_patm_hlsp, id_psurf_hlsp, id_qatm_hlsp, id_tatm_nodis_hlsp
-integer :: &
-    id_runf_hlsp
+integer :: id_runf_tile_hlsp
+integer, dimension(max_lev) :: id_lwc_soil_hlsp, id_swc_soil_hlsp
 
 
 ! FIXME: add N leaching terms to diagnostics?
@@ -1000,6 +996,38 @@ end function replace_text
 
 ! ============================================================================
 
+function register_hlsplev_diag_fields(module_name, field_name, axes, init_time, &
+     long_name, units, missing_value, range, op, standard_name) result (id)
+
+  integer :: id(num_l)
+
+  character(len=*), intent(in) :: module_name
+  character(len=*), intent(in) :: field_name
+  integer,          intent(in) :: axes(:)
+  type(time_type),  intent(in) :: init_time
+  character(len=*), intent(in), optional :: long_name
+  character(len=*), intent(in), optional :: units
+  real,             intent(in), optional :: missing_value
+  real,             intent(in), optional :: range(2)
+  character(len=*), intent(in), optional :: op ! aggregation operation
+  character(len=*), intent(in), optional :: standard_name
+
+  integer :: i
+  character(len=2) :: num_i 
+
+
+  do i = 1, num_l
+     write(num_i,*) i
+     id(i) = register_tiled_diag_field(module_name, &
+             trim(replace_text(field_name,'<lev>',trim(num_i))), &
+             axes, init_time, &
+             trim(replace_text(long_name,'<lev>',trim(num_i))), &
+             units, missing_value, range, op, standard_name)
+  enddo
+end function register_hlsplev_diag_fields
+
+! ============================================================================
+
 function register_soilc_diag_fields(module_name, field_name, axes, init_time, &
      long_name, units, missing_value, range, op, standard_name) result (id)
 
@@ -1178,9 +1206,6 @@ subroutine soil_diag_init(id_ug,id_band,id_zfull,id_ptid)
   id_tfrac_hlsp = register_tiled_diag_field ( module_name, 'tfrac_hlsp', (/id_ug,id_kj/), &
        lnd%time, 'hillslope total tile fraction', 'unitless', missing_value=initval )  
 
-  id_runf_hlsp = register_tiled_diag_field ( module_name, 'runf_hlsp', (/id_ug,id_kj/), &
-       lnd%time, 'total runoff', 'kg/(m2 s)', missing_value=initval )
-
   id_zatm_hlsp = register_tiled_diag_field ( module_name, 'zatm_hlsp', (/id_ug,id_kj/), &
        lnd%time, 'disaggregated height above the surface for the lowest atmos level', 'm', missing_value=initval )
   id_tatm_hlsp = register_tiled_diag_field ( module_name, 'tatm_hlsp', (/id_ug,id_kj/), &
@@ -1192,34 +1217,15 @@ subroutine soil_diag_init(id_ug,id_band,id_zfull,id_ptid)
   id_qatm_hlsp = register_tiled_diag_field ( module_name, 'qatm_hlsp', (/id_ug,id_kj/), &
        lnd%time, 'disaggregated specific humidity at lowest atmos level', 'kg/kg', missing_value=initval )      
   id_tatm_nodis_hlsp = register_tiled_diag_field ( module_name, 'tatm_nodis_hlsp', (/id_ug,id_kj/), &
-       lnd%time, 'non-disaggregated temperature at lowest atmos level', 'degK', missing_value=initval )              
+       lnd%time, 'non-disaggregated temperature at lowest atmos level', 'degK', missing_value=initval )                                   
 
-  id_lwc1_hlsp = register_tiled_diag_field ( module_name, 'lwc1_hlsp', (/id_ug,id_kj/),  &
-       lnd%time, 'bulk density of liquid water (layer 1)', 'kg/m3', missing_value=initval )              
-  id_lwc2_hlsp = register_tiled_diag_field ( module_name, 'lwc2_hlsp', (/id_ug,id_kj/),  &
-       lnd%time, 'bulk density of liquid water (layer 2)', 'kg/m3', missing_value=initval ) 
-  id_lwc3_hlsp = register_tiled_diag_field ( module_name, 'lwc3_hlsp', (/id_ug,id_kj/),  &
-       lnd%time, 'bulk density of liquid water (layer 3)', 'kg/m3', missing_value=initval )          
-  id_lwc4_hlsp = register_tiled_diag_field ( module_name, 'lwc4_hlsp', (/id_ug,id_kj/),  &
-       lnd%time, 'bulk density of liquid water (layer 4)', 'kg/m3', missing_value=initval )   
-  id_lwc5_hlsp = register_tiled_diag_field ( module_name, 'lwc5_hlsp', (/id_ug,id_kj/),  &
-       lnd%time, 'bulk density of liquid water (layer 5)', 'kg/m3', missing_value=initval )     
-  id_lwc6_hlsp = register_tiled_diag_field ( module_name, 'lwc6_hlsp', (/id_ug,id_kj/),  &
-       lnd%time, 'bulk density of liquid water (layer 6)', 'kg/m3', missing_value=initval )     
+  id_runf_tile_hlsp = register_tiled_diag_field ( module_name, 'runf_tile_hlsp', (/id_ug,id_kj/), &
+       lnd%time, 'total runoff', 'kg/(m2 s)', missing_value=initval )
 
-  id_swc1_hlsp = register_tiled_diag_field ( module_name, 'swc1_hlsp', (/id_ug,id_kj/),  &
-       lnd%time, 'bulk density of solid water (layer 1)', 'kg/m3', missing_value=initval )  
-  id_swc2_hlsp = register_tiled_diag_field ( module_name, 'swc2_hlsp', (/id_ug,id_kj/),  &
-       lnd%time, 'bulk density of solid water (layer 2)', 'kg/m3', missing_value=initval ) 
-  id_swc3_hlsp = register_tiled_diag_field ( module_name, 'swc3_hlsp', (/id_ug,id_kj/),  &
-       lnd%time, 'bulk density of solid water (layer 3)', 'kg/m3', missing_value=initval ) 
-  id_swc4_hlsp = register_tiled_diag_field ( module_name, 'swc4_hlsp', (/id_ug,id_kj/),  &
-       lnd%time, 'bulk density of solid water (layer 4)', 'kg/m3', missing_value=initval ) 
-  id_swc5_hlsp = register_tiled_diag_field ( module_name, 'swc5_hlsp', (/id_ug,id_kj/),  &
-       lnd%time, 'bulk density of solid water (layer 5)', 'kg/m3', missing_value=initval ) 
-  id_swc6_hlsp = register_tiled_diag_field ( module_name, 'swc6_hlsp', (/id_ug,id_kj/),  &
-       lnd%time, 'bulk density of solid water (layer 6)', 'kg/m3', missing_value=initval )                        
-
+  id_lwc_soil_hlsp(1:num_l) = register_hlsplev_diag_fields(module_name, 'lwc_soil_hlsp<lev>', &
+       (/id_ug,id_kj/), lnd%time, 'layer <lev> bulk density of liquid water', 'kg/m3', missing_value=initval )
+  id_swc_soil_hlsp(1:num_l) = register_hlsplev_diag_fields(module_name, 'swc_soil_hlsp<lev>', &
+       (/id_ug,id_kj/), lnd%time, 'layer <lev> bulk density of solid water', 'kg/m3', missing_value=initval )
 
   ! by-carbon-species diag fields
   id_soil_C(:) = register_soilc_diag_fields(module_name, '<ctype>_soil_C', &
@@ -3333,39 +3339,6 @@ end subroutine soil_step_1
   ! std variables
   if (id_lwc_std > 0) call send_tile_data(id_lwc_std,  soil%wl/dz(1:num_l), diag)
   if (id_swc_std > 0) call send_tile_data(id_swc_std,  soil%ws/dz(1:num_l), diag)
-
-  call send_tile_data(id_nk,float(soil%nk_hlsp), diag)
-  call send_tile_data(id_nj,float(soil%nj_hlsp), diag) 
-  call send_tile_data(id_elevmean, soil%elevmean_hlsp, diag)
-  call send_tile_data(id_pslope2p, soil%pslope2p_hlsp, diag)
-
-  call send_tile_data(id_lift_hlsp,  pack(soil%lift_hlsp,.true.),  diag)
-  call send_tile_data(id_pratio_hlsp,pack(soil%pratio_hlsp,.true.),diag)          
-  call send_tile_data(id_lprec_hlsp, pack(soil%lprec_hlsp,.true.), diag)
-  call send_tile_data(id_fprec_hlsp, pack(soil%fprec_hlsp,.true.), diag)   
-  call send_tile_data(id_elev_hlsp,  pack(soil%elev_hlsp,.true.),  diag) 
-  call send_tile_data(id_tfrac_hlsp, pack(soil%tfrac_hlsp,.true.), diag)  
-
-  call send_tile_data(id_zatm_hlsp,  pack(soil%zatm_hlsp,.true.),  diag)
-  call send_tile_data(id_tatm_hlsp,  pack(soil%tatm_hlsp,.true.),  diag) 
-  call send_tile_data(id_patm_hlsp,  pack(soil%patm_hlsp,.true.),  diag)
-  call send_tile_data(id_psurf_hlsp, pack(soil%psurf_hlsp,.true.), diag) 
-  call send_tile_data(id_qatm_hlsp,  pack(soil%qatm_hlsp,.true.),  diag)
-  call send_tile_data(id_tatm_nodis_hlsp,  pack(soil%tatm_nodis_hlsp,.true.),  diag) 
-
-  call send_tile_data(id_lwc1_hlsp, pack(soil%soilwl1_hlsp,.true.), diag)          
-  call send_tile_data(id_lwc2_hlsp, pack(soil%soilwl2_hlsp,.true.), diag)  
-  call send_tile_data(id_lwc3_hlsp, pack(soil%soilwl3_hlsp,.true.), diag)  
-  call send_tile_data(id_lwc4_hlsp, pack(soil%soilwl4_hlsp,.true.), diag)  
-  call send_tile_data(id_lwc5_hlsp, pack(soil%soilwl5_hlsp,.true.), diag)  
-  call send_tile_data(id_lwc6_hlsp, pack(soil%soilwl6_hlsp,.true.), diag)  
-
-  call send_tile_data(id_swc1_hlsp, pack(soil%soilws1_hlsp,.true.), diag)          
-  call send_tile_data(id_swc2_hlsp, pack(soil%soilws2_hlsp,.true.), diag)  
-  call send_tile_data(id_swc3_hlsp, pack(soil%soilws3_hlsp,.true.), diag)  
-  call send_tile_data(id_swc4_hlsp, pack(soil%soilws4_hlsp,.true.), diag)  
-  call send_tile_data(id_swc5_hlsp, pack(soil%soilws5_hlsp,.true.), diag)  
-  call send_tile_data(id_swc6_hlsp, pack(soil%soilws6_hlsp,.true.), diag)  
 
 end subroutine soil_step_2
 
@@ -5544,13 +5517,54 @@ end subroutine init_soil_twc
 ! ============================================================================
 ! hillslope output
 subroutine soil_hlsp_diag()
+  integer :: i,l,k
+  type(land_tile_enum_type)     :: ce      ! tile list enumerator
+  type(land_tile_type), pointer :: tile    ! pointer to tile
 
-  call send_hlsp_data_r2d_fptr(id_runf_hlsp, soil_runf_tile_ptr)
+  do l = lnd%ls, lnd%le
+     ce = first_elmt(land_tile_map(l))
+     do while (loop_over_tiles(ce,tile,k=k))
+       if (.not.associated(tile%soil)) cycle 
+       call send_tile_data(id_nk,float(tile%soil%nk_hlsp), tile%diag)
+       call send_tile_data(id_nj,float(tile%soil%nj_hlsp), tile%diag) 
+       call send_tile_data(id_elevmean, tile%soil%elevmean_hlsp, tile%diag)
+       call send_tile_data(id_pslope2p, tile%soil%pslope2p_hlsp, tile%diag)
 
+       call send_tile_data(id_lift_hlsp,  pack(tile%soil%lift_hlsp,.true.),  tile%diag)
+       call send_tile_data(id_pratio_hlsp,pack(tile%soil%pratio_hlsp,.true.),tile%diag)          
+       call send_tile_data(id_lprec_hlsp, pack(tile%soil%lprec_hlsp,.true.), tile%diag)
+       call send_tile_data(id_fprec_hlsp, pack(tile%soil%fprec_hlsp,.true.), tile%diag)   
+       call send_tile_data(id_elev_hlsp,  pack(tile%soil%elev_hlsp,.true.),  tile%diag) 
+       call send_tile_data(id_tfrac_hlsp, pack(tile%soil%tfrac_hlsp,.true.), tile%diag)  
+
+       call send_tile_data(id_zatm_hlsp,  pack(tile%soil%zatm_hlsp,.true.),  tile%diag)
+       call send_tile_data(id_tatm_hlsp,  pack(tile%soil%tatm_hlsp,.true.),  tile%diag) 
+       call send_tile_data(id_patm_hlsp,  pack(tile%soil%patm_hlsp,.true.),  tile%diag)
+       call send_tile_data(id_psurf_hlsp, pack(tile%soil%psurf_hlsp,.true.), tile%diag) 
+       call send_tile_data(id_qatm_hlsp,  pack(tile%soil%qatm_hlsp,.true.),  tile%diag)
+       call send_tile_data(id_tatm_nodis_hlsp,  pack(tile%soil%tatm_nodis_hlsp,.true.),  tile%diag) 
+     enddo
+  enddo  
+
+  call send_hlsp_data_r0d_fptr(id_runf_tile_hlsp, soil_runf_tile_ptr)
+
+  do l = lnd%ls, lnd%le
+     ce = first_elmt(land_tile_map(l))
+     do while (loop_over_tiles(ce,tile,k=k))
+       if (.not.associated(tile%soil)) cycle 
+       tile%soil%lwc_soil = tile%soil%wl/dz !kg/m2 / m = kg/m3
+       tile%soil%swc_soil = tile%soil%ws/dz
+     enddo
+  enddo
+
+  do i=1,num_l
+    call send_hlsp_data_r1d_fptr(id_lwc_soil_hlsp(i), soil_lwc_soil_ptr, i)
+    call send_hlsp_data_r1d_fptr(id_swc_soil_hlsp(i), soil_swc_soil_ptr, i)    
+  enddo
 end subroutine soil_hlsp_diag
 
 ! ============================================================================
-subroutine send_hlsp_data_r2d_fptr(id, fptr)
+subroutine send_hlsp_data_r0d_fptr(id, fptr)
   integer, intent(in) :: id
   procedure(fptr_r0)  :: fptr
 
@@ -5573,7 +5587,7 @@ subroutine send_hlsp_data_r2d_fptr(id, fptr)
         if (.not.associated(tile%soil)) cycle
         hidx_k =  tile%soil%hidx_k 
         hidx_j =  tile%soil%hidx_j
-        tfrac(l,:,:) = tile%soil%tfrac_hlsp
+        if(tfrac(l,1,1)==initval) tfrac(l,:,:) = tile%soil%tfrac_hlsp
         if(data_hlsp(l,hidx_k,hidx_j)==initval) data_hlsp(l,hidx_k,hidx_j) = 0.
         call fptr(tile,ptr) !tileptr
         if(associated(ptr))then
@@ -5594,13 +5608,71 @@ subroutine send_hlsp_data_r2d_fptr(id, fptr)
 
   deallocate(tfrac,data_hlsp)
 
-end subroutine send_hlsp_data_r2d_fptr
+end subroutine send_hlsp_data_r0d_fptr
+
+! ============================================================================
+subroutine send_hlsp_data_r1d_fptr(id, fptr, lev)
+  integer, intent(in) :: id
+  procedure(fptr_r0i)  :: fptr
+  integer, intent(in) :: lev
+
+  type(land_tile_enum_type)     :: ce      ! tile list enumerator
+  type(land_tile_type), pointer :: tile    ! pointer to tile
+  real                , pointer :: ptr     ! pointer to the data element within a tile
+  real, allocatable, dimension(:,:,:) :: tfrac, data_hlsp
+  integer :: l, k, hidx_k, hidx_j
+
+  if(id <= 0) return
+  allocate( tfrac(lnd%ls:lnd%le, MAX_HLSP_K, MAX_HLSP_J) )
+  allocate( data_hlsp(lnd%ls:lnd%le, MAX_HLSP_K, MAX_HLSP_J) )
+
+  tfrac(lnd%ls:lnd%le, 1:MAX_HLSP_K, 1:MAX_HLSP_J)=initval
+  data_hlsp(lnd%ls:lnd%le, 1:MAX_HLSP_K, 1:MAX_HLSP_J)=initval
+
+  do l = lnd%ls, lnd%le
+     ce = first_elmt(land_tile_map(l))
+     do while (loop_over_tiles(ce,tile,k=k))
+        if (.not.associated(tile%soil)) cycle
+        hidx_k =  tile%soil%hidx_k 
+        hidx_j =  tile%soil%hidx_j
+        if(tfrac(l,1,1)==initval) tfrac(l,:,:) = tile%soil%tfrac_hlsp
+        if(data_hlsp(l,hidx_k,hidx_j)==initval) data_hlsp(l,hidx_k,hidx_j) = 0.
+        call fptr(tile,lev,ptr) !tileptr
+        if(associated(ptr))then
+          data_hlsp(l,hidx_k,hidx_j) = data_hlsp(l,hidx_k,hidx_j) + ptr*tile%frac 
+        else
+          call error_mesg(module_name, 'unrecognized soil variable', FATAL)
+        endif  
+     enddo
+  enddo
+  where(data_hlsp/=initval) data_hlsp=data_hlsp/tfrac
+  do l = lnd%ls, lnd%le
+     ce = first_elmt(land_tile_map(l))
+     do while (loop_over_tiles(ce,tile,k=k))
+        if (.not.associated(tile%soil)) cycle
+        call send_tile_data(id,  pack(data_hlsp(l,:,:),.true.),  tile%diag)      
+     enddo
+  enddo
+
+  deallocate(tfrac,data_hlsp)
+
+end subroutine send_hlsp_data_r1d_fptr
+
 ! ============================================================================
 #define DEFINE_SOIL_ACCESSOR_0D(xtype,x) subroutine soil_ ## x ## _ptr(t,p);\
 type(land_tile_type),pointer::t;xtype,pointer::p;p=>NULL();if(associated(t))then;if(associated(t%soil))p=>t%soil%x;endif;\
 end subroutine
 
+#define DEFINE_SOIL_ACCESSOR_1D(xtype,x) subroutine soil_ ## x ## _ptr(t,i,p);\
+type(land_tile_type),pointer::t;integer,intent(in)::i;xtype,pointer::p;p=>NULL();if(associated(t))then;if(associated(t%soil))p=>t%soil%x(i);endif;\
+end subroutine
+
+
 DEFINE_SOIL_ACCESSOR_0D(real,runf_tile)
+DEFINE_SOIL_ACCESSOR_1D(real,lwc_soil)
+DEFINE_SOIL_ACCESSOR_1D(real,swc_soil)
+
+
 
 ! ============================================================================
 
