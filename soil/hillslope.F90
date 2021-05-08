@@ -1150,10 +1150,7 @@ subroutine hlsp_disagg_precip(cplr2land)
   type(land_tile_type), pointer :: tile
   real :: h, frac, norm, adjust, kgh
   integer :: l, k, lev
-  real, allocatable, dimension(:,:,:) :: lprec, fprec, lift, pratio, tfrac 
-  real, allocatable, dimension(:,:,:) :: zatm,tatm,patm,psurf,qatm,tatm_nodis
-  real, dimension(lnd%ls:lnd%le) :: pslope2p 
-  integer :: hidx_k, hidx_j
+  real :: pslope2p 
   integer :: year,month,day,hour,minute,second
 
   if(.not.use_predefined_tiles) then
@@ -1161,35 +1158,7 @@ subroutine hlsp_disagg_precip(cplr2land)
     return 
   endif 
 
-  allocate( lprec(lnd%ls:lnd%le, MAX_HLSP_K, MAX_HLSP_J), &
-            fprec(lnd%ls:lnd%le, MAX_HLSP_K, MAX_HLSP_J), &
-            tfrac(lnd%ls:lnd%le, 1:MAX_HLSP_K, 1:MAX_HLSP_J), &
-            lift(lnd%ls:lnd%le, MAX_HLSP_K, MAX_HLSP_J), &
-            pratio(lnd%ls:lnd%le, MAX_HLSP_K, MAX_HLSP_J), &
-            zatm(lnd%ls:lnd%le, MAX_HLSP_K, MAX_HLSP_J), &
-            tatm(lnd%ls:lnd%le, MAX_HLSP_K, MAX_HLSP_J), &
-            patm(lnd%ls:lnd%le, MAX_HLSP_K, MAX_HLSP_J), &
-            psurf(lnd%ls:lnd%le, MAX_HLSP_K, MAX_HLSP_J), &
-            qatm(lnd%ls:lnd%le, MAX_HLSP_K, MAX_HLSP_J), &
-            tatm_nodis(lnd%ls:lnd%le, MAX_HLSP_K, MAX_HLSP_J) )
-
   call get_date(lnd%time,year,month,day,hour,minute,second)
-
-
-  pslope2p(lnd%ls:lnd%le)=initval
-  lift(lnd%ls:lnd%le, 1:MAX_HLSP_K, 1:MAX_HLSP_J)=initval 
-  pratio(lnd%ls:lnd%le, 1:MAX_HLSP_K, 1:MAX_HLSP_J)=initval   
-  lprec(lnd%ls:lnd%le, 1:MAX_HLSP_K, 1:MAX_HLSP_J)=initval
-  fprec(lnd%ls:lnd%le, 1:MAX_HLSP_K, 1:MAX_HLSP_J)=initval
-  tfrac(lnd%ls:lnd%le, 1:MAX_HLSP_K, 1:MAX_HLSP_J)=initval
-  zatm(lnd%ls:lnd%le, 1:MAX_HLSP_K, 1:MAX_HLSP_J)=initval
-  tatm(lnd%ls:lnd%le, 1:MAX_HLSP_K, 1:MAX_HLSP_J)=initval
-  patm(lnd%ls:lnd%le, 1:MAX_HLSP_K, 1:MAX_HLSP_J)=initval
-  psurf(lnd%ls:lnd%le, 1:MAX_HLSP_K, 1:MAX_HLSP_J)=initval
-  qatm(lnd%ls:lnd%le, 1:MAX_HLSP_K, 1:MAX_HLSP_J)=initval  
-  tatm_nodis(lnd%ls:lnd%le, 1:MAX_HLSP_K, 1:MAX_HLSP_J)=initval        
-
-
 
   norm_tot(lnd%ls:lnd%le) = 0.0
   do l = lnd%ls, lnd%le
@@ -1197,35 +1166,35 @@ subroutine hlsp_disagg_precip(cplr2land)
      do while (loop_over_tiles(ce,tile,k=k))
        if (.not.associated(tile%soil)) cycle 
        if (cplr2land%bnv(l,k)>0.)then
-          h = min(tile%soil%pars%tile_elevation - tile%soil%elevmean_hlsp, cplr2land%ulow(l,k)/cplr2land%bnv(l,k))
+          h = min(tile%soil%pars%tile_elevation - tile%soil%hlsp%elevmean_g, cplr2land%ulow(l,k)/cplr2land%bnv(l,k))
        else
-          h = tile%soil%pars%tile_elevation - tile%soil%elevmean_hlsp
+          h = tile%soil%pars%tile_elevation - tile%soil%hlsp%elevmean_g
        endif
-       frac = tile%frac/tile%soil%soilfrac_hlsp 
+       frac = tile%frac/tile%soil%hlsp%soilfrac_g
 
        if(trim(elev_scale_to_use)=="OBS")then
-          pslope2p(l) = tile%soil%pars%precip_slope2p(month)
+          pslope2p = tile%soil%pars%precip_slope2p(month)
        else if(trim(elev_scale_to_use)=="constant")then
           if(elev_scale>0.)then
-             pslope2p(l) = 1./elev_scale
+             pslope2p = 1./elev_scale
           else
-             pslope2p(l) = 0.
+             pslope2p = 0.
           endif     
        else if(trim(elev_scale_to_use)=="ERMM")then
-          pslope2p(l) =  1./tile%soil%elevmax_hlsp
+          pslope2p =  1./tile%soil%hlsp%elevmax_g
        else if(do_hlsp_disagg_precip)then
           call error_mesg(module_name, 'unrecognized precipitation slope method', FATAL)
        else 
-          pslope2p(l) = 0. 
+          pslope2p = 0. 
        endif 
 
-       kgh = max(pslope2p(l)*h,-0.9999)
+       tile%soil%hlsp%pslope2p_g = pslope2p
+
+       kgh = max(tile%soil%hlsp%pslope2p_g*h,-0.9999)
        norm = frac * (1. + kgh)
        norm_tot(l) = norm_tot(l) + norm
-
-       hidx_k =  tile%soil%hidx_k
-       hidx_j =  tile%soil%hidx_j    
-       lift(l,hidx_k,hidx_j) = h
+  
+       tile%soil%hlsp%lift = h
      enddo
   enddo
 
@@ -1233,7 +1202,7 @@ subroutine hlsp_disagg_precip(cplr2land)
      ce = first_elmt(land_tile_map(l))
      do while (loop_over_tiles(ce,tile,k=k))
        if (.not.associated(tile%soil)) cycle 
-       kgh = max(pslope2p(l)*h,-0.9999)
+       kgh = max(tile%soil%hlsp%pslope2p_g*h,-0.9999)
        adjust = (1. + kgh)/norm_tot(l)
 
        if(do_hlsp_disagg_precip)then
@@ -1241,9 +1210,7 @@ subroutine hlsp_disagg_precip(cplr2land)
          cplr2land%fprec(l,k) = cplr2land%fprec(l,k) * adjust
        endif
 
-       hidx_k =  tile%soil%hidx_k
-       hidx_j =  tile%soil%hidx_j
-       pratio(l,hidx_k,hidx_j) = adjust
+       tile%soil%hlsp%pratio = adjust
      enddo
   enddo
 
@@ -1251,55 +1218,16 @@ subroutine hlsp_disagg_precip(cplr2land)
      ce = first_elmt(land_tile_map(l))
      do while (loop_over_tiles(ce,tile,k=k))
        if (.not.associated(tile%soil)) cycle
-       hidx_k =  tile%soil%hidx_k 
-       hidx_j =  tile%soil%hidx_j
-       ! this assumes cplr2land%lprec(l,k) are same for tiles with same hidx_k and hidx_j
-       lprec(l,hidx_k,hidx_j) = cplr2land%lprec(l,k) 
-       fprec(l,hidx_k,hidx_j) = cplr2land%fprec(l,k)
-       tfrac(l,:,:) = tile%soil%tfrac_hlsp
-
-       if(zatm(l,hidx_k,hidx_j)==initval) zatm(l,hidx_k,hidx_j) = 0.
-       zatm(l,hidx_k,hidx_j) = zatm(l,hidx_k,hidx_j) + cplr2land%z_atm_dis(l,k)*tile%frac
-       if(tatm(l,hidx_k,hidx_j)==initval) tatm(l,hidx_k,hidx_j) = 0.
-       tatm(l,hidx_k,hidx_j) = tatm(l,hidx_k,hidx_j) + cplr2land%t_atm_dis(l,k)*tile%frac
-       if(patm(l,hidx_k,hidx_j)==initval) patm(l,hidx_k,hidx_j) = 0.
-       patm(l,hidx_k,hidx_j) = patm(l,hidx_k,hidx_j) + cplr2land%p_atm_dis(l,k)*tile%frac 
-       if(psurf(l,hidx_k,hidx_j)==initval) psurf(l,hidx_k,hidx_j) = 0.
-       psurf(l,hidx_k,hidx_j) = psurf(l,hidx_k,hidx_j) + cplr2land%p_surf_dis(l,k)*tile%frac  
-       if(qatm(l,hidx_k,hidx_j)==initval) qatm(l,hidx_k,hidx_j) = 0.
-       qatm(l,hidx_k,hidx_j) = qatm(l,hidx_k,hidx_j) + cplr2land%q_atm_dis(l,k)*tile%frac  
-       if(tatm_nodis(l,hidx_k,hidx_j)==initval) tatm_nodis(l,hidx_k,hidx_j) = 0.
-       tatm_nodis(l,hidx_k,hidx_j) = tatm_nodis(l,hidx_k,hidx_j) + cplr2land%t_atm_nodis(l,k)*tile%frac                              
+       tile%soil%hlsp%lprec = cplr2land%lprec(l,k)
+       tile%soil%hlsp%fprec = cplr2land%fprec(l,k)
+       tile%soil%hlsp%zatm  = cplr2land%z_atm_dis(l,k)
+       tile%soil%hlsp%tatm  = cplr2land%t_atm_dis(l,k) 
+       tile%soil%hlsp%patm  = cplr2land%p_atm_dis(l,k) 
+       tile%soil%hlsp%psurf = cplr2land%p_surf_dis(l,k)   
+       tile%soil%hlsp%qatm  = cplr2land%q_atm_dis(l,k)  
+       tile%soil%hlsp%tatm_nodis  = cplr2land%t_atm_nodis(l,k)                           
      enddo
   enddo
-      
-  where(zatm/=initval) zatm=zatm/tfrac
-  where(tatm/=initval) tatm=tatm/tfrac  
-  where(patm/=initval) patm=patm/tfrac
-  where(psurf/=initval) psurf=psurf/tfrac
-  where(qatm/=initval) qatm=qatm/tfrac
-  where(tatm_nodis/=initval) tatm_nodis=tatm_nodis/tfrac  
-
-
-  do l = lnd%ls, lnd%le
-     ce = first_elmt(land_tile_map(l))
-     do while (loop_over_tiles(ce,tile,k=k))
-       if (.not.associated(tile%soil)) cycle
-       tile%soil%pslope2p_hlsp = pslope2p(l)
-       tile%soil%lift_hlsp(:,:) = lift(l,:,:)
-       tile%soil%pratio_hlsp(:,:) = pratio(l,:,:)
-       tile%soil%lprec_hlsp(:,:) = lprec(l,:,:)
-       tile%soil%fprec_hlsp(:,:) = fprec(l,:,:)
-       tile%soil%zatm_hlsp(:,:) = zatm(l,:,:)
-       tile%soil%tatm_hlsp(:,:) = tatm(l,:,:)
-       tile%soil%patm_hlsp(:,:) = patm(l,:,:)
-       tile%soil%psurf_hlsp(:,:)= psurf(l,:,:)
-       tile%soil%qatm_hlsp(:,:) = qatm(l,:,:)
-       tile%soil%tatm_nodis_hlsp(:,:) = tatm_nodis(l,:,:)   
-     enddo
-  enddo       
-  
-  deallocate( lprec, fprec, tfrac, lift, pratio, zatm, tatm, patm, psurf, qatm, tatm_nodis)
 
 end subroutine hlsp_disagg_precip
 

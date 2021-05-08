@@ -287,8 +287,8 @@ integer :: &
     id_lift_hlsp, id_pratio_hlsp, id_lprec_hlsp, id_fprec_hlsp, id_elev_hlsp, id_tfrac_hlsp
 integer :: &
     id_zatm_hlsp, id_tatm_hlsp, id_patm_hlsp, id_psurf_hlsp, id_qatm_hlsp, id_tatm_nodis_hlsp
-integer :: id_runf_tile_hlsp
-integer, dimension(max_lev) :: id_lwc_soil_hlsp, id_swc_soil_hlsp
+integer, dimension(max_lev) :: id_lwc_hlsp, id_swc_hlsp
+integer :: id_runf_land_hlsp
 
 
 ! FIXME: add N leaching terms to diagnostics?
@@ -663,8 +663,7 @@ subroutine soil_init (id_ug,id_band,id_zfull,id_ptid)
           deallocate(precip_s2p)
       endif 
 
-      allocate( elev(lnd%ls:lnd%le, MAX_HLSP_K, MAX_HLSP_J), &
-                tfrac(lnd%ls:lnd%le, MAX_HLSP_K, MAX_HLSP_J) )
+      allocate( tfrac(lnd%ls:lnd%le, MAX_HLSP_K, MAX_HLSP_J) )
 
       nk(lnd%ls:lnd%le)=0
       nj(lnd%ls:lnd%le)=0  
@@ -672,7 +671,7 @@ subroutine soil_init (id_ug,id_band,id_zfull,id_ptid)
       elev_mean(lnd%ls:lnd%le) = 0.0
       elevmax(lnd%ls:lnd%le) = 0.0
       !pslope2p(lnd%ls:lnd%le)=initval
-      elev(lnd%ls:lnd%le, 1:MAX_HLSP_K, 1:MAX_HLSP_J)=initval  
+      !elev(lnd%ls:lnd%le, 1:MAX_HLSP_K, 1:MAX_HLSP_J)=initval  
       tfrac(lnd%ls:lnd%le, 1:MAX_HLSP_K, 1:MAX_HLSP_J)=initval  
       !l
       do ll = lnd%ls, lnd%le
@@ -685,8 +684,7 @@ subroutine soil_init (id_ug,id_band,id_zfull,id_ptid)
            hidx_k =  tile%soil%hidx_k
            hidx_j =  tile%soil%hidx_j
            if(hidx_k>nk(ll)) nk(ll)=hidx_k
-           if(hidx_j>nj(ll)) nj(ll)=hidx_j     
-           elev(ll,hidx_k,hidx_j) = tile%soil%pars%tile_elevation    
+           if(hidx_j>nj(ll)) nj(ll)=hidx_j       
            if(tfrac(ll,hidx_k,hidx_j)==initval) tfrac(ll,hidx_k,hidx_j) = 0.
            tfrac(ll,hidx_k,hidx_j) = tfrac(ll,hidx_k,hidx_j) + tile%frac                
          enddo
@@ -698,18 +696,16 @@ subroutine soil_init (id_ug,id_band,id_zfull,id_ptid)
         ce = first_elmt(land_tile_map(ll))
         do while (loop_over_tiles(ce,tile,k=k))
           if (.not.associated(tile%soil)) cycle
-          tile%soil%nk_hlsp = nk(ll)
-          tile%soil%nj_hlsp = nj(ll)  
-          tile%soil%elevmean_hlsp = elev_mean(ll)  
-          tile%soil%elevmax_hlsp = elevmax(ll)
-          tile%soil%soilfrac_hlsp = soil_frac(ll)
-          !tile%soil%pslope2p_hlsp = pslope2p(ll)
-          tile%soil%elev_hlsp(:,:) = elev(ll,:,:)
-          tile%soil%tfrac_hlsp(:,:) = tfrac(ll,:,:)     
+          tile%soil%hlsp%nk_g = nk(ll)
+          tile%soil%hlsp%nj_g = nj(ll)  
+          tile%soil%hlsp%elevmean_g = elev_mean(ll)  
+          tile%soil%hlsp%elevmax_g = elevmax(ll)
+          tile%soil%hlsp%soilfrac_g = soil_frac(ll)
+          tile%soil%hlsp%tfrac_g(:,:) = tfrac(ll,:,:)     
         enddo
       enddo    
 
-      deallocate(elev,tfrac)   
+      deallocate(tfrac)   
 
   endif
   !--------------------------------------------------------
@@ -1013,7 +1009,7 @@ function register_hlsplev_diag_fields(module_name, field_name, axes, init_time, 
   character(len=*), intent(in), optional :: standard_name
 
   integer :: i
-  character(len=2) :: num_i 
+  character(len=8) :: num_i 
 
 
   do i = 1, num_l
@@ -1219,13 +1215,14 @@ subroutine soil_diag_init(id_ug,id_band,id_zfull,id_ptid)
   id_tatm_nodis_hlsp = register_tiled_diag_field ( module_name, 'tatm_nodis_hlsp', (/id_ug,id_kj/), &
        lnd%time, 'non-disaggregated temperature at lowest atmos level', 'degK', missing_value=initval )                                   
 
-  id_runf_tile_hlsp = register_tiled_diag_field ( module_name, 'runf_tile_hlsp', (/id_ug,id_kj/), &
-       lnd%time, 'total runoff', 'kg/(m2 s)', missing_value=initval )
-
-  id_lwc_soil_hlsp(1:num_l) = register_hlsplev_diag_fields(module_name, 'lwc_soil_hlsp<lev>', &
+  id_lwc_hlsp(1:num_l) = register_hlsplev_diag_fields(module_name, 'lwc<lev>_hlsp', &
        (/id_ug,id_kj/), lnd%time, 'layer <lev> bulk density of liquid water', 'kg/m3', missing_value=initval )
-  id_swc_soil_hlsp(1:num_l) = register_hlsplev_diag_fields(module_name, 'swc_soil_hlsp<lev>', &
+  id_swc_hlsp(1:num_l) = register_hlsplev_diag_fields(module_name, 'swc<lev>_hlsp', &
        (/id_ug,id_kj/), lnd%time, 'layer <lev> bulk density of solid water', 'kg/m3', missing_value=initval )
+
+
+  id_runf_land_hlsp = register_tiled_diag_field ( module_name, 'runf_land_hlsp', (/id_ug,id_kj/), &
+       lnd%time, 'total runoff', 'kg/(m2 s)', missing_value=initval )
 
   ! by-carbon-species diag fields
   id_soil_C(:) = register_soilc_diag_fields(module_name, '<ctype>_soil_C', &
@@ -5525,42 +5522,42 @@ subroutine soil_hlsp_diag()
      ce = first_elmt(land_tile_map(l))
      do while (loop_over_tiles(ce,tile,k=k))
        if (.not.associated(tile%soil)) cycle 
-       call send_tile_data(id_nk,float(tile%soil%nk_hlsp), tile%diag)
-       call send_tile_data(id_nj,float(tile%soil%nj_hlsp), tile%diag) 
-       call send_tile_data(id_elevmean, tile%soil%elevmean_hlsp, tile%diag)
-       call send_tile_data(id_pslope2p, tile%soil%pslope2p_hlsp, tile%diag)
-
-       call send_tile_data(id_lift_hlsp,  pack(tile%soil%lift_hlsp,.true.),  tile%diag)
-       call send_tile_data(id_pratio_hlsp,pack(tile%soil%pratio_hlsp,.true.),tile%diag)          
-       call send_tile_data(id_lprec_hlsp, pack(tile%soil%lprec_hlsp,.true.), tile%diag)
-       call send_tile_data(id_fprec_hlsp, pack(tile%soil%fprec_hlsp,.true.), tile%diag)   
-       call send_tile_data(id_elev_hlsp,  pack(tile%soil%elev_hlsp,.true.),  tile%diag) 
-       call send_tile_data(id_tfrac_hlsp, pack(tile%soil%tfrac_hlsp,.true.), tile%diag)  
-
-       call send_tile_data(id_zatm_hlsp,  pack(tile%soil%zatm_hlsp,.true.),  tile%diag)
-       call send_tile_data(id_tatm_hlsp,  pack(tile%soil%tatm_hlsp,.true.),  tile%diag) 
-       call send_tile_data(id_patm_hlsp,  pack(tile%soil%patm_hlsp,.true.),  tile%diag)
-       call send_tile_data(id_psurf_hlsp, pack(tile%soil%psurf_hlsp,.true.), tile%diag) 
-       call send_tile_data(id_qatm_hlsp,  pack(tile%soil%qatm_hlsp,.true.),  tile%diag)
-       call send_tile_data(id_tatm_nodis_hlsp,  pack(tile%soil%tatm_nodis_hlsp,.true.),  tile%diag) 
+       call send_tile_data(id_nk,float(tile%soil%hlsp%nk_g), tile%diag)
+       call send_tile_data(id_nj,float(tile%soil%hlsp%nj_g), tile%diag) 
+       call send_tile_data(id_elevmean, tile%soil%hlsp%elevmean_g, tile%diag)
+       call send_tile_data(id_pslope2p, tile%soil%hlsp%pslope2p_g, tile%diag) 
+       call send_tile_data(id_tfrac_hlsp, pack(tile%soil%hlsp%tfrac_g,.true.), tile%diag)  
      enddo
   enddo  
 
-  call send_hlsp_data_r0d_fptr(id_runf_tile_hlsp, soil_runf_tile_ptr)
+  call send_hlsp_data_r0d_fptr(id_lift_hlsp, soil_hlsp_lift_ptr)
+  call send_hlsp_data_r0d_fptr(id_pratio_hlsp, soil_hlsp_pratio_ptr) 
+  call send_hlsp_data_r0d_fptr(id_lprec_hlsp, soil_hlsp_lprec_ptr)
+  call send_hlsp_data_r0d_fptr(id_fprec_hlsp, soil_hlsp_fprec_ptr)  
+  call send_hlsp_data_r0d_fptr(id_zatm_hlsp, soil_hlsp_zatm_ptr)
+  call send_hlsp_data_r0d_fptr(id_tatm_hlsp, soil_hlsp_tatm_ptr)
+  call send_hlsp_data_r0d_fptr(id_patm_hlsp, soil_hlsp_patm_ptr)  
+  call send_hlsp_data_r0d_fptr(id_psurf_hlsp, soil_hlsp_psurf_ptr)  
+  call send_hlsp_data_r0d_fptr(id_qatm_hlsp, soil_hlsp_qatm_ptr)  
+  call send_hlsp_data_r0d_fptr(id_tatm_nodis_hlsp, soil_hlsp_tatm_nodis_ptr)        
+  call send_hlsp_data_r0d_fptr(id_runf_land_hlsp, soil_hlsp_runf_land_ptr)
+
+  call send_hlsp_data_r0d_fptr(id_elev_hlsp, soil_pars_tile_elevation_ptr)  
 
   do l = lnd%ls, lnd%le
      ce = first_elmt(land_tile_map(l))
      do while (loop_over_tiles(ce,tile,k=k))
        if (.not.associated(tile%soil)) cycle 
-       tile%soil%lwc_soil = tile%soil%wl/dz !kg/m2 / m = kg/m3
-       tile%soil%swc_soil = tile%soil%ws/dz
+       tile%soil%hlsp%lwc = tile%soil%wl/dz !kg/m2 / m = kg/m3
+       tile%soil%hlsp%swc = tile%soil%ws/dz
      enddo
   enddo
 
   do i=1,num_l
-    call send_hlsp_data_r1d_fptr(id_lwc_soil_hlsp(i), soil_lwc_soil_ptr, i)
-    call send_hlsp_data_r1d_fptr(id_swc_soil_hlsp(i), soil_swc_soil_ptr, i)    
+    call send_hlsp_data_r1d_fptr(id_lwc_hlsp(i), soil_hlsp_lwc_ptr, i)
+    call send_hlsp_data_r1d_fptr(id_swc_hlsp(i), soil_hlsp_swc_ptr, i)    
   enddo
+
 end subroutine soil_hlsp_diag
 
 ! ============================================================================
@@ -5587,7 +5584,7 @@ subroutine send_hlsp_data_r0d_fptr(id, fptr)
         if (.not.associated(tile%soil)) cycle
         hidx_k =  tile%soil%hidx_k 
         hidx_j =  tile%soil%hidx_j
-        if(tfrac(l,1,1)==initval) tfrac(l,:,:) = tile%soil%tfrac_hlsp
+        if(tfrac(l,1,1)==initval) tfrac(l,:,:) = tile%soil%hlsp%tfrac_g
         if(data_hlsp(l,hidx_k,hidx_j)==initval) data_hlsp(l,hidx_k,hidx_j) = 0.
         call fptr(tile,ptr) !tileptr
         if(associated(ptr))then
@@ -5635,7 +5632,7 @@ subroutine send_hlsp_data_r1d_fptr(id, fptr, lev)
         if (.not.associated(tile%soil)) cycle
         hidx_k =  tile%soil%hidx_k 
         hidx_j =  tile%soil%hidx_j
-        if(tfrac(l,1,1)==initval) tfrac(l,:,:) = tile%soil%tfrac_hlsp
+        if(tfrac(l,1,1)==initval) tfrac(l,:,:) = tile%soil%hlsp%tfrac_g
         if(data_hlsp(l,hidx_k,hidx_j)==initval) data_hlsp(l,hidx_k,hidx_j) = 0.
         call fptr(tile,lev,ptr) !tileptr
         if(associated(ptr))then
@@ -5659,20 +5656,35 @@ subroutine send_hlsp_data_r1d_fptr(id, fptr, lev)
 end subroutine send_hlsp_data_r1d_fptr
 
 ! ============================================================================
-#define DEFINE_SOIL_ACCESSOR_0D(xtype,x) subroutine soil_ ## x ## _ptr(t,p);\
-type(land_tile_type),pointer::t;xtype,pointer::p;p=>NULL();if(associated(t))then;if(associated(t%soil))p=>t%soil%x;endif;\
+#define DEFINE_SOIL_HLSP_ACCESSOR_0D(xtype,x) subroutine soil_hlsp_ ## x ## _ptr(t,p);\
+type(land_tile_type),pointer::t;xtype,pointer::p;p=>NULL();if(associated(t))then;if(associated(t%soil))p=>t%soil%hlsp%x;endif;\
 end subroutine
 
-#define DEFINE_SOIL_ACCESSOR_1D(xtype,x) subroutine soil_ ## x ## _ptr(t,i,p);\
-type(land_tile_type),pointer::t;integer,intent(in)::i;xtype,pointer::p;p=>NULL();if(associated(t))then;if(associated(t%soil))p=>t%soil%x(i);endif;\
+#define DEFINE_SOIL_HLSP_ACCESSOR_1D(xtype,x) subroutine soil_hlsp_ ## x ## _ptr(t,i,p);\
+type(land_tile_type),pointer::t;integer,intent(in)::i;xtype,pointer::p;p=>NULL();if(associated(t))then;if(associated(t%soil))p=>t%soil%hlsp%x(i);endif;\
+end subroutine
+
+#define DEFINE_SOIL_PARS_ACCESSOR_0D(xtype,x) subroutine soil_pars_ ## x ## _ptr(t,p);\
+type(land_tile_type),pointer::t;xtype,pointer::p;p=>NULL();if(associated(t))then;if(associated(t%soil))p=>t%soil%pars%x;endif;\
 end subroutine
 
 
-DEFINE_SOIL_ACCESSOR_0D(real,runf_tile)
-DEFINE_SOIL_ACCESSOR_1D(real,lwc_soil)
-DEFINE_SOIL_ACCESSOR_1D(real,swc_soil)
+DEFINE_SOIL_HLSP_ACCESSOR_0D(real,lift)
+DEFINE_SOIL_HLSP_ACCESSOR_0D(real,pratio)
+DEFINE_SOIL_HLSP_ACCESSOR_0D(real,lprec)
+DEFINE_SOIL_HLSP_ACCESSOR_0D(real,fprec)
+DEFINE_SOIL_HLSP_ACCESSOR_0D(real,zatm)
+DEFINE_SOIL_HLSP_ACCESSOR_0D(real,tatm)
+DEFINE_SOIL_HLSP_ACCESSOR_0D(real,patm)
+DEFINE_SOIL_HLSP_ACCESSOR_0D(real,psurf)
+DEFINE_SOIL_HLSP_ACCESSOR_0D(real,qatm)
+DEFINE_SOIL_HLSP_ACCESSOR_0D(real,tatm_nodis)
+DEFINE_SOIL_HLSP_ACCESSOR_0D(real,runf_land)
 
+DEFINE_SOIL_HLSP_ACCESSOR_1D(real,lwc)
+DEFINE_SOIL_HLSP_ACCESSOR_1D(real,swc)
 
+DEFINE_SOIL_PARS_ACCESSOR_0D(real,tile_elevation)
 
 ! ============================================================================
 

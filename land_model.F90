@@ -2592,7 +2592,7 @@ subroutine update_land_model_fast_0d ( tile, l,itile, N, land2cplr, &
   ! TODO: go through the diagnostics and verify that they do the right thing in PPA case
   ! ---- diagnostic section ----------------------------------------------
   if(associated(tile%soil))then
-    tile%soil%runf_tile = snow_lrunf+snow_frunf+subs_lrunf
+    tile%soil%hlsp%runf_land = snow_lrunf+snow_frunf+subs_lrunf
   endif
 
   call send_tile_data(id_total_C, cmass1,                             tile%diag)
@@ -3801,7 +3801,7 @@ subroutine update_land_bc_fast (tile, N, l,k, land2cplr, is_init)
   land2cplr%dws_prec (l,k) = tile%dws_prec(month)
 
   if(use_predefined_tiles.and.associated(tile%soil))then
-    land2cplr%h_ref (l,k) = tile%soil%pars%tile_elevation - tile%soil%elevmean_hlsp
+    land2cplr%h_ref (l,k) = tile%soil%pars%tile_elevation - tile%soil%hlsp%elevmean_g
   else
     land2cplr%h_ref (l,k) = 0.
   endif
