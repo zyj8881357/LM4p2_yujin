@@ -1009,15 +1009,15 @@ function register_hlsplev_diag_fields(module_name, field_name, axes, init_time, 
   character(len=*), intent(in), optional :: standard_name
 
   integer :: i
-  character(len=8) :: num_i 
+  character(len=2) :: num_i 
 
 
   do i = 1, num_l
-     write(num_i,*) i
+     write(num_i,"(I2)") i
      id(i) = register_tiled_diag_field(module_name, &
-             trim(replace_text(field_name,'<lev>',trim(num_i))), &
+             trim(replace_text(field_name,'<lev>',trim(adjustl(num_i)))), &
              axes, init_time, &
-             trim(replace_text(long_name,'<lev>',trim(num_i))), &
+             trim(replace_text(long_name,'<lev>',trim(adjustl(num_i)))), &
              units, missing_value, range, op, standard_name)
   enddo
 end function register_hlsplev_diag_fields
@@ -5548,8 +5548,8 @@ subroutine soil_hlsp_diag()
      ce = first_elmt(land_tile_map(l))
      do while (loop_over_tiles(ce,tile,k=k))
        if (.not.associated(tile%soil)) cycle 
-       tile%soil%hlsp%lwc = tile%soil%wl/dz !kg/m2 / m = kg/m3
-       tile%soil%hlsp%swc = tile%soil%ws/dz
+       tile%soil%hlsp%lwc = tile%soil%wl/dz(1:num_l) !kg/m2 / m = kg/m3
+       tile%soil%hlsp%swc = tile%soil%ws/dz(1:num_l)
      enddo
   enddo
 
