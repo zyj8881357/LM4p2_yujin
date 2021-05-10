@@ -1,6 +1,7 @@
 ! ============================================================================
 ! top-level core of the Land Dynamics (LaD) model code
 ! ============================================================================
+#define __CHECK__(x) write(stdout(),'("CHECKSUM:::",A32," = ",Z20)')#x,mpp_chksum(x)
 module land_model_mod
 
 #include "shared/debug.inc"
@@ -8,7 +9,7 @@ module land_model_mod
 use time_manager_mod, only : time_type, get_time, increment_time, time_type_to_real, &
      get_date, operator(+), operator(-)
 use mpp_domains_mod, only : domain2d, domainUG, mpp_get_ntile_count, &
-     mpp_pass_SG_to_UG, mpp_pass_ug_to_sg, &
+     mpp_pass_SG_to_UG, mpp_pass_UG_to_SG, &
      mpp_get_UG_domain_tile_pe_inf, mpp_get_UG_domain_ntiles, &
      mpp_get_UG_compute_domain, mpp_get_UG_domain_grid_index
 
@@ -18,9 +19,10 @@ use mpp_mod, only: input_nml_file
 use fms_mod, only: open_namelist_file
 #endif
 
-use mpp_mod, only : mpp_max, mpp_sum, mpp_chksum
+use mpp_mod, only : mpp_max, mpp_sum, mpp_chksum, mpp_send, mpp_recv, mpp_broadcast, &
+     mpp_sync, mpp_error, COMM_TAG_1, COMM_TAG_2
 use fms_io_mod, only : read_compressed, fms_io_unstructured_read
-use fms_mod, only : error_mesg, FATAL, WARNING, NOTE, mpp_pe, &
+use fms_mod, only : error_mesg, FATAL, WARNING, NOTE, mpp_npes, mpp_pe, &
      mpp_root_pe, file_exist, check_nml_error, close_file, &
      stdlog, stderr, mpp_clock_id, mpp_clock_begin, mpp_clock_end, string, &
      stdout, CLOCK_FLAG_DEFAULT, CLOCK_COMPONENT, CLOCK_ROUTINE
@@ -100,9 +102,9 @@ use land_tile_diag_mod, only : cmor_name, tile_diag_init, tile_diag_end, &
      register_tiled_diag_field, send_tile_data, dump_tile_diag_fields, &
      add_tiled_diag_field_alias, register_cohort_diag_field, send_cohort_data, &
      set_default_diag_filter, register_tiled_area_fields, send_global_land_diag, &
-     get_area_id
+     register_tiled_static_field, get_area_id
 use land_debug_mod, only : land_debug_init, land_debug_end, set_current_point, &
-     is_watch_point, is_watch_cell, is_watch_time, get_watch_point, get_current_point, &
+     is_watch_point, is_watch_cell, is_watch_time, get_watch_point, do_checksums, &
      check_conservation, do_check_conservation, water_cons_tol, carbon_cons_tol, nitrogen_cons_tol, &
      check_var_range, check_temp_range, current_face, log_date, land_error_message
 use static_vegn_mod, only : write_static_vegn
@@ -328,6 +330,7 @@ integer :: id_transp_tile,id_frac_tile,id_ttype_tile,id_precip_tile,id_runf_tile
   id_sens_std,id_grnd_T_std,id_total_C_std,id_lprec_std,id_fprec_std,&
   id_swup_dif_1_tile,id_swup_dif_2_tile,id_swdn_dif_1_tile,id_swdn_dif_2_tile,&
   id_precip_l_tile,id_precip_s_tile
+integer :: id_sg_face, id_ug_face, id_ug_pe
 
 ! init_value is used to fill most of the allocated boundary condition arrays.
 ! It is supposed to be double-precision signaling NaN, to trigger a trap when
@@ -379,6 +382,7 @@ subroutine land_model_init &
   integer :: n_cohorts  ! number of cohorts in the current tile (1 if no vegetation)
   type(land_tile_type), pointer :: tile
   type(land_tile_enum_type) :: ce
+  integer :: pe ! our processor number
 
   type(land_restart_type) :: restart
   character(*), parameter :: restart_file_name='INPUT/land.res.nc'
@@ -584,6 +588,15 @@ subroutine land_model_init &
      call error_mesg('land_model_init','removing non-primary vegetation',NOTE)
      call remove_non_primary()
   endif
+
+  ! send some technical static diag fields to the diagnostics
+  pe = mpp_pe()
+  ce = first_elmt(land_tile_map, ls=lnd%ls )
+  do while(loop_over_tiles(ce,tile, l,k))
+     call send_tile_data(id_sg_face, real(lnd%sg_face), tile%diag)
+     call send_tile_data(id_ug_face, real(lnd%ug_face), tile%diag)
+     call send_tile_data(id_ug_pe,   real(pe),          tile%diag)
+  enddo
 
   call mpp_clock_end(landInitClock)
 
@@ -881,7 +894,7 @@ subroutine land_cover_cold_start()
 !-zero  ! remove any input lake fraction in coastal cells
 !-zero  do j = lnd%js,lnd%je
 !-zero  do i = lnd%is,lnd%ie
-!-zero     call set_current_point(i,j,1)
+!-zero     call set_current_point_sg(i,j,1)
 !-zero     if (lnd%landfrac(i,j) < 1-gfrac_tol) then
 !-zero        lake(i,j,:) = 0.0
 !-zero        if(is_watch_point())then
@@ -1181,6 +1194,7 @@ subroutine land_cover_warm_start_new (restart)
   type(land_tile_type), pointer :: tile
 
   ntiles = size(restart%tidx)
+  call check_mask_match(restart%tidx)
   allocate(glac(ntiles), lake(ntiles), soil(ntiles), vegn(ntiles), frac(ntiles))
 
   call fms_io_unstructured_read(restart%basename, "frac", frac, lnd%ug_domain, timelevel=1)
@@ -1217,60 +1231,171 @@ subroutine land_cover_warm_start_orig (restart)
   real,    allocatable :: frac(:) ! fraction of land covered by tile
   integer :: ncid ! unit number of the input file
   integer :: ntiles    ! total number of land tiles in the input file
-  integer :: bufsize   ! size of the input buffer
   integer :: dimids(1) ! id of tile dimension
   character(NF_MAX_NAME) :: tile_dim_name ! name of the tile dimension and respective variable
   integer :: k,it,npts,g,l
-  type(land_tile_type), pointer :: tile;
-  integer :: start, count ! slab for reading
-  ! netcdf variable IDs
-  integer :: id_idx, id_frac, id_glac, id_lake, id_soil, id_vegn
+  type(land_tile_type), pointer :: tile
 
   __NF_ASRT__(nf_open(restart%filename,NF_NOWRITE,ncid))
   ! allocate the input data
   __NF_ASRT__(nfu_inq_var(ncid,'frac',id=id_frac,varsize=ntiles,dimids=dimids))
    ! allocate input buffers for compression index and the variable
-  bufsize=min(input_buf_size,ntiles)
-  allocate(idx (bufsize), glac(bufsize), lake(bufsize), soil(bufsize), &
-           snow(bufsize), cana(bufsize), vegn(bufsize), frac(bufsize)  )
+  allocate(idx (ntiles), glac(ntiles), lake(ntiles), soil(ntiles), &
+           snow(ntiles), cana(ntiles), vegn(ntiles), frac(ntiles)  )
   ! get the name of the fist (and only) dimension of the variable 'frac' -- this
   ! is supposed to be the compressed dimension, and associated variable will
   ! hold the compressed indices
   __NF_ASRT__(nfu_inq_dim(ncid,dimids(1),name=tile_dim_name))
-  __NF_ASRT__(nfu_inq_var(ncid,tile_dim_name,id=id_idx))
-  ! get the IDs of the variables to read
-  __NF_ASRT__(nfu_inq_var(ncid,'glac',id=id_glac))
-  __NF_ASRT__(nfu_inq_var(ncid,'lake',id=id_lake))
-  __NF_ASRT__(nfu_inq_var(ncid,'soil',id=id_soil))
-  __NF_ASRT__(nfu_inq_var(ncid,'vegn',id=id_vegn))
+  ! read the compressed tile indices
+  __NF_ASRT__(nfu_get_var(ncid,tile_dim_name,idx))
+  call check_mask_match(idx)
+  ! read input data -- fractions and tags
+  __NF_ASRT__(nfu_get_var(ncid,'frac',frac))
+  __NF_ASRT__(nfu_get_var(ncid,'glac',glac))
+  __NF_ASRT__(nfu_get_var(ncid,'lake',lake))
+  __NF_ASRT__(nfu_get_var(ncid,'soil',soil))
+  __NF_ASRT__(nfu_get_var(ncid,'vegn',vegn))
 
+  ! create tiles
   npts = lnd%nlon*lnd%nlat
-  do start = 1,ntiles,bufsize
-    count = min(bufsize,ntiles-start+1)
-    ! read the compressed tile indices
-    __NF_ASRT__(nf_get_vara_int(ncid,id_idx,(/start/),(/count/),idx))
-    ! read input data -- fractions and tags
-    __NF_ASRT__(nf_get_vara_double(ncid,id_frac,(/start,1/),(/count,1/),frac))
-    __NF_ASRT__(nf_get_vara_int(ncid,id_glac,(/start,1/),(/count,1/),glac))
-    __NF_ASRT__(nf_get_vara_int(ncid,id_lake,(/start,1/),(/count,1/),lake))
-    __NF_ASRT__(nf_get_vara_int(ncid,id_soil,(/start,1/),(/count,1/),soil))
-    __NF_ASRT__(nf_get_vara_int(ncid,id_vegn,(/start,1/),(/count,1/),vegn))
-    ! create tiles
-    do it = 1,count
-       k = idx(it)
-       if (k<0) cycle ! skip negative indices
-       g = modulo(k,npts)+1
-       if (g<lnd%gs.or.g>lnd%ge) cycle ! skip points outside of domain
-       ! the size of the tile set at the point (i,j) must be equal to k
-       tile=>new_land_tile(frac=frac(it),&
-                glac=glac(it),lake=lake(it),soil=soil(it),vegn=vegn(it))
-       l = lnd%l_index(g)
-       call insert(tile,land_tile_map(l))
-    enddo
+  do it = 1,ntiles
+     k = idx(it)
+     if (k<0) cycle ! skip negative indices
+     g = modulo(k,npts)+1
+     if (g<lnd%gs.or.g>lnd%ge) cycle ! skip points outside of domain
+     ! the size of the tile set at the point (i,j) must be equal to k
+     tile=>new_land_tile(frac=frac(it),&
+              glac=glac(it),lake=lake(it),soil=soil(it),vegn=vegn(it))
+     l = lnd%l_index(g)
+     call insert(tile,land_tile_map(l))
   enddo
-  __NF_ASRT__(nf_close(ncid))
   deallocate(idx, glac, lake, soil, snow, cana, vegn, frac)
+  __NF_ASRT__(nf_close(ncid))
 end subroutine land_cover_warm_start_orig
+
+! ============================================================================
+! given tile index from land restart, checks that mask in the restart matches
+! the land mask in grid spec. It stops the model if the masks do not match.
+subroutine check_mask_match(idx)
+  integer, intent(in) :: idx(:) ! compressed tile index from the restart
+
+  integer, allocatable :: map_r(:,:) ! map of points that exist in the restart
+  integer, allocatable :: map_g(:,:) ! map of points that exist in the domain
+  integer, allocatable :: ug_face(:) ! number of cubed sphere face, by PE
+  integer :: it,i,j,k,g,npes
+  integer :: face_root_pe ! root PE for this cubed sphere face
+  character :: c
+  character(16) :: tag
+
+  ! construct the map of points from our restart. It could be local to this PE
+  ! or it could be global (for the face) if the restart is combined
+  allocate(map_r(lnd%nlon,lnd%nlat)); map_r(:,:) = 0
+  do it = 1,size(idx)
+     k = idx(it)
+     if (k < 0) cycle
+     g = modulo(k,lnd%nlon*lnd%nlat)+1
+     if (g<lnd%gs.or.g>lnd%ge) cycle ! skip points outside of domain
+     i = modulo(k,lnd%nlon)+1 ; k = k/lnd%nlon
+     j = modulo(k,lnd%nlat)+1
+     map_r(i,j) = 1
+  enddo
+
+  allocate(map_g(lnd%nlon,lnd%nlat)); map_g(:,:) = 0
+  do it = lnd%ls,lnd%le
+     if (lnd%ug_landfrac(it) > 0) &
+           map_g(lnd%i_index(it),lnd%j_index(it)) = 1
+  enddo
+
+  npes = mpp_npes()
+  allocate(ug_face(0:npes-1))
+  if (mpp_pe() == mpp_root_pe()) then
+     do i = 0,npes-1
+        if (i==mpp_root_pe()) then
+           ug_face(i) = lnd%ug_face
+        else
+           call mpp_recv(ug_face(i),i,tag=COMM_TAG_1)
+        endif
+     enddo
+  else
+     call mpp_send(lnd%ug_face,mpp_root_pe(),tag=COMM_TAG_1)
+  endif
+
+  call mpp_broadcast(ug_face,npes,mpp_root_pe(),pelist=lnd%pelist)
+  do i = 0,npes-1
+     if (ug_face(i)==lnd%ug_face) then
+        face_root_pe = i
+        exit ! from loop
+     endif
+  enddo
+  ! write(*,'("uf_face(pe=",i3.3,",rt=",i3.3,"):", 999(i2))') mpp_pe(),face_root_pe,ug_face
+
+  ! accumulate grid and restart maps from all PEs on this cubed sphere face to the root
+  ! PE of the face
+  call gather_map(map_g, ug_face, face_root_pe)
+  call gather_map(map_r, ug_face, face_root_pe)
+
+  ! try to find discrepancy in the maps
+  if (mpp_pe() == face_root_pe) then
+     k = 0
+     do i = 1,lnd%nlon
+     do j = 1,lnd%nlat
+        if (map_r(i,j)/=map_g(i,j)) k = k+1
+     enddo
+     enddo
+
+     if (k>0) then
+         write(tag,'("T",i1)')lnd%ug_face
+         do j = lnd%nlat,1,-1
+            write (*,'(a,":")',advance='NO') trim(tag)
+            do i = 1,lnd%nlon
+               c = ' '                       ! ocean point that matches between grid and restart
+               if ((map_r(i,j)==0).neqv.(map_g(i,j)==0)) then
+                  c = 'G'                    ! land point exists in grid, but not in restarts
+                  if (map_r(i,j)/=0) c = 'R' ! land point exists in restart, but not in grid
+               else if (map_g(i,j) /= 0) then
+                  c = '-'                    ! land point that matches between grid and restart
+               endif
+               write(*,'(a2)', advance='NO') c
+            enddo
+            write(*,*)
+         enddo
+         write(*,'(a,": ",i6," mask mismatches ",i6," grid points")') trim(tag), k, count(map_g>0)
+         write(*,'(a,": ",a)')trim(tag), 'Legend: G - point in gridSpec but not in restart, R - in restart but not in gridSpec.'
+         call mpp_error(FATAL,'land_model_init :: land masks from gridSpec and restart do not match, grep "^'//trim(tag)//'" stdout to see map.')
+     endif
+  endif
+  deallocate(map_r,map_g)
+end subroutine check_mask_match
+
+! ============================================================================
+! given map of existing points on each pe, list of UG faces per PE, and root face PE,
+! gathers the map of existing points from all PE to root. Note that the resulting map
+! is only correct on root face PE.
+subroutine gather_map(map, ug_face, face_root_pe)
+  integer, intent(inout) :: map(:,:)     ! data to gather
+  integer, intent(in)    :: ug_face(0:)  ! list of cubic sphere faces, per PE, on unstructured grid
+  integer, intent(in)    :: face_root_pe ! root PE for this face
+
+  integer :: buffer(lnd%nlon,lnd%nlat) ! buffer for receive operations
+  integer :: npes ! number of involved processors
+  integer :: i
+
+  npes = size(ug_face)
+  if (mpp_pe() /= face_root_pe) then
+     call mpp_send(map(1,1),plen=lnd%nlon*lnd%nlat,to_pe=face_root_pe,tag=COMM_TAG_2)
+  else
+     do i = 0,npes-1
+        if (ug_face(i) /= lnd%ug_face) cycle ! skip PEs that do not belong to the same face
+        if (i == face_root_pe) cycle ! face_root_pe does not send to itself
+        ! update map on root PE of the face
+        buffer(:,:) = 0
+        call mpp_recv(buffer(1,1),glen=lnd%nlon*lnd%nlat,from_pe=i,tag=COMM_TAG_2)
+        map(:,:) = map(:,:)+buffer(:,:)
+     enddo
+     map(:,:) = min(map,1)
+  endif
+  call mpp_sync(lnd%pelist)
+end subroutine gather_map
 
 
 ! ============================================================================
@@ -1316,10 +1441,24 @@ subroutine update_land_model_fast ( cplr2land, land2cplr )
   ! variables for total water storage diagnostics
   real :: twsr_sg(lnd%is:lnd%ie,lnd%js:lnd%je), tws(lnd%ls:lnd%le)
 
+  integer :: y,mo,d,h,m,s ! components of date for checksums
+
   ! start clocks
   call mpp_clock_begin(landClock)
   call mpp_clock_begin(landFastClock)
 
+  if (do_checksums) then
+      call get_date(lnd%time,y,mo,d,h,m,s)
+      write(stdout(),'("update_land_model_fast ::: ",i4.4,2("-",i2.2),x,i2.2,2(":",i2.2))') y,mo,d,h,m,s
+      __CHECK__(cplr2land%lprec)
+      __CHECK__(cplr2land%fprec)
+      __CHECK__(cplr2land%tprec)
+      __CHECK__(cplr2land%wind)
+      __CHECK__(cplr2land%t_flux)
+      __CHECK__(cplr2land%tr_flux)
+      __CHECK__(cplr2land%lwdn_flux)
+      __CHECK__(cplr2land%ustar)
+  endif
   ! to avoid output of static vegetation after the transitions worked and
   ! changed the tiling structure, static vegetation output is done here.
   call write_static_vegn()
@@ -1368,7 +1507,7 @@ subroutine update_land_model_fast ( cplr2land, land2cplr )
      ce = first_elmt(land_tile_map(l))
      do while (loop_over_tiles(ce,tile,k=k))
         ! set this point coordinates as current for debug output
-        call set_current_point(i,j,k,l)
+        call set_current_point(l,k)
 
         ISa_dn_dir(BAND_VIS) = cplr2land%sw_flux_down_vis_dir(l,k)
         ISa_dn_dir(BAND_NIR) = cplr2land%sw_flux_down_total_dir(l,k)&
@@ -1534,6 +1673,20 @@ subroutine update_land_model_fast ( cplr2land, land2cplr )
      endif
   enddo
   if (id_tws>0) used = send_data(id_tws, tws, lnd%time)
+
+  if (do_checksums) then
+     __CHECK__(land2cplr%t_surf)
+     __CHECK__(land2cplr%t_ca)
+     __CHECK__(land2cplr%tr)
+     __CHECK__(land2cplr%albedo)
+     __CHECK__(land2cplr%rough_mom)
+     __CHECK__(land2cplr%rough_heat)
+     __CHECK__(land2cplr%rough_scale)
+     __CHECK__(land2cplr%discharge)
+     __CHECK__(land2cplr%discharge_heat)
+     __CHECK__(land2cplr%discharge_snow)
+     __CHECK__(land2cplr%discharge_snow_heat)
+  endif
 
   ! advance land model time
   lnd%time = lnd%time + lnd%dt_fast
@@ -2524,6 +2677,16 @@ subroutine update_land_model_fast_0d ( tile, l,itile, N, land2cplr, &
   call update_cana_tracers(tile, l, tr_flux, dfdtr, &
            precip_l, precip_s, p_surf, ustar, con_g_v, con_v_v, con_st_v )
 
+  ! update_land_bc_fast updates land_refl_dif and land_refl_dir: therefore send the
+  ! upward fluxes to diag now so that they match calculated fsw. It does not matter
+  ! for downward fluxes, just keep them all together.
+  call send_tile_data(id_swdn_dir, ISa_dn_dir,                          tile%diag)
+  call send_tile_data(id_swdn_dif, ISa_dn_dif,                          tile%diag)
+  call send_tile_data(id_swup_dir, ISa_dn_dir*tile%land_refl_dir,       tile%diag)
+  call send_tile_data(id_swup_dif, ISa_dn_dif*tile%land_refl_dif,       tile%diag)
+  if (id_rsusLut>0) call send_tile_data(id_rsusLut, &
+    sum(ISa_dn_dir*tile%land_refl_dir+ISa_dn_dif*tile%land_refl_dif), tile%diag)
+
   call update_land_bc_fast (tile, N, l, itile, land2cplr)
 
   ! accumulate runoff variables over the tiles
@@ -2701,10 +2864,6 @@ subroutine update_land_model_fast_0d ( tile, l,itile, N, land2cplr, &
        tile%cana%tr(ico2)*mol_air/mol_co2/(1-tile%cana%tr(isphum)),   tile%diag)
   call send_tile_data(id_fco2,  vegn_fco2*mol_C/mol_CO2 + DOC_to_atmos, tile%diag)
   call send_tile_data(id_co2_mol_flux, fco2_0 + Dfco2Dq*delta_co2,      tile%diag)
-  call send_tile_data(id_swdn_dir, ISa_dn_dir,                          tile%diag)
-  call send_tile_data(id_swdn_dif, ISa_dn_dif,                          tile%diag)
-  call send_tile_data(id_swup_dir, ISa_dn_dir*tile%land_refl_dir,       tile%diag)
-  call send_tile_data(id_swup_dif, ISa_dn_dif*tile%land_refl_dif,       tile%diag)
   call send_tile_data(id_lwdn,     ILa_dn,                            tile%diag)
   call send_tile_data(id_subs_emis,1-tile%surf_refl_lw,               tile%diag)
 
@@ -2730,8 +2889,6 @@ subroutine update_land_model_fast_0d ( tile, l,itile, N, land2cplr, &
   ! it depends on temperature and phase state.
   call send_tile_data(id_hflsLut, land_evap*hlv,                      tile%diag)
   call send_tile_data(id_rlusLut, tile%lwup,                          tile%diag)
-  if (id_rsusLut>0) call send_tile_data(id_rsusLut, &
-    sum(ISa_dn_dir*tile%land_refl_dir+ISa_dn_dif*tile%land_refl_dif), tile%diag)
   ! evspsblsoi is evaporation from *soil*, so we send zero from glaciers and lakes;
   ! the result is averaged over the entire land surface, as required by CMIP. evspsblveg
   ! does not need this distinction because it is already zero over glaciers and lakes.
@@ -3897,7 +4054,7 @@ subroutine update_land_bc_slow (land2cplr)
   call get_watch_point(i,j,k,face,l)
   if ( lnd%ug_face==face.and.                &
        lnd%ls<=l.and.l<=lnd%le.and.          &
-       k<=size(land2cplr%rough_scale,2).and. &
+       0<k.and.k<=size(land2cplr%rough_scale,2).and. &
        is_watch_time()) then
      write(*,*)'#### update_land_bc_slow ### output ####'
      write(*,*)'land2cplr%rough_scale',land2cplr%rough_scale(l,k)
@@ -4187,6 +4344,13 @@ subroutine land_diag_init(clonb, clatb, clon, clat, time, id_band, id_ug, id_pti
   ! set the default filter (for area and subsampling) for consequent calls to
   ! register_tiled_diag_field
   call set_default_diag_filter('land')
+
+  id_sg_face = register_tiled_static_field ( module_name, 'sg_face',  &
+       axes, 'cubic sphere face on structured grid', missing_value=-1.0 )
+  id_ug_face = register_tiled_static_field ( module_name, 'ug_face',  &
+       axes, 'cubic sphere face on unstructured grid', missing_value=-1.0 )
+  id_ug_pe   = register_tiled_static_field ( module_name, 'ug_pe',  &
+       axes, 'processor number on unstructured grid', missing_value=-1.0 )
 
   ! register regular (dynamic) diagnostic fields
 
