@@ -1190,7 +1190,7 @@ subroutine hlsp_disagg_precip(cplr2land)
 
        tile%soil%hlsp%pslope2p_g = pslope2p
 
-       kgh = max(tile%soil%hlsp%pslope2p_g*h,-0.9999)
+       kgh = max(pslope2p*h,-0.9999)
        norm = frac * (1. + kgh)
        norm_tot(l) = norm_tot(l) + norm
   
@@ -1202,7 +1202,7 @@ subroutine hlsp_disagg_precip(cplr2land)
      ce = first_elmt(land_tile_map(l))
      do while (loop_over_tiles(ce,tile,k=k))
        if (.not.associated(tile%soil)) cycle 
-       kgh = max(tile%soil%hlsp%pslope2p_g*h,-0.9999)
+       kgh = max(tile%soil%hlsp%pslope2p_g*tile%soil%hlsp%lift,-0.9999)
        adjust = (1. + kgh)/norm_tot(l)
 
        if(do_hlsp_disagg_precip)then
