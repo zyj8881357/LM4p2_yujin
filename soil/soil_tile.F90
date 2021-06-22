@@ -235,9 +235,52 @@ type :: soil_hlsp_type
    real :: tatm_nodis = initval
 
    real, allocatable :: lwc(:)
-   real, allocatable :: swc(:)  
+   real, allocatable :: swc(:)
+   real, allocatable :: temp(:)  
 
-   real :: runf_land = initval   
+
+   real :: transp_land = initval
+   real :: precip_land = initval
+   real :: precip_l_land = initval
+   real :: precip_s_land = initval
+   real :: runf_land = initval
+   real :: evap_land = initval
+   real :: sens_land = initval
+   real :: total_C_land = initval
+   real :: swdn_dif_1_land = initval
+   real :: swdn_dif_2_land = initval
+   real :: swup_dif_1_land = initval
+   real :: swup_dif_2_land = initval
+   real :: swdn_dir_1_land = initval
+   real :: swdn_dir_2_land = initval
+   real :: swup_dir_1_land = initval
+   real :: swup_dir_2_land = initval   
+   real :: fevapv_land = initval
+   real :: flw_land = initval
+   real :: fsw_land = initval
+   real :: FWSv_land = initval
+   real :: grnd_flux_land = initval
+   real :: levapv_land = initval
+   real :: LWSv_land = initval
+   real :: snow_land = initval
+   real :: Tca_land = initval
+   real :: grnd_T_land = initval
+   real :: fco2_land = initval
+   real :: water_land = initval
+   real :: lai_land = initval
+   real :: sai_land = initval
+   real :: treeFrac_land = initval
+   real :: melt_land = initval
+   real :: meltv_land = initval
+   real :: melts_land = initval
+   real :: snow_frac_land = initval
+   real :: snow_depth_land = initval
+
+   real :: gpp_vegn = initval
+   real :: npp_vegn = initval
+   real :: resp_vegn = initval
+   real :: cVeg_vegn = initval
+  
 end type soil_hlsp_type
 
 type :: soil_tile_type
@@ -760,7 +803,8 @@ function soil_tile_ctor(tag, hidx_j, hidx_k) result(ptr)
  allocate(  ptr%hlsp%tfrac_g(MAX_HLSP_K, MAX_HLSP_J) ) 
 
  allocate ( ptr%hlsp%lwc(num_l), &
-            ptr%hlsp%swc(num_l) )
+            ptr%hlsp%swc(num_l), &
+            ptr%hlsp%temp(num_l) )
 
   ! Initialize to catch use before appropriate
   !ptr%psi(:) = initval
@@ -778,6 +822,7 @@ function soil_tile_ctor(tag, hidx_j, hidx_k) result(ptr)
 
   ptr%hlsp%lwc(:) = initval
   ptr%hlsp%swc(:) = initval
+  ptr%hlsp%temp(:) = initval  
 
   call soil_data_init_0d(ptr)
   do i=1,num_l
@@ -844,7 +889,8 @@ function soil_tile_ctor_predefined(hidx_j, hidx_k, tile_parameters, &
  allocate(  ptr%hlsp%tfrac_g(MAX_HLSP_K, MAX_HLSP_J) ) 
 
  allocate ( ptr%hlsp%lwc(num_l), &
-            ptr%hlsp%swc(num_l) )
+            ptr%hlsp%swc(num_l), &
+            ptr%hlsp%temp(num_l) )
 
   ! Initialize to catch use before appropriate
   !ptr%psi(:) = initval
@@ -862,6 +908,7 @@ function soil_tile_ctor_predefined(hidx_j, hidx_k, tile_parameters, &
 
   ptr%hlsp%lwc(:) = initval   
   ptr%hlsp%swc(:) = initval
+  ptr%hlsp%temp(:) = initval   
 
   call soil_data_init_0d_predefined(ptr,tile_parameters,itile)
   do i=1,num_l

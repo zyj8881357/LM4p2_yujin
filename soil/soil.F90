@@ -287,9 +287,17 @@ integer :: &
     id_lift_hlsp, id_pratio_hlsp, id_lprec_hlsp, id_fprec_hlsp, id_elev_hlsp, id_tfrac_hlsp
 integer :: &
     id_zatm_hlsp, id_tatm_hlsp, id_patm_hlsp, id_psurf_hlsp, id_qatm_hlsp, id_tatm_nodis_hlsp
-integer, dimension(max_lev) :: id_lwc_hlsp, id_swc_hlsp
-integer :: id_runf_land_hlsp
-
+integer, dimension(max_lev) :: id_lwc_hlsp, id_swc_hlsp, id_temp_hlsp
+integer ::  id_transp_land_hlsp, id_precip_land_hlsp, id_precip_l_land_hlsp, id_precip_s_land_hlsp, &
+    id_runf_land_hlsp, id_evap_land_hlsp, id_sens_land_hlsp, id_total_C_land_hlsp, &
+    id_swdn_dif_1_land_hlsp, id_swdn_dif_2_land_hlsp, id_swup_dif_1_land_hlsp, id_swup_dif_2_land_hlsp, &
+    id_swdn_dir_1_land_hlsp, id_swdn_dir_2_land_hlsp, id_swup_dir_1_land_hlsp, id_swup_dir_2_land_hlsp, &    
+    id_fevapv_land_hlsp, id_flw_land_hlsp, id_fsw_land_hlsp, id_FWSv_land_hlsp, &
+    id_grnd_flux_land_hlsp, id_levapv_land_hlsp, id_LWSv_land_hlsp, id_snow_land_hlsp, &
+    id_Tca_land_hlsp, id_grnd_T_land_hlsp, id_fco2_land_hlsp, id_water_land_hlsp, &
+    id_lai_land_hlsp, id_sai_land_hlsp, id_treeFrac_land_hlsp, id_melt_land_hlsp, &
+    id_meltv_land_hlsp, id_melts_land_hlsp, id_snow_frac_land_hlsp, id_snow_depth_land_hlsp
+integer :: id_gpp_vegn_hlsp, id_npp_vegn_hlsp, id_resp_vegn_hlsp, id_cVeg_vegn_hlsp
 
 ! FIXME: add N leaching terms to diagnostics?
 
@@ -1219,10 +1227,90 @@ subroutine soil_diag_init(id_ug,id_band,id_zfull,id_ptid)
        (/id_ug,id_kj/), lnd%time, 'layer <lev> bulk density of liquid water', 'kg/m3', missing_value=initval )
   id_swc_hlsp(1:num_l) = register_hlsplev_diag_fields(module_name, 'swc<lev>_hlsp', &
        (/id_ug,id_kj/), lnd%time, 'layer <lev> bulk density of solid water', 'kg/m3', missing_value=initval )
+  id_temp_hlsp(1:num_l) = register_hlsplev_diag_fields(module_name, 'temp<lev>_hlsp', &
+       (/id_ug,id_kj/), lnd%time, 'layer <lev> soil temperature', 'degK', missing_value=initval )  
 
-
+  id_transp_land_hlsp = register_tiled_diag_field ( module_name, 'transp_land_hlsp', (/id_ug,id_kj/), &
+       lnd%time, 'Transpiration', 'kg/(m2 s)', missing_value=initval )
+  id_precip_land_hlsp = register_tiled_diag_field ( module_name, 'precip_land_hlsp', (/id_ug,id_kj/), &
+       lnd%time, 'precipitation rate', 'kg/(m2 s)', missing_value=initval )
+  id_precip_l_land_hlsp = register_tiled_diag_field ( module_name, 'precip_l_land_hlsp', (/id_ug,id_kj/), &
+       lnd%time, 'precipitation rate (liquid)', 'kg/(m2 s)', missing_value=initval )
+  id_precip_s_land_hlsp = register_tiled_diag_field ( module_name, 'precip_s_land_hlsp', (/id_ug,id_kj/), &
+       lnd%time, 'precipitation rate (frozen)', 'kg/(m2 s)', missing_value=initval )
+  id_evap_land_hlsp = register_tiled_diag_field ( module_name, 'evap_land_hlsp', (/id_ug,id_kj/), &
+       lnd%time, 'vapor flux up from land', 'kg/(m2 s)', missing_value=initval )
   id_runf_land_hlsp = register_tiled_diag_field ( module_name, 'runf_land_hlsp', (/id_ug,id_kj/), &
        lnd%time, 'total runoff', 'kg/(m2 s)', missing_value=initval )
+  id_sens_land_hlsp = register_tiled_diag_field ( module_name, 'sens_land_hlsp', (/id_ug,id_kj/), &
+       lnd%time, 'sens heat flux from land', 'W/m2', missing_value=initval )
+  id_total_C_land_hlsp = register_tiled_diag_field ( module_name, 'total_C_land_hlsp', (/id_ug,id_kj/), &
+       lnd%time, 'total land carbon', 'kg C/m2', missing_value=initval )
+  id_swdn_dif_1_land_hlsp = register_tiled_diag_field ( module_name, 'swdn_dif_1_land_hlsp', (/id_ug,id_kj/), &
+       lnd%time, 'downward diffuse short-wave radiation flux to the land surface', 'W/m2', missing_value=initval )
+  id_swdn_dif_2_land_hlsp = register_tiled_diag_field ( module_name, 'swdn_dif_2_land_hlsp', (/id_ug,id_kj/), &
+       lnd%time, 'downward diffuse short-wave radiation flux to the land surface', 'W/m2', missing_value=initval )
+  id_swup_dif_1_land_hlsp = register_tiled_diag_field ( module_name, 'swup_dif_1_land_hlsp', (/id_ug,id_kj/), &
+       lnd%time, 'diffuse short-wave radiation flux reflected by the land surface', 'W/m2', missing_value=initval )
+  id_swup_dif_2_land_hlsp = register_tiled_diag_field ( module_name, 'swup_dif_2_land_hlsp', (/id_ug,id_kj/), &
+       lnd%time, 'diffuse short-wave radiation flux reflected by the land surface', 'W/m2', missing_value=initval )
+  id_swdn_dir_1_land_hlsp = register_tiled_diag_field ( module_name, 'swdn_dir_1_land_hlsp', (/id_ug,id_kj/), &
+       lnd%time, 'downward direct short-wave radiation flux to the land surface', 'W/m2', missing_value=initval )
+  id_swdn_dir_2_land_hlsp = register_tiled_diag_field ( module_name, 'swdn_dir_2_land_hlsp', (/id_ug,id_kj/), &
+       lnd%time, 'downward direct short-wave radiation flux to the land surface', 'W/m2', missing_value=initval )
+  id_swup_dir_1_land_hlsp = register_tiled_diag_field ( module_name, 'swup_dir_1_land_hlsp', (/id_ug,id_kj/), &
+       lnd%time, 'direct short-wave radiation flux reflected by the land surface', 'W/m2', missing_value=initval )
+  id_swup_dir_2_land_hlsp = register_tiled_diag_field ( module_name, 'swup_dir_2_land_hlsp', (/id_ug,id_kj/), &
+       lnd%time, 'direct short-wave radiation flux reflected by the land surface', 'W/m2', missing_value=initval )  
+  id_fevapv_land_hlsp = register_tiled_diag_field ( module_name, 'fevapv_land_hlsp', (/id_ug,id_kj/), &
+       lnd%time, 'vapor flux leaving vegn ice', 'kg/(m2 s)', missing_value=initval )
+  id_flw_land_hlsp = register_tiled_diag_field ( module_name, 'flw_land_hlsp', (/id_ug,id_kj/), &
+       lnd%time, 'net lw rad to land', 'W/m2', missing_value=initval )
+  id_fsw_land_hlsp = register_tiled_diag_field ( module_name, 'fsw_land_hlsp', (/id_ug,id_kj/), &
+       lnd%time, 'net sw rad to land', 'W/m2', missing_value=initval )
+  id_FWSv_land_hlsp = register_tiled_diag_field ( module_name, 'FWSv_land_hlsp', (/id_ug,id_kj/), &
+       lnd%time, 'frozen interception storage', 'kg/m2', missing_value=initval )
+  id_grnd_flux_land_hlsp = register_tiled_diag_field ( module_name, 'grnd_flux_land_hlsp', (/id_ug,id_kj/), &
+       lnd%time, 'sensible heat into ground from surface', 'W/m2', missing_value=initval )
+  id_levapv_land_hlsp = register_tiled_diag_field ( module_name, 'levapv_land_hlsp', (/id_ug,id_kj/), &
+       lnd%time, 'vapor flux leaving intercepted liquid', 'kg/(m2 s)', missing_value=initval )
+  id_LWSv_land_hlsp = register_tiled_diag_field ( module_name, 'LWSv_land_hlsp', (/id_ug,id_kj/), &
+       lnd%time, 'liquid interception storage', 'kg/m2', missing_value=initval )
+  id_snow_land_hlsp = register_tiled_diag_field ( module_name, 'snow_land_hlsp', (/id_ug,id_kj/), &
+       lnd%time, 'column-integrated snow water', 'kg/m2', missing_value=initval )
+  id_Tca_land_hlsp = register_tiled_diag_field ( module_name, 'Tca_land_hlsp', (/id_ug,id_kj/), &
+       lnd%time, 'canopy-air temperature', 'degK', missing_value=initval )
+  id_grnd_T_land_hlsp = register_tiled_diag_field ( module_name, 'grnd_T_land_hlsp', (/id_ug,id_kj/), &
+       lnd%time, 'ground surface temperature', 'degK', missing_value=initval )
+  id_fco2_land_hlsp = register_tiled_diag_field ( module_name, 'fco2_land_hlsp', (/id_ug,id_kj/), &
+       lnd%time, 'flux of CO2 to canopy air', 'kg C/(m2 s)', missing_value=initval )
+  id_water_land_hlsp = register_tiled_diag_field ( module_name, 'water_land_hlsp', (/id_ug,id_kj/), &
+       lnd%time, 'column-integrated soil water', 'kg/m2', missing_value=initval )
+  id_lai_land_hlsp = register_tiled_diag_field ( module_name, 'lai_land_hlsp', (/id_ug,id_kj/), &
+       lnd%time, 'leaf area index', 'm2/m2', missing_value=initval )
+  id_sai_land_hlsp = register_tiled_diag_field ( module_name, 'sai_land_hlsp', (/id_ug,id_kj/), &
+       lnd%time, 'stem area index', 'm2/m2', missing_value=initval )
+  id_treeFrac_land_hlsp = register_tiled_diag_field ( module_name, 'treeFrac_land_hlsp', (/id_ug,id_kj/), &
+       lnd%time, 'Tree Cover Fraction', '%', missing_value=initval )
+  id_melt_land_hlsp = register_tiled_diag_field ( module_name, 'melt_land_hlsp', (/id_ug,id_kj/), &
+       lnd%time, 'total runoff', 'kg/(m2 s)', missing_value=initval )
+  id_meltv_land_hlsp = register_tiled_diag_field ( module_name, 'meltv_land_hlsp', (/id_ug,id_kj/), &
+       lnd%time, 'rate of melt, interception', 'kg/(m2 s)', missing_value=initval ) 
+  id_melts_land_hlsp = register_tiled_diag_field ( module_name, 'melts_land_hlsp', (/id_ug,id_kj/), &
+       lnd%time, 'rate of snow melt', 'kg/(m2 s)', missing_value=initval )
+  id_snow_frac_land_hlsp = register_tiled_diag_field ( module_name, 'snow_frac_land_hlsp', (/id_ug,id_kj/), &
+       lnd%time, 'fraction of area that is covered by snow', '1', missing_value=initval )
+  id_snow_depth_land_hlsp = register_tiled_diag_field ( module_name, 'snow_depth_land_hlsp', (/id_ug,id_kj/), &
+       lnd%time, 'snow depth', 'm', missing_value=initval )
+
+  id_gpp_vegn_hlsp = register_tiled_diag_field ( module_name, 'gpp_vegn_hlsp', (/id_ug,id_kj/), &
+       lnd%time, 'gross primary productivity', 'kg C/(m2 year)', missing_value=initval )
+  id_npp_vegn_hlsp = register_tiled_diag_field ( module_name, 'npp_vegn_hlsp', (/id_ug,id_kj/), &
+       lnd%time, 'net primary productivity', 'kg C/(m2 year)', missing_value=initval )
+  id_resp_vegn_hlsp = register_tiled_diag_field ( module_name, 'resp_vegn_hlsp', (/id_ug,id_kj/), &
+       lnd%time, 'respiration', 'kg C/(m2 year)', missing_value=initval )
+  id_cVeg_vegn_hlsp = register_tiled_diag_field ( module_name, 'cVeg_vegn_hlsp', (/id_ug,id_kj/), &
+       lnd%time, 'Carbon Mass in Vegetation', 'kg m-2', missing_value=initval )
 
   ! by-carbon-species diag fields
   id_soil_C(:) = register_soilc_diag_fields(module_name, '<ctype>_soil_C', &
@@ -5539,8 +5627,49 @@ subroutine soil_hlsp_diag()
   call send_hlsp_data_r0d_fptr(id_patm_hlsp, soil_hlsp_patm_ptr)  
   call send_hlsp_data_r0d_fptr(id_psurf_hlsp, soil_hlsp_psurf_ptr)  
   call send_hlsp_data_r0d_fptr(id_qatm_hlsp, soil_hlsp_qatm_ptr)  
-  call send_hlsp_data_r0d_fptr(id_tatm_nodis_hlsp, soil_hlsp_tatm_nodis_ptr)        
-  call send_hlsp_data_r0d_fptr(id_runf_land_hlsp, soil_hlsp_runf_land_ptr)
+  call send_hlsp_data_r0d_fptr(id_tatm_nodis_hlsp, soil_hlsp_tatm_nodis_ptr)
+
+  call    send_hlsp_data_r0d_fptr(    id_transp_land_hlsp ,   soil_hlsp_transp_land_ptr   )
+  call    send_hlsp_data_r0d_fptr(    id_precip_land_hlsp ,   soil_hlsp_precip_land_ptr   )
+  call    send_hlsp_data_r0d_fptr(    id_precip_l_land_hlsp   ,   soil_hlsp_precip_l_land_ptr )
+  call    send_hlsp_data_r0d_fptr(    id_precip_s_land_hlsp   ,   soil_hlsp_precip_s_land_ptr )
+  call    send_hlsp_data_r0d_fptr(    id_runf_land_hlsp   ,   soil_hlsp_runf_land_ptr )
+  call    send_hlsp_data_r0d_fptr(    id_evap_land_hlsp   ,   soil_hlsp_evap_land_ptr )
+  call    send_hlsp_data_r0d_fptr(    id_sens_land_hlsp   ,   soil_hlsp_sens_land_ptr )
+  call    send_hlsp_data_r0d_fptr(    id_total_C_land_hlsp    ,   soil_hlsp_total_C_land_ptr  )
+  call    send_hlsp_data_r0d_fptr(    id_swdn_dif_1_land_hlsp ,   soil_hlsp_swdn_dif_1_land_ptr   )
+  call    send_hlsp_data_r0d_fptr(    id_swdn_dif_2_land_hlsp ,   soil_hlsp_swdn_dif_2_land_ptr   )
+  call    send_hlsp_data_r0d_fptr(    id_swup_dif_1_land_hlsp ,   soil_hlsp_swup_dif_1_land_ptr   )
+  call    send_hlsp_data_r0d_fptr(    id_swup_dif_2_land_hlsp ,   soil_hlsp_swup_dif_2_land_ptr   )
+  call    send_hlsp_data_r0d_fptr(    id_swdn_dir_1_land_hlsp ,   soil_hlsp_swdn_dir_1_land_ptr   )
+  call    send_hlsp_data_r0d_fptr(    id_swdn_dir_2_land_hlsp ,   soil_hlsp_swdn_dir_2_land_ptr   )
+  call    send_hlsp_data_r0d_fptr(    id_swup_dir_1_land_hlsp ,   soil_hlsp_swup_dir_1_land_ptr   )
+  call    send_hlsp_data_r0d_fptr(    id_swup_dir_2_land_hlsp ,   soil_hlsp_swup_dir_2_land_ptr   )
+  call    send_hlsp_data_r0d_fptr(    id_fevapv_land_hlsp ,   soil_hlsp_fevapv_land_ptr   )
+  call    send_hlsp_data_r0d_fptr(    id_flw_land_hlsp    ,   soil_hlsp_flw_land_ptr  )
+  call    send_hlsp_data_r0d_fptr(    id_fsw_land_hlsp    ,   soil_hlsp_fsw_land_ptr  )
+  call    send_hlsp_data_r0d_fptr(    id_FWSv_land_hlsp   ,   soil_hlsp_FWSv_land_ptr )
+  call    send_hlsp_data_r0d_fptr(    id_grnd_flux_land_hlsp  ,   soil_hlsp_grnd_flux_land_ptr    )
+  call    send_hlsp_data_r0d_fptr(    id_levapv_land_hlsp ,   soil_hlsp_levapv_land_ptr   )
+  call    send_hlsp_data_r0d_fptr(    id_LWSv_land_hlsp   ,   soil_hlsp_LWSv_land_ptr )
+  call    send_hlsp_data_r0d_fptr(    id_snow_land_hlsp   ,   soil_hlsp_snow_land_ptr )
+  call    send_hlsp_data_r0d_fptr(    id_Tca_land_hlsp    ,   soil_hlsp_Tca_land_ptr  )
+  call    send_hlsp_data_r0d_fptr(    id_grnd_T_land_hlsp ,   soil_hlsp_grnd_T_land_ptr   )
+  call    send_hlsp_data_r0d_fptr(    id_fco2_land_hlsp   ,   soil_hlsp_fco2_land_ptr )
+  call    send_hlsp_data_r0d_fptr(    id_water_land_hlsp  ,   soil_hlsp_water_land_ptr    )
+  call    send_hlsp_data_r0d_fptr(    id_lai_land_hlsp    ,   soil_hlsp_lai_land_ptr  )
+  call    send_hlsp_data_r0d_fptr(    id_sai_land_hlsp    ,   soil_hlsp_sai_land_ptr  )
+  call    send_hlsp_data_r0d_fptr(    id_treeFrac_land_hlsp   ,   soil_hlsp_treeFrac_land_ptr )
+  call    send_hlsp_data_r0d_fptr(    id_melt_land_hlsp   ,   soil_hlsp_melt_land_ptr )
+  call    send_hlsp_data_r0d_fptr(    id_meltv_land_hlsp  ,   soil_hlsp_meltv_land_ptr    )
+  call    send_hlsp_data_r0d_fptr(    id_melts_land_hlsp  ,   soil_hlsp_melts_land_ptr    )
+  call    send_hlsp_data_r0d_fptr(    id_snow_frac_land_hlsp  ,   soil_hlsp_snow_frac_land_ptr    )
+  call    send_hlsp_data_r0d_fptr(    id_snow_depth_land_hlsp ,   soil_hlsp_snow_depth_land_ptr   )
+                    
+  call    send_hlsp_data_r0d_fptr(    id_gpp_vegn_hlsp    ,   soil_hlsp_gpp_vegn_ptr  )
+  call    send_hlsp_data_r0d_fptr(    id_npp_vegn_hlsp    ,   soil_hlsp_npp_vegn_ptr  )
+  call    send_hlsp_data_r0d_fptr(    id_resp_vegn_hlsp   ,   soil_hlsp_resp_vegn_ptr )
+  call    send_hlsp_data_r0d_fptr(    id_cVeg_vegn_hlsp   ,   soil_hlsp_cVeg_vegn_ptr )
 
   call send_hlsp_data_r0d_fptr(id_elev_hlsp, soil_pars_tile_elevation_ptr)  
 
@@ -5550,12 +5679,14 @@ subroutine soil_hlsp_diag()
        if (.not.associated(tile%soil)) cycle 
        tile%soil%hlsp%lwc = tile%soil%wl/dz(1:num_l) !kg/m2 / m = kg/m3
        tile%soil%hlsp%swc = tile%soil%ws/dz(1:num_l)
+       tile%soil%hlsp%temp = tile%soil%T
      enddo
   enddo
 
   do i=1,num_l
     call send_hlsp_data_r1d_fptr(id_lwc_hlsp(i), soil_hlsp_lwc_ptr, i)
-    call send_hlsp_data_r1d_fptr(id_swc_hlsp(i), soil_hlsp_swc_ptr, i)    
+    call send_hlsp_data_r1d_fptr(id_swc_hlsp(i), soil_hlsp_swc_ptr, i) 
+    call send_hlsp_data_r1d_fptr(id_temp_hlsp(i), soil_hlsp_temp_ptr, i) 
   enddo
 
 end subroutine soil_hlsp_diag
@@ -5679,10 +5810,52 @@ DEFINE_SOIL_HLSP_ACCESSOR_0D(real,patm)
 DEFINE_SOIL_HLSP_ACCESSOR_0D(real,psurf)
 DEFINE_SOIL_HLSP_ACCESSOR_0D(real,qatm)
 DEFINE_SOIL_HLSP_ACCESSOR_0D(real,tatm_nodis)
-DEFINE_SOIL_HLSP_ACCESSOR_0D(real,runf_land)
+
+DEFINE_SOIL_HLSP_ACCESSOR_0D(real,  transp_land )
+DEFINE_SOIL_HLSP_ACCESSOR_0D(real,  precip_land )
+DEFINE_SOIL_HLSP_ACCESSOR_0D(real,  precip_l_land   )
+DEFINE_SOIL_HLSP_ACCESSOR_0D(real,  precip_s_land   )
+DEFINE_SOIL_HLSP_ACCESSOR_0D(real,  runf_land   )
+DEFINE_SOIL_HLSP_ACCESSOR_0D(real,  evap_land   )
+DEFINE_SOIL_HLSP_ACCESSOR_0D(real,  sens_land   )
+DEFINE_SOIL_HLSP_ACCESSOR_0D(real,  total_C_land    )
+DEFINE_SOIL_HLSP_ACCESSOR_0D(real,  swdn_dif_1_land )
+DEFINE_SOIL_HLSP_ACCESSOR_0D(real,  swdn_dif_2_land )
+DEFINE_SOIL_HLSP_ACCESSOR_0D(real,  swup_dif_1_land )
+DEFINE_SOIL_HLSP_ACCESSOR_0D(real,  swup_dif_2_land )
+DEFINE_SOIL_HLSP_ACCESSOR_0D(real,  swdn_dir_1_land )
+DEFINE_SOIL_HLSP_ACCESSOR_0D(real,  swdn_dir_2_land )
+DEFINE_SOIL_HLSP_ACCESSOR_0D(real,  swup_dir_1_land )
+DEFINE_SOIL_HLSP_ACCESSOR_0D(real,  swup_dir_2_land )
+DEFINE_SOIL_HLSP_ACCESSOR_0D(real,  fevapv_land )
+DEFINE_SOIL_HLSP_ACCESSOR_0D(real,  flw_land    )
+DEFINE_SOIL_HLSP_ACCESSOR_0D(real,  fsw_land    )
+DEFINE_SOIL_HLSP_ACCESSOR_0D(real,  FWSv_land   )
+DEFINE_SOIL_HLSP_ACCESSOR_0D(real,  grnd_flux_land  )
+DEFINE_SOIL_HLSP_ACCESSOR_0D(real,  levapv_land )
+DEFINE_SOIL_HLSP_ACCESSOR_0D(real,  LWSv_land   )
+DEFINE_SOIL_HLSP_ACCESSOR_0D(real,  snow_land   )
+DEFINE_SOIL_HLSP_ACCESSOR_0D(real,  Tca_land    )
+DEFINE_SOIL_HLSP_ACCESSOR_0D(real,  grnd_T_land )
+DEFINE_SOIL_HLSP_ACCESSOR_0D(real,  fco2_land   )
+DEFINE_SOIL_HLSP_ACCESSOR_0D(real,  water_land  )
+DEFINE_SOIL_HLSP_ACCESSOR_0D(real,  lai_land    )
+DEFINE_SOIL_HLSP_ACCESSOR_0D(real,  sai_land    )
+DEFINE_SOIL_HLSP_ACCESSOR_0D(real,  treeFrac_land   )
+DEFINE_SOIL_HLSP_ACCESSOR_0D(real,  melt_land   )
+DEFINE_SOIL_HLSP_ACCESSOR_0D(real,  meltv_land  )
+DEFINE_SOIL_HLSP_ACCESSOR_0D(real,  melts_land  )
+DEFINE_SOIL_HLSP_ACCESSOR_0D(real,  snow_frac_land  )
+DEFINE_SOIL_HLSP_ACCESSOR_0D(real,  snow_depth_land )
+
+DEFINE_SOIL_HLSP_ACCESSOR_0D(real,  gpp_vegn    )
+DEFINE_SOIL_HLSP_ACCESSOR_0D(real,  npp_vegn    )
+DEFINE_SOIL_HLSP_ACCESSOR_0D(real,  resp_vegn   )
+DEFINE_SOIL_HLSP_ACCESSOR_0D(real,  cVeg_vegn   )
 
 DEFINE_SOIL_HLSP_ACCESSOR_1D(real,lwc)
 DEFINE_SOIL_HLSP_ACCESSOR_1D(real,swc)
+DEFINE_SOIL_HLSP_ACCESSOR_1D(real,temp)
 
 DEFINE_SOIL_PARS_ACCESSOR_0D(real,tile_elevation)
 
