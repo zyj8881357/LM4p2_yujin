@@ -12,7 +12,7 @@ use fms_mod,            only : error_mesg, string, FATAL, NOTE
 use land_tile_selectors_mod, only : tile_selectors_init, tile_selectors_end, &
      tile_selector_type, register_tile_selector, selector_suffix, &
      n_selectors, selectors
-use land_tile_mod,      only : land_tile_type, diag_buff_type, land_tile_list_type, &
+use land_tile_mod,      only : land_tile_type, land_tile_list_type, &
      land_tile_enum_type, first_elmt, loop_over_tiles, &
      land_tile_map, tile_is_selected, fptr_i0, fptr_r0, fptr_r0i
 use vegn_data_mod,      only : nspecies
@@ -214,7 +214,6 @@ subroutine tile_diag_init()
 
   if (module_is_initialized) return
 
-  module_is_initialized = .true.
   call log_version(version, mod_name, &
   __FILE__)
 
@@ -231,6 +230,7 @@ subroutine tile_diag_init()
   allocate(cfields(INIT_FIELDS_SIZE))
   n_cfields       = 0
 
+  module_is_initialized = .TRUE.
 end subroutine tile_diag_init
 
 
@@ -250,7 +250,7 @@ subroutine tile_diag_end()
   ! destroy selectors
   call tile_selectors_end()
 
-  module_is_initialized = .false.
+  module_is_initialized = .FALSE.
 
 end subroutine tile_diag_end
 
@@ -648,6 +648,10 @@ function reg_field(static, module_name, field_name, init_time, axes, &
   logical :: do_log
   ! ---- global vars: n_fields, fields, current_offset -- all used and updated
 
+  if (.not.module_is_initialized) then
+   call error_mesg(mod_name,&
+      'land_tile_diag_mod is not initialized', FATAL)
+  endif
   ! log diagnostic field information
   do_log = .TRUE.; if (present(do_not_log)) do_log = .NOT.do_not_log
   if (do_log) call log_diag_field_info ( module_name, trim(field_name), axes, long_name, units,&

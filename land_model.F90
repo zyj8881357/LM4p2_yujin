@@ -4218,9 +4218,11 @@ subroutine land_diag_init(clonb, clatb, clon, clat, time, id_band, id_ug, id_pti
   integer,allocatable :: ug_dim_data(:) ! Unstructured axis data.
   integer             :: id_lon, id_lonb
   integer             :: id_lat, id_latb
-  integer :: i,max_npt
+  integer :: i, max_npt, max_ptid
   character(128) :: long_name, flux_units
   character(32) :: name       ! tracer name
+  type(land_tile_type), pointer :: tile
+  type(land_tile_enum_type) :: ce
 
   ! Register the unstructured axis for the unstructured domain.
   call mpp_get_UG_compute_domain(lnd%ug_domain, size=ug_dim_size)
@@ -4266,6 +4268,13 @@ subroutine land_diag_init(clonb, clatb, clon, clat, time, id_band, id_ug, id_pti
 
   !Determine the maximum number of parent tiles over the global domain
   max_npt = lnd%max_npt
+  max_ptid = 0
+  ce = first_elmt(land_tile_map)
+  do while(loop_over_tiles(ce,tile))
+     max_ptid = max(max_ptid,tile%pid)
+  enddo
+  write (*,'("PE: ",i4.4," max_npt=",i4.4," max_ptid="i4.4," equal:",L1)') mpp_pe(), max_npt, max_ptid, (max_npt == max_ptid)
+
   call mpp_max(max_npt)
   !Initialize the parent id array
   if (.not.allocated(lnd%pids))then
@@ -4274,9 +4283,13 @@ subroutine land_diag_init(clonb, clatb, clon, clat, time, id_band, id_ug, id_pti
     lnd%pids(i) = i
    enddo
   endif
+
+
   !Initialize the parent id axis
   id_ptid = diag_axis_init ('ptid',lnd%pids,'unitless','Z',&
        'parent tile id', set_name='land')
+
+
 
   ! Set up an array of axes ids, for convenience.
   axes(1) = id_ug
