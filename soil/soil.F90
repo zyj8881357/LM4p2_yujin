@@ -284,11 +284,6 @@ integer :: &
     id_total_N_mineralization_rate,id_total_N_immobilization_rate,&
     id_total_nitrification_rate
 
-! diag IDs of full tile variables
-integer :: id_lwc1_tile,id_lwc2_tile,id_lwc3_tile,id_lwcrz_tile
-integer :: id_swc1_tile,id_swc2_tile,id_swc3_tile
-integer :: id_wt_2b_tile
-
 ! diag IDs of std of variables
 integer :: id_lwc_std,id_swc_std
 
@@ -1476,35 +1471,6 @@ subroutine soil_diag_init(id_ug,id_band,id_zfull)
        lnd%time, 'Nitrogen Mass in Coarse Woody Debris', 'kg m-2', &
        missing_value=-100.0, standard_name='wood_debris_mass_content_of_nitrogen', &
        fill_missing=.TRUE.)
-
-  !Full tile output
-!   if (present(id_ptid)) then
-!    call set_default_diag_filter('soil')
-!    id_lwcrz_tile    = register_tiled_diag_field ( module_name, 'lwcrz_tile',  &
-!        (/id_ug,id_ptid/), lnd%time, 'volumetric water content of liquid water (2 meters)', &
-!        'm3/m3', missing_value=-100.0,sm=.False.)
-!    id_lwc1_tile    = register_tiled_diag_field ( module_name, 'lwc1_tile',  &
-!        (/id_ug,id_ptid/), lnd%time, 'volumetric water content of liquid water (layer 1)', &
-!        'm3/m3', missing_value=-100.0,sm=.False.)
-!    id_lwc2_tile    = register_tiled_diag_field ( module_name, 'lwc2_tile',  &
-!        (/id_ug,id_ptid/), lnd%time, 'volumetric water content of liquid water (layer 2)', &
-!        'm3/m3', missing_value=-100.0,sm=.False.)
-!    id_lwc3_tile    = register_tiled_diag_field ( module_name, 'lwc3_tile',  &
-!        (/id_ug,id_ptid/), lnd%time, 'volumetric water content of liquid water (layer 3)', &
-!        'm3/m3', missing_value=-100.0,sm=.False.)
-!    id_swc1_tile    = register_tiled_diag_field ( module_name, 'swc1_tile',  &
-!        (/id_ug,id_ptid/), lnd%time, 'volumetric water content of frozen water (layer 1)', &
-!        'm3/m3', missing_value=-100.0,sm=.False.)
-!    id_swc2_tile    = register_tiled_diag_field ( module_name, 'swc2_tile',  &
-!        (/id_ug,id_ptid/), lnd%time, 'volumetric water content of frozen water (layer 2)', &
-!        'm3/m3', missing_value=-100.0,sm=.False.)
-!    id_swc3_tile    = register_tiled_diag_field ( module_name, 'swc3_tile',  &
-!        (/id_ug,id_ptid/), lnd%time, 'volumetric water content of frozen water (layer 3)', &
-!        'm3/m3', missing_value=-100.0,sm=.False.)
-!    id_wt_2b_tile = register_tiled_diag_field ( module_name, 'wt_2b_tile',  &
-!        (/id_ug,id_ptid/), lnd%time, 'Water Table Depth from Surface to Liquid Saturation', 'm', &
-!        missing_value=-100.0 ,sm=.False.)
-!   endif
 
   !Std output
   call set_default_diag_filter('soil')
@@ -3069,17 +3035,6 @@ end subroutine soil_step_1
 
   if (.not. LM2) call send_tile_data(id_psi_bot, soil%psi(num_l), diag)
   call send_tile_data(id_frozen_freq, soil%frozen_freq, diag)
-
-  ! tile variables
-  call send_tile_data(id_lwc1_tile,soil%wl(1)/(1000.0*dz(1)), diag)
-  call send_tile_data(id_lwc2_tile,soil%wl(2)/(1000.0*dz(2)), diag)
-  call send_tile_data(id_lwc3_tile,soil%wl(3)/(1000.0*dz(3)), diag)
-  call send_tile_data(id_swc1_tile,soil%ws(1)/(1000.0*dz(1)), diag)
-  call send_tile_data(id_swc2_tile,soil%ws(2)/(1000.0*dz(2)), diag)
-  call send_tile_data(id_swc3_tile,soil%ws(3)/(1000.0*dz(3)), diag)
-  call send_tile_data(id_wt_2b_tile, depth_to_wt_2b, diag)
-  !root zone soil moisture (2 meters)
-  call send_tile_data(id_lwcrz_tile,sum(soil%wl(1:13))/(1000.0*sum(dz(1:13))),diag)
 
   ! std variables
   if (id_lwc_std > 0) call send_tile_data(id_lwc_std,  soil%wl/dz(1:num_l), diag)
