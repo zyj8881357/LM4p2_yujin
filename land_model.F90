@@ -102,7 +102,7 @@ use land_tile_diag_mod, only : cmor_name, tile_diag_init, tile_diag_end, &
      register_tiled_diag_field, send_tile_data, dump_tile_diag_fields, &
      add_tiled_diag_field_alias, register_cohort_diag_field, send_cohort_data, &
      set_default_diag_filter, register_tiled_area_fields, send_global_land_diag, &
-     register_tiled_static_field, get_area_id, register_extra_axes, ptid_len
+     register_tiled_static_field, get_area_id, register_ptid_axis
 use land_debug_mod, only : land_debug_init, land_debug_end, set_current_point, &
      is_watch_point, is_watch_cell, is_watch_time, get_watch_point, do_checksums, &
      check_conservation, do_check_conservation, water_cons_tol, carbon_cons_tol, nitrogen_cons_tol, &
@@ -486,7 +486,7 @@ subroutine land_model_init &
   call free_land_restart(restart)
 
   ! register ptid diagnostic axis
-  call register_extra_axes()
+  call register_ptid_axis()
 
   ! initialize land model diagnostics -- must be before *_data_init so that
   ! *_data_init can write static fields if necessary
@@ -1658,17 +1658,6 @@ subroutine update_land_model_fast ( cplr2land, land2cplr )
   lnd%time = lnd%time + lnd%dt_fast
 
   ! send the accumulated diagnostics to the output
-  do l = lnd%ls, lnd%le
-     i = lnd%i_index(l)
-     j = lnd%j_index(l)
-     ce = first_elmt(land_tile_map(l))
-     do while (loop_over_tiles(ce,tile,k=k))
-        ! set this point coordinates as current for debug output
-        call set_current_point(l,k)
-        call check_var_range(REAL(tile%pid),1.0,REAL(ptid_len),'before dump','pid', WARNING)
-     enddo
-  enddo
-
   call dump_tile_diag_fields(lnd%time)
   if (id_snc>0) used = send_data(id_snc, snc(:)*lnd%ug_landfrac(:)*100, lnd%time)
 
@@ -1863,10 +1852,8 @@ subroutine update_land_model_fast_0d ( tile, l,itile, N, land2cplr, &
   endif
 
   ! sanity checks of some input values
-  call check_var_range(REAL(tile%pid),1.0,REAL(ptid_len),'update_land_model_fast_0d','pid', WARNING)
-
-  call check_var_range(precip_l,  0.0, 1.0,        'land model input', 'precip_l',    WARNING)
-  call check_var_range(precip_s,  0.0, 1.0,        'land model input', 'precip_s',    WARNING)
+  call check_var_range(precip_l,   0.0, 1.0,       'land model input', 'precip_l',    WARNING)
+  call check_var_range(precip_s,   0.0, 1.0,       'land model input', 'precip_s',    WARNING)
   call check_temp_range(atmos_T,                   'land model input', 'atmos_T')
   call check_var_range(ISa_dn_dir, 0.0, 1360.0,    'land model input', 'sw.down.dir', WARNING)
   call check_var_range(ISa_dn_dif, 0.0, 1360.0,    'land model input', 'sw.down.dif', WARNING)
