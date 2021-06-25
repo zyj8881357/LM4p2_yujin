@@ -188,7 +188,7 @@ end subroutine open_image_file
 subroutine land_cover_cold_start_0d_predefined_tiles(tiles,lnd,l,h5id)
 
   type(land_tile_list_type) , intent(inout) :: tiles   ! list of tiles to insert new tiles into
-  type(land_state_type)     , intent(inout) :: lnd     ! land geometry and indexing information
+  type(land_state_type)     , intent(in)    :: lnd     ! land geometry and indexing information
   integer                   , intent(in)    :: l       ! unstructured grid index of current gridcell
   integer(hid_t)            , intent(in)    :: h5id    ! input data set handle
 
@@ -278,16 +278,12 @@ subroutine land_cover_cold_start_0d_predefined_tiles(tiles,lnd,l,h5id)
   call h5fclose_f(dstid,status)
   !call check_h5err(status)
 
-  !Define the maximum number of parent tiles
-  lnd%max_npt = max(lnd%max_npt,tile_parameters%metadata%ntile)
-  !lnd%max_npt = tile_parameters%metadata%ntile!tile_parameters%metadata%max_npt(1)
-
 end subroutine land_cover_cold_start_0d_predefined_tiles
 
 subroutine land_cover_warm_start_0d_predefined_tiles(lnd, h5id, tiles, l, &
   lidx, frac, pid, vegn)
 
-  type(land_state_type)     , intent(inout) :: lnd     ! land geometry and indexing information
+  type(land_state_type)     , intent(in)    :: lnd     ! land geometry and indexing information
   integer(hid_t)            , intent(in)    :: h5id    ! input data set handle
   type(land_tile_list_type) , intent(inout) :: tiles   ! list of tiles to insert new tiles into
   integer                   , intent(in)    :: l       ! unstructured grid index of current gridcell
@@ -297,7 +293,7 @@ subroutine land_cover_warm_start_0d_predefined_tiles(lnd, h5id, tiles, l, &
   integer                   , intent(in)    :: vegn(:) ! vegetation flags of tiles
 
   type(land_tile_type), pointer :: tile
-  integer :: itile,tid,i_index,j_index,status,max_npt,k
+  integer :: itile,tid,i_index,j_index,status,k
   integer(hid_t) :: dstid,cid
   type(tile_parameters_type) :: tile_parameters
   type(c_ptr) :: buf_ptr
@@ -381,12 +377,6 @@ subroutine land_cover_warm_start_0d_predefined_tiles(lnd, h5id, tiles, l, &
   !call check_h5err(status)
   call h5fclose_f(dstid,status)
   !call check_h5err(status)
-
-  !Define the maximum number of parent tiles
-  lnd%max_npt = max(lnd%max_npt,tile_parameters%metadata%ntile)
-  !lnd%max_npt = tile_parameters%metadata%ntile!tile_parameters%metadata%max_npt(1)
-  !lnd%max_npt = tile_parameters%metadata%max_npt(1)
-
 end subroutine land_cover_warm_start_0d_predefined_tiles
 
 subroutine retrieve_metadata(tile_parameters,cid)
@@ -420,7 +410,6 @@ subroutine retrieve_metadata(tile_parameters,cid)
   call get_parameter_data(grpid,'tile',metadata%ntile,metadata%tile)
   call get_parameter_data(grpid,'type',metadata%ntile,metadata%ttype)
   call get_parameter_data(grpid,'tid',metadata%ntile,metadata%tid)
-  call get_parameter_data(grpid,'max_npt',1,metadata%max_npt)
 
   !Retrieve meteorology info
   call get_parameter_data(grpid,'prec',metadata%ntile,12,metadata%dws_prec)
