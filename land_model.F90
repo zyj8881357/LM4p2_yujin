@@ -4279,7 +4279,7 @@ subroutine land_diag_init(clonb, clatb, clon, clat, time, id_band, id_ug)
 
   ! type of parent tile
   id_ttype = register_tiled_diag_field(module_name, 'ttype', axes, time, &
-       'Type of parent tile', 'unitless',missing_value=-1.0)
+       'Type of parent tile (1=glacier, 2=lake, 3=soil)', 'unitless',missing_value=-1.0)
 
 
   id_VWS = register_tiled_diag_field ( module_name, 'VWS', axes, time, &

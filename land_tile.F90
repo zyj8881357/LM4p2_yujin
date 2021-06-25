@@ -374,7 +374,7 @@ function land_tile_soil_ctor_predefined( &
    type(land_tile_type), pointer  :: tile ! return value
 
    integer :: ttype
-   ttype = 3 ! lake tile type
+   ttype = 3 ! soil/vegetation tile type
 
    allocate(tile)
    ! fill common fields
