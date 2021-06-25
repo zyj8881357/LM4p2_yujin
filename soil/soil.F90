@@ -363,10 +363,9 @@ end subroutine read_soil_namelist
 
 ! ============================================================================
 ! initialize soil model
-subroutine soil_init (id_ug,id_band,id_zfull,id_ptid)
+subroutine soil_init (id_ug,id_band,id_zfull)
   integer,intent(in)  :: id_ug    !<Unstructured axis id.
   integer,intent(in)  :: id_band  !<ID of spectral band axis
-  integer,intent(in)  :: id_ptid  !<ID of tile axis
   integer,intent(out) :: id_zfull !<ID of vertical soil axis
 
   ! ---- local vars
@@ -412,11 +411,7 @@ subroutine soil_init (id_ug,id_band,id_zfull,id_ptid)
       call error_mesg ('soil_init','River tracer for DOC not found: leached DOC goes directly to the atmosphere as CO2 to maintain carbon conservation.', NOTE)
 
   ! -------- initialize soil model diagnostic fields
-  if (use_predefined_tiles) then
-   call soil_diag_init(id_ug,id_band,id_zfull,id_ptid)
-  else
-   call soil_diag_init(id_ug,id_band,id_zfull)
-  endif
+  call soil_diag_init(id_ug,id_band,id_zfull)
 
   ! -------- read spatially distributed fields for groundwater parameters, if requested
   if (.not.use_single_geo) then
@@ -936,11 +931,10 @@ function register_litter_soilc_diag_fields(module_name, field_name, axes, init_t
 end function register_litter_soilc_diag_fields
 
 ! ============================================================================
-subroutine soil_diag_init(id_ug,id_band,id_zfull,id_ptid)
+subroutine soil_diag_init(id_ug,id_band,id_zfull)
   integer,intent(in)  :: id_ug    !<Unstructured axis id.
   integer,intent(in)  :: id_band  !<ID of spectral band axis
   integer,intent(out) :: id_zfull !<ID of vertical soil axis
-  integer,optional,intent(in) :: id_ptid !<ID of tile axis
   ! ---- local vars
   integer :: axes(2)
   integer :: id_zhalf
@@ -1484,33 +1478,33 @@ subroutine soil_diag_init(id_ug,id_band,id_zfull,id_ptid)
        fill_missing=.TRUE.)
 
   !Full tile output
-  if (present(id_ptid)) then
-   call set_default_diag_filter('soil')
-   id_lwcrz_tile    = register_tiled_diag_field ( module_name, 'lwcrz_tile',  &
-       (/id_ug,id_ptid/), lnd%time, 'volumetric water content of liquid water (2 meters)', &
-       'm3/m3', missing_value=-100.0,sm=.False.)
-   id_lwc1_tile    = register_tiled_diag_field ( module_name, 'lwc1_tile',  &
-       (/id_ug,id_ptid/), lnd%time, 'volumetric water content of liquid water (layer 1)', &
-       'm3/m3', missing_value=-100.0,sm=.False.)
-   id_lwc2_tile    = register_tiled_diag_field ( module_name, 'lwc2_tile',  &
-       (/id_ug,id_ptid/), lnd%time, 'volumetric water content of liquid water (layer 2)', &
-       'm3/m3', missing_value=-100.0,sm=.False.)
-   id_lwc3_tile    = register_tiled_diag_field ( module_name, 'lwc3_tile',  &
-       (/id_ug,id_ptid/), lnd%time, 'volumetric water content of liquid water (layer 3)', &
-       'm3/m3', missing_value=-100.0,sm=.False.)
-   id_swc1_tile    = register_tiled_diag_field ( module_name, 'swc1_tile',  &
-       (/id_ug,id_ptid/), lnd%time, 'volumetric water content of frozen water (layer 1)', &
-       'm3/m3', missing_value=-100.0,sm=.False.)
-   id_swc2_tile    = register_tiled_diag_field ( module_name, 'swc2_tile',  &
-       (/id_ug,id_ptid/), lnd%time, 'volumetric water content of frozen water (layer 2)', &
-       'm3/m3', missing_value=-100.0,sm=.False.)
-   id_swc3_tile    = register_tiled_diag_field ( module_name, 'swc3_tile',  &
-       (/id_ug,id_ptid/), lnd%time, 'volumetric water content of frozen water (layer 3)', &
-       'm3/m3', missing_value=-100.0,sm=.False.)
-   id_wt_2b_tile = register_tiled_diag_field ( module_name, 'wt_2b_tile',  &
-       (/id_ug,id_ptid/), lnd%time, 'Water Table Depth from Surface to Liquid Saturation', 'm', &
-       missing_value=-100.0 ,sm=.False.)
-  endif
+!   if (present(id_ptid)) then
+!    call set_default_diag_filter('soil')
+!    id_lwcrz_tile    = register_tiled_diag_field ( module_name, 'lwcrz_tile',  &
+!        (/id_ug,id_ptid/), lnd%time, 'volumetric water content of liquid water (2 meters)', &
+!        'm3/m3', missing_value=-100.0,sm=.False.)
+!    id_lwc1_tile    = register_tiled_diag_field ( module_name, 'lwc1_tile',  &
+!        (/id_ug,id_ptid/), lnd%time, 'volumetric water content of liquid water (layer 1)', &
+!        'm3/m3', missing_value=-100.0,sm=.False.)
+!    id_lwc2_tile    = register_tiled_diag_field ( module_name, 'lwc2_tile',  &
+!        (/id_ug,id_ptid/), lnd%time, 'volumetric water content of liquid water (layer 2)', &
+!        'm3/m3', missing_value=-100.0,sm=.False.)
+!    id_lwc3_tile    = register_tiled_diag_field ( module_name, 'lwc3_tile',  &
+!        (/id_ug,id_ptid/), lnd%time, 'volumetric water content of liquid water (layer 3)', &
+!        'm3/m3', missing_value=-100.0,sm=.False.)
+!    id_swc1_tile    = register_tiled_diag_field ( module_name, 'swc1_tile',  &
+!        (/id_ug,id_ptid/), lnd%time, 'volumetric water content of frozen water (layer 1)', &
+!        'm3/m3', missing_value=-100.0,sm=.False.)
+!    id_swc2_tile    = register_tiled_diag_field ( module_name, 'swc2_tile',  &
+!        (/id_ug,id_ptid/), lnd%time, 'volumetric water content of frozen water (layer 2)', &
+!        'm3/m3', missing_value=-100.0,sm=.False.)
+!    id_swc3_tile    = register_tiled_diag_field ( module_name, 'swc3_tile',  &
+!        (/id_ug,id_ptid/), lnd%time, 'volumetric water content of frozen water (layer 3)', &
+!        'm3/m3', missing_value=-100.0,sm=.False.)
+!    id_wt_2b_tile = register_tiled_diag_field ( module_name, 'wt_2b_tile',  &
+!        (/id_ug,id_ptid/), lnd%time, 'Water Table Depth from Surface to Liquid Saturation', 'm', &
+!        missing_value=-100.0 ,sm=.False.)
+!   endif
 
   !Std output
   call set_default_diag_filter('soil')

@@ -1,13 +1,13 @@
 module land_tile_diag_mod
 
-use mpp_mod,            only : mpp_sum
+use mpp_mod,            only : mpp_sum, mpp_max
 use mpp_efp_mod,        only : mpp_reproducing_sum
 use time_manager_mod,   only : time_type
 use diag_axis_mod,      only : get_axis_length, diag_axis_init
 use diag_manager_mod,   only : register_diag_field, register_static_field, &
      diag_field_add_attribute, diag_field_add_cell_measures, send_data
 use diag_util_mod,      only : log_diag_field_info
-use fms_mod,            only : error_mesg, string, FATAL, NOTE
+use fms_mod,            only : error_mesg, string, FATAL, WARNING, NOTE
 
 use land_tile_selectors_mod, only : tile_selectors_init, tile_selectors_end, &
      tile_selector_type, register_tile_selector, selector_suffix, &
@@ -40,6 +40,8 @@ public :: register_tiled_diag_field
 public :: register_tiled_static_field
 public :: add_tiled_diag_field_alias
 public :: add_tiled_static_field_alias
+
+public :: register_extra_axes
 
 public :: send_tile_data
 public :: send_tile_data_r0d_fptr, send_tile_data_r1d_fptr
@@ -174,6 +176,7 @@ integer, parameter :: FLD_LIKE_AREA = 2
 ! ==== derived types =========================================================
 type :: tiled_diag_field_type
    integer, pointer :: ids(:) => NULL()
+   integer, pointer :: idt(:) => NULL()
    integer :: offset ! offset of the field data in the buffer
    integer :: size   ! size of the field data in the per-tile buffers
    integer :: opcode ! aggregation operation
@@ -183,7 +186,6 @@ type :: tiled_diag_field_type
    integer :: n_sends! number of data points sent to the field since last dump
    integer :: alias = 0 ! ID of the first alias in the chain
    character(32) :: module,name ! for debugging purposes only
-   logical :: sm ! flag to determine if to output summary or all associated tiles
 end type tiled_diag_field_type
 
 type :: cohort_diag_field_type
@@ -205,6 +207,8 @@ integer :: n_cfields     = 0 ! current number of diag fields
 
 integer :: id_species_axis = -1 ! id of axis for by-species diagnostics
 
+integer :: ptid_axis = -1 ! id of the parent tile axis
+integer, public, protected :: ptid_len  =  0 ! length of the prent tile axis
 contains
 
 
@@ -253,6 +257,32 @@ subroutine tile_diag_end()
   module_is_initialized = .FALSE.
 
 end subroutine tile_diag_end
+
+! ============================================================================
+!>\brief Register extra axes used by land tile diagnostics, e.g. ptid
+subroutine register_extra_axes()
+
+  type(land_tile_type), pointer :: tile
+  type(land_tile_enum_type) :: ce
+  integer :: i
+
+  ! Determine the maximum number of parent tiles over the global domain. This is the
+  ! length of ptid axis
+  ptid_len = 0
+  ce = first_elmt(land_tile_map)
+  do while(loop_over_tiles(ce,tile))
+     ptid_len = max(ptid_len,tile%pid)
+  enddo
+  call mpp_max(ptid_len)
+  ! create parent tile diag axis, and store its ID in a variable
+  ptid_axis = diag_axis_init ('ptid', [(real(i), i=1,ptid_len)], 'unitless', 'Z', 'parent tile id', set_name='land')
+  if (ptid_axis<=0) then
+     call error_mesg('register_extra_axes','ptid axis not registered',FATAL)
+  else
+     call error_mesg('register_extra_axes','ptid axis is '//string(ptid_axis),NOTE)
+  endif
+
+end subroutine register_extra_axes
 
 ! ============================================================================
 ! give a name of the diagnostic selector, returns id of area variable associated
@@ -437,7 +467,7 @@ end function string2opcode
 ! ============================================================================
 function register_tiled_diag_field(module_name, field_name, axes, init_time, &
      long_name, units, missing_value, range, op, standard_name, fill_missing, &
-     do_not_log, cell_methods, sm) &
+     do_not_log, cell_methods) &
      result (id)
 
   integer :: id
@@ -455,11 +485,10 @@ function register_tiled_diag_field(module_name, field_name, axes, init_time, &
   logical,          intent(in), optional :: fill_missing
   logical,          intent(in), optional :: do_not_log
   character(len=*), intent(in), optional :: cell_methods
-  logical,          intent(in), optional :: sm
 
   id = reg_field(FLD_DYNAMIC, module_name, field_name, init_time, axes, long_name, &
          units, missing_value, range, op=op, standard_name=standard_name, &
-         sm=sm, fill_missing=fill_missing, do_not_log=do_not_log)
+         fill_missing=fill_missing, do_not_log=do_not_log)
   call add_cell_measures(id)
   call add_cell_methods(id, cell_methods)
 end function register_tiled_diag_field
@@ -617,7 +646,7 @@ end subroutine reg_field_alias
 ! of selectors
 function reg_field(static, module_name, field_name, init_time, axes, &
      long_name, units, missing_value, range, require, op, offset, &
-     area, cell_methods, standard_name, fill_missing, sm, do_not_log) result(id)
+     area, cell_methods, standard_name, fill_missing, do_not_log) result(id)
 
   integer :: id
 
@@ -632,7 +661,6 @@ function reg_field(static, module_name, field_name, init_time, axes, &
   real,             intent(in), optional :: range(2)
   logical,          intent(in), optional :: require
   character(len=*), intent(in), optional :: op ! aggregation operation
-  logical,          intent(in), optional :: sm
   integer,          intent(in), optional :: offset
   character(len=*), intent(in), optional :: area ! name of the area associated with this field, if not default
   character(len=*), intent(in), optional :: cell_methods ! cell_methods associated with this field, if not default
@@ -643,9 +671,12 @@ function reg_field(static, module_name, field_name, init_time, axes, &
 
   ! ---- local vars
   integer, pointer :: diag_ids(:) ! ids returned by FMS diag manager for each selector
+  integer, pointer :: diag_idt(:) ! ids returned by FMS diag manager for by-parent-tile output
+  integer :: axes_(size(axes)+1)  ! extended array of axes for by-parent-tile output
   integer :: i
   type(tiled_diag_field_type), pointer :: new_fields(:)
   logical :: do_log
+  character(256) :: fname
   ! ---- global vars: n_fields, fields, current_offset -- all used and updated
 
   if (.not.module_is_initialized) then
@@ -663,16 +694,36 @@ function reg_field(static, module_name, field_name, init_time, axes, &
   ! Note that by design one of the selectors have empty name and selects all
   ! the tiles.
   id = 0
-  allocate(diag_ids(n_selectors))
+  allocate(diag_ids(n_selectors),diag_idt(n_selectors))
 
+  ! copy common portion of the local axes array
+!   axes_(1:size(axes)) = axes(:)
+!   axes_(size(axes)+1) = ptid_axis
+  axes_(1) = axes(1)
+  axes_(2) = ptid_axis
+  do i = 2, size(axes)
+     axes_(i+1) = axes(i)
+  enddo
+  if (any(axes(:)<=0)) call error_mesg('reg_field','problem with "axes"',FATAL)
+  if (any(axes_(:)<=0)) call error_mesg('reg_field','problem with "axes_"',FATAL)
   do i = 1, n_selectors
+     ! form field name as concatenation of name of the field and selector suffix
+     fname = trim(field_name)//trim(selector_suffix(selectors(i)))
      diag_ids(i) = reg_field_set(static, selectors(i), &
-          module_name, field_name, axes, &
+          module_name, fname, axes, &
+          init_time, long_name, units, missing_value, range, require, &
+          standard_name=standard_name)
+     ! for by-parent-tile output, add "(ptid)" to the field name. That would probably
+     ! clash horribly with some cohort filters, but the expectation is that by-cohort
+     ! output and parent tile output are not used on the same field together.
+     ! Also note different axes_ array in the call below.
+     diag_idt(i) = reg_field_set(static, selectors(i), &
+          module_name, trim(fname)//'(ptid)', axes_, &
           init_time, long_name, units, missing_value, range, require, &
           standard_name=standard_name)
   enddo
 
-  if(any(diag_ids>0)) then
+  if(any(diag_ids(:)>0).or.any(diag_idt(:)>0)) then
      ! if any of the field+selector pairs was found for this field, an entry
      ! must be added to the table of tile diagnostic fields
 
@@ -689,17 +740,12 @@ function reg_field(static, module_name, field_name, init_time, axes, &
      id       = n_fields
      ! set the array of FMS diagnostic field IDs for each selector
      fields(id)%ids => diag_ids
+     fields(id)%idt => diag_idt
      ! set the field offset in the diagnostic buffers
      if (present(offset)) then
         fields(id)%offset = offset
      else
         fields(id)%offset = current_offset
-     endif
-     ! store the summary flag
-     if(present(sm)) then
-      fields(id)%sm=sm
-     else
-      fields(id)%sm=.TRUE.
      endif
      ! calculate field size per tile and increment current offset to
      ! reserve space in per-tile buffers. We assume that the first axis
@@ -707,12 +753,7 @@ function reg_field(static, module_name, field_name, init_time, axes, &
      ! so its size is not taken into account
      fields(id)%size = 1
      do i = 2, size(axes(:))
-        if(.not.fields(id)%sm)then
-!        if(present(sm) .and. (sm .eqv. .False.))then
-         fields(id)%size = 1 !Temporary fix to allow for tile outptu
-        else
-         fields(id)%size = fields(id)%size * get_axis_length(axes(i))
-        endif
+        fields(id)%size = fields(id)%size * get_axis_length(axes(i))
      enddo
      ! if offset is present in the list of the arguments, it means that we do not
      ! want to increase the current_offset -- this is an alias field
@@ -743,15 +784,18 @@ function reg_field(static, module_name, field_name, init_time, axes, &
      ! set ocean filler attributes for the unstructured grid output
      if (fields(id)%fill_missing) then
         do i = 1, n_selectors
-           if (fields(id)%ids(i) <= 0) cycle
-           call diag_field_add_attribute(fields(id)%ids(i),'ocean_fillvalue',0.0)
+           if (fields(id)%ids(i) > 0) &
+              call diag_field_add_attribute(fields(id)%ids(i),'ocean_fillvalue',0.0)
+           if (fields(id)%idt(i) > 0) &
+              call diag_field_add_attribute(fields(id)%idt(i),'ocean_fillvalue',0.0)
         enddo
      endif
      ! increment the field id by some (large) number to distinguish it from the
      ! IDs of regular FMS diagnostic fields
      id = id + BASE_TILED_FIELD_ID
+     if (any(diag_idt>0)) write(*,'(99(a,x))')'reg_field','registered ptid field '//trim(module_name)//'/'//trim(field_name)
   else
-     deallocate(diag_ids)
+     deallocate(diag_ids,diag_idt)
   endif
 
 end function reg_field
@@ -779,12 +823,9 @@ function reg_field_set(static, sel, module_name, field_name, axes, init_time, &
   integer,          intent(in), optional :: area
   character(len=*), intent(in), optional :: standard_name
 
-  character(len=128) :: fname
   logical :: static_
 
-  ! form field name as concatenation of name of the field and selector suffix
-  fname = trim(field_name)//trim(selector_suffix(sel))
-
+  if (any(axes<=0)) call error_mesg('reg_field_set','Problem with "axes"',FATAL)
   ! try registering diagnostic field with FMS diagnostic manager.
   select case(static)
   case (FLD_STATIC)
@@ -795,11 +836,11 @@ function reg_field_set(static, sel, module_name, field_name, axes, init_time, &
      static_ = sel%area_is_static
   end select
   if (static_) then
-     id = register_static_field ( module_name, fname,   &
+     id = register_static_field ( module_name, field_name,   &
           axes, long_name, units, missing_value, range, require, &
           do_not_log=.TRUE., area=area, standard_name=standard_name )
   else
-     id = register_diag_field ( module_name,  fname,   &
+     id = register_diag_field ( module_name,  field_name,   &
           axes, init_time, long_name, units, missing_value, range, &
           mask_variant=.true., do_not_log=.TRUE., area=area, &
           standard_name=standard_name )
@@ -1011,9 +1052,14 @@ subroutine dump_tile_diag_fields(time)
      if (total_n_sends(ifld) == 0) cycle ! no data to send
      ! write(*,*)trim(fields(ifld)%module),'/',trim(fields(ifld)%name)
      do isel = 1, n_selectors
-        if (fields(ifld)%ids(isel) <= 0) cycle
-        call dump_diag_field_with_sel (fields(ifld)%ids(isel), &
-             fields(ifld), selectors(isel), time )
+        if (fields(ifld)%ids(isel) > 0) then
+           call dump_diag_field_with_sel (fields(ifld)%ids(isel), &
+                fields(ifld), selectors(isel), time )
+        endif
+        if (fields(ifld)%idt(isel) > 0) then
+           call dump_diag_field_with_sel_full (fields(ifld)%idt(isel), &
+                fields(ifld), selectors(isel), time )
+        endif
      enddo
   enddo
   ! zero out the number of data points sent to the field
@@ -1028,47 +1074,51 @@ subroutine dump_tile_diag_fields(time)
 end subroutine dump_tile_diag_fields
 
 ! ============================================================================
-subroutine dump_diag_field_with_sel_full(land_tile_map, id, field, sel, time)
-  type(land_tile_list_type)  , intent(in) :: land_tile_map(:)
+subroutine dump_diag_field_with_sel_full(id, field, sel, time)
   integer                    , intent(in) :: id
   type(tiled_diag_field_type), intent(in) :: field
   type(tile_selector_type)   , intent(in) :: sel
   type(time_type)            , intent(in) :: time ! current time
 
   ! ---- local vars
-  integer :: l ! iterators
+  integer :: l,k ! iterators
   integer :: ks,ke ! array boundaries
   integer :: ls, le
   logical :: used ! value returned from send_data (ignored)
-  real, allocatable :: buffer(:,:), weight(:,:), var(:,:)
-  logical, allocatable :: mask(:,:)
+  real, allocatable :: buffer(:,:,:), weight(:,:,:)
+  logical, allocatable :: mask(:,:,:)
   type(land_tile_enum_type)     :: ce
   type(land_tile_type), pointer :: tile
-  integer :: ntiles_max
-  real :: undef
-  ntiles_max = size(lnd%pids)
 
   ! calculate array boundaries
   ls = lbound(land_tile_map,1); le = ubound(land_tile_map,1)
   ks = field%offset   ; ke = field%offset + field%size - 1
 
+  write(*,'(a,4i6)')'dumping ptid field '//trim(field%module)//'/'//trim(field%name), id, ks, ke, ptid_len
   ! allocate and initialize temporary buffers
-  allocate(buffer(ls:le,ntiles_max), weight(ls:le,ntiles_max), mask(ls:le,ntiles_max))
-  weight(:,:) = 0.0
-  buffer(:,:) = 0.0
+  allocate(buffer(ls:le,ptid_len,ks:ke))
+  allocate(weight(ls:le,ptid_len,ks:ke))
+  allocate(mask  (ls:le,ptid_len,ks:ke))
+  weight(:,:,:) = 0.0
+  buffer(:,:,:) = 0.0
 
   ! accumulate data
   ce = first_elmt(land_tile_map, ls=ls)
-  do while(loop_over_tiles(ce, tile, l))
+  do while(loop_over_tiles(ce, tile, l=l, k=k))
+    call set_current_point(l,k)
     if ( size(tile%diag%data) < ke )       cycle ! do nothing if there is no data in the buffer
     if ( .not.tile_is_selected(tile,sel) ) cycle ! do nothing if tile is not selected
+    call check_var_range(REAL(tile%pid),1.0,REAL(ptid_len),'dump_diag_field_with_sel_full',trim(field%module)//'/'//trim(field%name), WARNING)
+
+    if (tile%pid<1)        cycle
+    if (tile%pid>ptid_len) cycle
     select case (field%opcode)
     case (OP_AVERAGE,OP_VAR,OP_STD)
-       buffer(l,tile%pid:tile%pid) = buffer(l,tile%pid:tile%pid) + tile%diag%data(ks:ke)*tile%frac
-       weight(l,tile%pid:tile%pid) = weight(l,tile%pid:tile%pid) + tile%frac
+       buffer(l,tile%pid,:) = buffer(l,tile%pid,:) + tile%diag%data(ks:ke)*tile%frac
+       weight(l,tile%pid,:) = weight(l,tile%pid,:) + tile%frac
     case (OP_SUM)
-       buffer(l,tile%pid:tile%pid) = buffer(l,tile%pid:tile%pid) + tile%diag%data(ks:ke)
-       weight(l,tile%pid:tile%pid) = 1
+       buffer(l,tile%pid,:) = buffer(l,tile%pid,:) + tile%diag%data(ks:ke)
+       weight(l,tile%pid,:) = 1
     end select
   enddo
 
@@ -1082,7 +1132,6 @@ subroutine dump_diag_field_with_sel_full(land_tile_map, id, field, sel, time)
      mask = .TRUE.
   endif
   ! send diag field
-  !if (size(buffer) .gt. 0)used = send_data ( id, buffer, time, mask=mask )
   used = send_data ( id, buffer, time, mask=mask )
 
   ! clean up temporary data
@@ -1116,9 +1165,14 @@ subroutine dump_tile_diag_field(id, time)
   if (total_n_sends == 0) return ! no data to send
 !$OMP parallel do default(none) shared(land_tile_map,n_selectors,fields,ifld,selectors,time) private(isel)
   do isel = 1, n_selectors
-     if (fields(ifld)%ids(isel) <= 0) cycle
-     call dump_diag_field_with_sel (fields(ifld)%ids(isel), &
-          fields(ifld), selectors(isel), time )
+     if (fields(ifld)%ids(isel) > 0) then
+        call dump_diag_field_with_sel (fields(ifld)%ids(isel), &
+             fields(ifld), selectors(isel), time )
+     endif
+!      if (fields(ifld)%idt(isel) > 0) then
+!         call dump_diag_field_with_sel_full (fields(ifld)%idt(isel), &
+!              fields(ifld), selectors(isel), time )
+!      endif
   enddo
   ! zero out the number of data points sent to the field
   fields(ifld)%n_sends=0

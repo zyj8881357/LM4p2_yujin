@@ -102,7 +102,7 @@ use land_tile_diag_mod, only : cmor_name, tile_diag_init, tile_diag_end, &
      register_tiled_diag_field, send_tile_data, dump_tile_diag_fields, &
      add_tiled_diag_field_alias, register_cohort_diag_field, send_cohort_data, &
      set_default_diag_filter, register_tiled_area_fields, send_global_land_diag, &
-     register_tiled_static_field, get_area_id
+     register_tiled_static_field, get_area_id, register_extra_axes, ptid_len
 use land_debug_mod, only : land_debug_init, land_debug_end, set_current_point, &
      is_watch_point, is_watch_cell, is_watch_time, get_watch_point, do_checksums, &
      check_conservation, do_check_conservation, water_cons_tol, carbon_cons_tol, nitrogen_cons_tol, &
@@ -372,7 +372,6 @@ subroutine land_model_init &
   integer :: unit, ierr, io
   integer :: id_band, id_zfull ! IDs of land diagnostic axes
   integer :: id_ug !<Unstructured axis id.
-  integer :: id_ptid ! ID of parent tile axes
   logical :: used                        ! return value of send_data diagnostics routine
   integer :: k,l
   integer :: n_cohorts  ! number of cohorts in the current tile (1 if no vegetation)
@@ -486,11 +485,14 @@ subroutine land_model_init &
   endif
   call free_land_restart(restart)
 
+  ! register ptid diagnostic axis
+  call register_extra_axes()
+
   ! initialize land model diagnostics -- must be before *_data_init so that
   ! *_data_init can write static fields if necessary
   call land_sg_diag_init(id_cellarea)
   call land_diag_init( lnd%coord_glonb, lnd%coord_glatb, lnd%coord_glon, lnd%coord_glat, &
-      time, id_band, id_ug, id_ptid)
+      time, id_band, id_ug)
 
   ! set the land diagnostic axes ids for the flux exchange
   land2cplr%axes = (/id_ug/)
@@ -509,9 +511,9 @@ subroutine land_model_init &
   else
      call hlsp_init(id_ug) ! Must be called before soil_init
   endif
-  call soil_init(id_ug,id_band,id_zfull,id_ptid)
-  call hlsp_hydro_init(id_ug,id_zfull,id_ptid) ! Must be called after soil_init
-  call vegn_init(id_ug, id_band, id_cellarea, id_ptid)
+  call soil_init(id_ug,id_band,id_zfull)
+  call hlsp_hydro_init(id_ug,id_zfull) ! Must be called after soil_init
+  call vegn_init(id_ug, id_band, id_cellarea)
   !if (predefined_tiles) then
   !   call lake_init_predefined(id_ug)
   !else
@@ -1656,6 +1658,17 @@ subroutine update_land_model_fast ( cplr2land, land2cplr )
   lnd%time = lnd%time + lnd%dt_fast
 
   ! send the accumulated diagnostics to the output
+  do l = lnd%ls, lnd%le
+     i = lnd%i_index(l)
+     j = lnd%j_index(l)
+     ce = first_elmt(land_tile_map(l))
+     do while (loop_over_tiles(ce,tile,k=k))
+        ! set this point coordinates as current for debug output
+        call set_current_point(l,k)
+        call check_var_range(REAL(tile%pid),1.0,REAL(ptid_len),'before dump','pid', WARNING)
+     enddo
+  enddo
+
   call dump_tile_diag_fields(lnd%time)
   if (id_snc>0) used = send_data(id_snc, snc(:)*lnd%ug_landfrac(:)*100, lnd%time)
 
@@ -1850,6 +1863,8 @@ subroutine update_land_model_fast_0d ( tile, l,itile, N, land2cplr, &
   endif
 
   ! sanity checks of some input values
+  call check_var_range(REAL(tile%pid),1.0,REAL(ptid_len),'update_land_model_fast_0d','pid', WARNING)
+
   call check_var_range(precip_l,  0.0, 1.0,        'land model input', 'precip_l',    WARNING)
   call check_var_range(precip_s,  0.0, 1.0,        'land model input', 'precip_s',    WARNING)
   call check_temp_range(atmos_T,                   'land model input', 'atmos_T')
@@ -4200,7 +4215,7 @@ end subroutine land_sg_diag_init
 ! ============================================================================
 ! initialize horizontal axes for land grid so that all sub-modules can use them,
 ! instead of creating their own
-subroutine land_diag_init(clonb, clatb, clon, clat, time, id_band, id_ug, id_ptid)
+subroutine land_diag_init(clonb, clatb, clon, clat, time, id_band, id_ug)
  !Inputs/outputs
   real,dimension(:),intent(in) :: clonb   !<longitudes of grid cells vertices
   real,dimension(:),intent(in) :: clatb   !<latitudes of grid cells vertices
@@ -4209,7 +4224,6 @@ subroutine land_diag_init(clonb, clatb, clon, clat, time, id_band, id_ug, id_pti
   type(time_type),intent(in)   :: time    !<Initial time for diagnostic fields.
   integer,intent(out)          :: id_band !<"band" axis id.
   integer,intent(out)          :: id_ug   !<Unstructured axis id.
-  integer,intent(out)          :: id_ptid !<"tile" axis id.
 
   ! ---- local vars ----------------------------------------------------------
   integer :: nlon, nlat       ! sizes of respective axes
@@ -4218,11 +4232,9 @@ subroutine land_diag_init(clonb, clatb, clon, clat, time, id_band, id_ug, id_pti
   integer,allocatable :: ug_dim_data(:) ! Unstructured axis data.
   integer             :: id_lon, id_lonb
   integer             :: id_lat, id_latb
-  integer :: i, max_npt, max_ptid
+  integer :: i
   character(128) :: long_name, flux_units
   character(32) :: name       ! tracer name
-  type(land_tile_type), pointer :: tile
-  type(land_tile_enum_type) :: ce
 
   ! Register the unstructured axis for the unstructured domain.
   call mpp_get_UG_compute_domain(lnd%ug_domain, size=ug_dim_size)
@@ -4265,31 +4277,6 @@ subroutine land_diag_init(clonb, clatb, clon, clat, time, id_band, id_ug, id_pti
   endif
 
   id_band = diag_axis_init ('band',  (/1.0,2.0/), 'unitless', 'Z', 'spectral band', set_name='land' )
-
-  !Determine the maximum number of parent tiles over the global domain
-  max_npt = lnd%max_npt
-  max_ptid = 0
-  ce = first_elmt(land_tile_map)
-  do while(loop_over_tiles(ce,tile))
-     max_ptid = max(max_ptid,tile%pid)
-  enddo
-  write (*,'("PE: ",i4.4," max_npt=",i4.4," max_ptid="i4.4," equal:",L1)') mpp_pe(), max_npt, max_ptid, (max_npt == max_ptid)
-
-  call mpp_max(max_npt)
-  !Initialize the parent id array
-  if (.not.allocated(lnd%pids))then
-   allocate(lnd%pids(max_npt))
-   do i = 1,max_npt
-    lnd%pids(i) = i
-   enddo
-  endif
-
-
-  !Initialize the parent id axis
-  id_ptid = diag_axis_init ('ptid',lnd%pids,'unitless','Z',&
-       'parent tile id', set_name='land')
-
-
 
   ! Set up an array of axes ids, for convenience.
   axes(1) = id_ug
@@ -4802,40 +4789,40 @@ subroutine land_diag_init(clonb, clatb, clon, clat, time, id_band, id_ug, id_pti
        'total land carbon', 'kg C/m2', missing_value=-1.0,op='stdev')
 
   !Tile output
-  id_transp_tile = register_tiled_diag_field(module_name, 'transp_tile', (/id_ug, id_ptid/),&
-             time, 'Transpiration', 'kg/(m2 s)',missing_value=-1.0e+20,sm=.False.)
-  id_frac_tile = register_tiled_diag_field(module_name, 'frac_tile', (/id_ug, id_ptid/),&
-             time, 'Fraction of land area', 'unitless',missing_value=-1.0e+20,sm=.False.,op='sum')
-  id_ttype_tile = register_tiled_diag_field(module_name, 'ttype_tile', (/id_ug, id_ptid/),&
-             time, 'Type of parent tile', 'unitless',missing_value=-1.0,sm=.False.,op='mean')
-  id_precip_tile = register_tiled_diag_field ( module_name, 'precip_tile', (/id_ug, id_ptid/),&
-             time, 'precipitation rate', 'kg/(m2 s)', missing_value=-1.0e+20,sm=.False.)
-  id_precip_l_tile = register_tiled_diag_field ( module_name, 'precip_l_tile', (/id_ug, id_ptid/),&
-             time, 'precipitation rate (liquid)', 'kg/(m2 s)', missing_value=-1.0e+20,sm=.False.)
-  id_precip_s_tile = register_tiled_diag_field ( module_name, 'precip_s_tile', (/id_ug, id_ptid/),&
-             time, 'precipitation rate (frozen)', 'kg/(m2 s)', missing_value=-1.0e+20,sm=.False.)
-  id_evap_tile = register_tiled_diag_field ( module_name, 'evap_tile', (/id_ug, id_ptid/),&
-             time, 'vapor flux up from land', 'kg/(m2 s)', missing_value=-1.0e+20,sm=.False. )
-  id_runf_tile = register_tiled_diag_field ( module_name, 'runf_tile', (/id_ug, id_ptid/),&
-             time, 'total runoff', 'kg/(m2 s)', missing_value=-1.0e+20,sm=.False.)
-  id_snow_tile = register_tiled_diag_field ( module_name, 'snow_tile', (/id_ug, id_ptid/), time, &
-             'column-integrated snow water', 'kg/m2', missing_value=-1.0e+20,sm=.False.)
-  id_sens_tile    = register_tiled_diag_field ( module_name, 'sens_tile', (/id_ug, id_ptid/), time, &
-             'sens heat flux from land', 'W/m2', missing_value=-1.0e+20,sm=.False.)
-  id_water_tile = register_tiled_diag_field(module_name, 'water_tile', (/id_ug, id_ptid/),&
-             time, 'column-integrated soil water', 'kg/m2',missing_value=-1.0e+20,sm=.False.)
-  id_grnd_T_tile = register_tiled_diag_field ( module_name, 'Tgrnd_tile', (/id_ug, id_ptid/), time, &
-       'ground surface temperature', 'degK', missing_value=-1.0,sm=.False.)
-  id_total_C_tile = register_tiled_diag_field ( module_name, 'Ctot_tile', (/id_ug, id_ptid/), time, &
-       'total land carbon', 'kg C/m2', missing_value=-1.0,sm=.False.)
-  id_swdn_dif_1_tile = register_tiled_diag_field ( module_name, 'swdn_dif_1_tile', (/id_ug,id_ptid/), &
-       time,'downward diffuse short-wave radiation flux to the land surface', 'W/m2', missing_value=-999.0,sm=.False.)
-  id_swdn_dif_2_tile = register_tiled_diag_field ( module_name, 'swdn_dif_2_tile', (/id_ug,id_ptid/), &
-       time,'downward diffuse short-wave radiation flux to the land surface', 'W/m2', missing_value=-999.0,sm=.False.)
-  id_swup_dif_1_tile = register_tiled_diag_field ( module_name, 'swup_dif_1_tile', (/id_ug,id_ptid/), &
-       time, 'diffuse short-wave radiation flux reflected by the land surface', 'W/m2', missing_value=-999.0,sm=.False.)
-  id_swup_dif_2_tile = register_tiled_diag_field ( module_name, 'swup_dif_2_tile', (/id_ug,id_ptid/), &
-       time, 'diffuse short-wave radiation flux reflected by the land surface', 'W/m2', missing_value=-999.0,sm=.False.)
+!   id_transp_tile = register_tiled_diag_field(module_name, 'transp_tile', (/id_ug, id_ptid/),&
+!              time, 'Transpiration', 'kg/(m2 s)',missing_value=-1.0e+20,sm=.False.)
+!   id_frac_tile = register_tiled_diag_field(module_name, 'frac_tile', (/id_ug, id_ptid/),&
+!              time, 'Fraction of land area', 'unitless',missing_value=-1.0e+20,sm=.False.,op='sum')
+!   id_ttype_tile = register_tiled_diag_field(module_name, 'ttype_tile', (/id_ug, id_ptid/),&
+!              time, 'Type of parent tile', 'unitless',missing_value=-1.0,sm=.False.,op='mean')
+!   id_precip_tile = register_tiled_diag_field ( module_name, 'precip_tile', (/id_ug, id_ptid/),&
+!              time, 'precipitation rate', 'kg/(m2 s)', missing_value=-1.0e+20,sm=.False.)
+!   id_precip_l_tile = register_tiled_diag_field ( module_name, 'precip_l_tile', (/id_ug, id_ptid/),&
+!              time, 'precipitation rate (liquid)', 'kg/(m2 s)', missing_value=-1.0e+20,sm=.False.)
+!   id_precip_s_tile = register_tiled_diag_field ( module_name, 'precip_s_tile', (/id_ug, id_ptid/),&
+!              time, 'precipitation rate (frozen)', 'kg/(m2 s)', missing_value=-1.0e+20,sm=.False.)
+!   id_evap_tile = register_tiled_diag_field ( module_name, 'evap_tile', (/id_ug, id_ptid/),&
+!              time, 'vapor flux up from land', 'kg/(m2 s)', missing_value=-1.0e+20,sm=.False. )
+!   id_runf_tile = register_tiled_diag_field ( module_name, 'runf_tile', (/id_ug, id_ptid/),&
+!              time, 'total runoff', 'kg/(m2 s)', missing_value=-1.0e+20,sm=.False.)
+!   id_snow_tile = register_tiled_diag_field ( module_name, 'snow_tile', (/id_ug, id_ptid/), time, &
+!              'column-integrated snow water', 'kg/m2', missing_value=-1.0e+20,sm=.False.)
+!   id_sens_tile    = register_tiled_diag_field ( module_name, 'sens_tile', (/id_ug, id_ptid/), time, &
+!              'sens heat flux from land', 'W/m2', missing_value=-1.0e+20,sm=.False.)
+!   id_water_tile = register_tiled_diag_field(module_name, 'water_tile', (/id_ug, id_ptid/),&
+!              time, 'column-integrated soil water', 'kg/m2',missing_value=-1.0e+20,sm=.False.)
+!   id_grnd_T_tile = register_tiled_diag_field ( module_name, 'Tgrnd_tile', (/id_ug, id_ptid/), time, &
+!        'ground surface temperature', 'degK', missing_value=-1.0,sm=.False.)
+!   id_total_C_tile = register_tiled_diag_field ( module_name, 'Ctot_tile', (/id_ug, id_ptid/), time, &
+!        'total land carbon', 'kg C/m2', missing_value=-1.0,sm=.False.)
+!   id_swdn_dif_1_tile = register_tiled_diag_field ( module_name, 'swdn_dif_1_tile', (/id_ug,id_ptid/), &
+!        time,'downward diffuse short-wave radiation flux to the land surface', 'W/m2', missing_value=-999.0,sm=.False.)
+!   id_swdn_dif_2_tile = register_tiled_diag_field ( module_name, 'swdn_dif_2_tile', (/id_ug,id_ptid/), &
+!        time,'downward diffuse short-wave radiation flux to the land surface', 'W/m2', missing_value=-999.0,sm=.False.)
+!   id_swup_dif_1_tile = register_tiled_diag_field ( module_name, 'swup_dif_1_tile', (/id_ug,id_ptid/), &
+!        time, 'diffuse short-wave radiation flux reflected by the land surface', 'W/m2', missing_value=-999.0,sm=.False.)
+!   id_swup_dif_2_tile = register_tiled_diag_field ( module_name, 'swup_dif_2_tile', (/id_ug,id_ptid/), &
+!        time, 'diffuse short-wave radiation flux reflected by the land surface', 'W/m2', missing_value=-999.0,sm=.False.)
 
   ! LUMIP land fractions
   id_fracLut_psl = register_diag_field ( cmor_name, 'fracLut_psl', axes, time, &

@@ -337,11 +337,10 @@ end subroutine read_vegn_namelist
 
 ! ============================================================================
 ! initialize vegetation
-subroutine vegn_init( id_ug, id_band, id_cellarea, id_ptid)
+subroutine vegn_init( id_ug, id_band, id_cellarea)
   integer,intent(in) :: id_ug   !<Unstructured axis id.
   integer,intent(in) :: id_band ! ID of spectral band axis
   integer,intent(in) :: id_cellarea ! ID of cell area diag field, for cell measures
-  integer,intent(in) :: id_ptid ! ID of parent tile axis
 
   ! ---- local vars
   type(land_tile_enum_type)     :: ce    ! current tile list element
@@ -760,11 +759,7 @@ subroutine vegn_init( id_ug, id_band, id_cellarea, id_ptid)
   call vegn_fire_init(id_ug, id_cellarea, delta_time, lnd%time)
 
   ! initialize vegetation diagnostic fields
-  if (use_predefined_tiles) then
-   call vegn_diag_init (id_ug, id_band, lnd%time , id_ptid)
-  else
-   call vegn_diag_init (id_ug, id_band, lnd%time )
-  endif
+  call vegn_diag_init (id_ug, id_band, lnd%time )
 
   ! ---- diagnostic section
   ce = first_elmt(land_tile_map, ls=lnd%ls)
@@ -880,11 +875,10 @@ subroutine add_extra_cohorts()
 end subroutine add_extra_cohorts
 
 ! ============================================================================
-subroutine vegn_diag_init ( id_ug, id_band, time, id_ptid)
+subroutine vegn_diag_init ( id_ug, id_band, time)
    integer        , intent(in) :: id_ug   !<Unstructured axis id.
    integer        , intent(in) :: id_band ! ID of spectral band axis
    type(time_type), intent(in) :: time    ! initial time for diagnostic fields
-   integer,optional,intent(in) :: id_ptid !<ID of tile axis
 
   ! ---- local vars
   integer :: i
@@ -1338,13 +1332,13 @@ subroutine vegn_diag_init ( id_ug, id_band, time, id_ptid)
        standard_name='nitrogen_mass_content_of_forestry_and_agricultural_products', fill_missing=.TRUE.)
 
    !Full tile output
-   if (present(id_ptid)) then
-      call set_default_diag_filter('soil')
-      id_lai_tile  = register_tiled_diag_field ( module_name, 'lai_tile',  &
-            (/id_ug,id_ptid/), time, 'leaf area index', 'm2/m2', missing_value=-1.0,sm=.False.)
-      id_btot_tile = register_tiled_diag_field ( module_name, 'btot_tile',  &
-            (/id_ug,id_ptid/), time, 'total biomass', 'kg C/m2', missing_value=-1.0,sm=.False.)
-   endif
+!    if (present(id_ptid)) then
+!       call set_default_diag_filter('soil')
+!       id_lai_tile  = register_tiled_diag_field ( module_name, 'lai_tile',  &
+!             (/id_ug,id_ptid/), time, 'leaf area index', 'm2/m2', missing_value=-1.0,sm=.False.)
+!       id_btot_tile = register_tiled_diag_field ( module_name, 'btot_tile',  &
+!             (/id_ug,id_ptid/), time, 'total biomass', 'kg C/m2', missing_value=-1.0,sm=.False.)
+!    endif
 
    !Standard deviation
    id_btot_std = register_tiled_diag_field ( module_name, 'btot_std',  &

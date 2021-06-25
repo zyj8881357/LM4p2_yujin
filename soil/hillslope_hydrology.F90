@@ -976,10 +976,9 @@ end subroutine hlsp_hydrology_1
 
 ! Initialize diagnostic fields.
 ! ============================================================================
-subroutine hlsp_hydro_init(id_ug,id_zfull,id_ptid)
+subroutine hlsp_hydro_init(id_ug,id_zfull)
    integer,intent(in) :: id_ug    !<Unstructured axis id.
    integer,intent(in) :: id_zfull ! ID of vertical soil axis
-   integer,intent(in) :: id_ptid  ! ID of tile axis
 
    ! ---- local vars
    integer :: axes(2)
@@ -1029,18 +1028,18 @@ subroutine hlsp_hydro_init(id_ug,id_zfull,id_ptid)
    id_gtosNH4 = register_tiled_diag_field ( module_name, 'groundtracer_NH4_to_stream', axes, &
        lnd%time, 'NH4 flux to stream via groundwater', 'kg N/m^2/s', missing_value=initval )
    !tile output
-   id_gtos_tile = register_tiled_diag_field ( module_name, 'gtos_tile', (/id_ug,&
-      id_ptid/),lnd%time, 'groundwater divergence to stream', 'mm/s', &
-      missing_value=-1.0e+20, sm=.False. )
-   id_gtosh_tile = register_tiled_diag_field ( module_name, 'gtosh_tile', (/id_ug,&
-      id_ptid/),lnd%time, 'heat flux associated with groundwater divergence to stream',&
-      'W/m^2)', missing_value=-1.0e+20,sm=.False. )
-   id_gdiv_tile = register_tiled_diag_field ( module_name, 'gdiv_tile', (/id_ug,&
-      id_ptid/),lnd%time, 'groundwater divergence out of tiles, excluding flow to stream (i.e., baseflow)',&
-      'mm/s', missing_value=-1.0e+20, sm=.False. )
-   id_ghdiv_tile = register_tiled_diag_field ( module_name, 'ghdiv_tile', (/id_ug,&
-      id_ptid/),lnd%time, 'heat flux associated with groundwater divergence (excl. to stream)',&
-      'W/m^2)', missing_value=-1.0e+20,sm=.False. )
+!    id_gtos_tile = register_tiled_diag_field ( module_name, 'gtos_tile', (/id_ug,&
+!       id_ptid/),lnd%time, 'groundwater divergence to stream', 'mm/s', &
+!       missing_value=-1.0e+20, sm=.False. )
+!    id_gtosh_tile = register_tiled_diag_field ( module_name, 'gtosh_tile', (/id_ug,&
+!       id_ptid/),lnd%time, 'heat flux associated with groundwater divergence to stream',&
+!       'W/m^2)', missing_value=-1.0e+20,sm=.False. )
+!    id_gdiv_tile = register_tiled_diag_field ( module_name, 'gdiv_tile', (/id_ug,&
+!       id_ptid/),lnd%time, 'groundwater divergence out of tiles, excluding flow to stream (i.e., baseflow)',&
+!       'mm/s', missing_value=-1.0e+20, sm=.False. )
+!    id_ghdiv_tile = register_tiled_diag_field ( module_name, 'ghdiv_tile', (/id_ug,&
+!       id_ptid/),lnd%time, 'heat flux associated with groundwater divergence (excl. to stream)',&
+!       'W/m^2)', missing_value=-1.0e+20,sm=.False. )
 
 end subroutine hlsp_hydro_init
 
