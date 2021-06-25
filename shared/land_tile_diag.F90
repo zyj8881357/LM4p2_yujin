@@ -294,8 +294,6 @@ function get_area_id(name); integer get_area_id
          return
       endif
    enddo
-   call error_mesg(mod_name,&
-      'diag filter "'//trim(name)//'" was not found among registered diag filters', FATAL)
 end function get_area_id
 
 
@@ -713,6 +711,8 @@ function reg_field(static, module_name, field_name, init_time, axes, &
           module_name, trim(fname)//'(ptid)', axes_ptid, &
           init_time, long_name, units, missing_value, range, require, &
           standard_name=standard_name)
+     if (diag_idt(i)>0) &
+         call error_mesg('reg_field','registered '//trim(fname)//'(ptid)', NOTE)
   enddo
 
   if(any(diag_ids(:)>0).or.any(diag_idt(:)>0)) then
@@ -817,7 +817,6 @@ function reg_field_set(static, sel, module_name, field_name, axes, init_time, &
 
   logical :: static_
 
-  if (any(axes<=0)) call error_mesg('reg_field_set','Problem with "axes"',FATAL)
   ! try registering diagnostic field with FMS diagnostic manager.
   select case(static)
   case (FLD_STATIC)

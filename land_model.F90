@@ -249,6 +249,7 @@ integer  :: i_river_ice, i_river_heat, i_river_DOC
 
 ! ---- diag field IDs --------------------------------------------------------
 integer :: &
+  id_ttype, &
  ! COLUMN        VEGN        SNOW      GLAC/LAKE/SOIL  CANOPY-AIR  RIVER
   id_VWS,                                               id_VWSc,           &
   id_LWS,      id_LWSv,     id_LWSs,     id_LWSg,                          &
@@ -318,13 +319,8 @@ integer :: id_pcp, id_prra, id_prveg, id_evspsblsoi, id_evspsblveg, &
   id_treeFrac, id_c3pftFrac, id_c4pftFrac, id_nwdFracLut, &
   id_fracLut_psl, id_fracLut_crp, id_fracLut_pst, id_fracLut_urb
 ! diag IDs of tile output
-integer :: id_transp_tile,id_frac_tile,id_ttype_tile,id_precip_tile,id_runf_tile,&
-  id_evap_tile,id_snow_tile,id_hevap_tile,id_levap_tile,id_water_tile,&
-  id_sens_tile,id_grnd_T_tile,id_total_C_tile,&
-  id_transp_std,id_precip_std,id_runf_std,id_evap_std,id_snow_std,id_water_std,&
-  id_sens_std,id_grnd_T_std,id_total_C_std,id_lprec_std,id_fprec_std,&
-  id_swup_dif_1_tile,id_swup_dif_2_tile,id_swdn_dif_1_tile,id_swdn_dif_2_tile,&
-  id_precip_l_tile,id_precip_s_tile
+integer :: id_transp_std, id_precip_std, id_runf_std, id_evap_std, id_snow_std, &
+  id_water_std, id_sens_std, id_grnd_T_std, id_total_C_std, id_lprec_std, id_fprec_std
 ! processor decomposition diagnostics
 integer :: id_sg_face, id_ug_face, id_ug_pe
 
@@ -1620,10 +1616,6 @@ subroutine update_land_model_fast ( cplr2land, land2cplr )
      call send_tile_data(id_snw, snow_FMASS, tile%diag)
      call send_tile_data(id_lwsnl, snow_LMASS, tile%diag)
 
-     ! Tile variables
-     call send_tile_data(id_snow_tile, snow_LMASS+snow_FMASS, tile%diag)
-     call send_tile_data(id_water_tile, subs_LMASS+subs_FMASS, tile%diag)
-
      ! Standard deviation
      call send_tile_data(id_snow_std, snow_LMASS+snow_FMASS, tile%diag)
      call send_tile_data(id_water_std, subs_LMASS+subs_FMASS, tile%diag)
@@ -2885,23 +2877,10 @@ subroutine update_land_model_fast_0d ( tile, l,itile, N, land2cplr, &
   if (id_tslsiLut>0) &
       call send_tile_data(id_tslsiLut, (tile%lwup/stefan)**0.25,      tile%diag)
 
-  !Tile variables
-  call send_tile_data(id_transp_tile,vegn_uptk,tile%diag)
-  call send_tile_data(id_precip_tile,precip_l+precip_s,tile%diag)
-  call send_tile_data(id_precip_l_tile,precip_l,tile%diag)
-  call send_tile_data(id_precip_s_tile,precip_s,tile%diag)
-  call send_tile_data(id_runf_tile,snow_lrunf+snow_frunf+subs_lrunf,tile%diag)
-  call send_tile_data(id_evap_tile,land_evap,tile%diag)
-  call send_tile_data(id_sens_tile,land_sens,tile%diag)
-  call send_tile_data(id_frac_tile, tile%frac, tile%diag)
-  call send_tile_data(id_ttype_tile, tile%ttype, tile%diag)
-  call send_tile_data(id_total_C_tile, land_tile_carbon(tile),tile%diag)
-  call send_tile_data(id_swdn_dif_1_tile, ISa_dn_dif(1),                        tile%diag)
-  call send_tile_data(id_swdn_dif_2_tile, ISa_dn_dif(2),                        tile%diag)
-  call send_tile_data(id_swup_dif_1_tile, ISa_dn_dif(1)*tile%land_refl_dif(1),     tile%diag)
-  call send_tile_data(id_swup_dif_2_tile, ISa_dn_dif(2)*tile%land_refl_dif(2),     tile%diag)
+  ! type of parent tile
+  call send_tile_data(id_ttype, tile%ttype, tile%diag)
 
-  !Std variables
+  ! stdev variables
   call send_tile_data(id_transp_std,vegn_uptk,tile%diag)
   call send_tile_data(id_precip_std,precip_l+precip_s,tile%diag)
   call send_tile_data(id_runf_std,snow_lrunf+snow_frunf+subs_lrunf,tile%diag)
@@ -3959,9 +3938,6 @@ subroutine update_land_bc_fast (tile, N, l,k, land2cplr, is_init)
   ! --- debug section
   call check_temp_range(land2cplr%t_ca(l,k),'update_land_bc_fast','T_ca')
 
-  !Full tile data
-  call send_tile_data(id_grnd_T_tile, land_grnd_T(tile),     tile%diag)
-
   !Std data
   call send_tile_data(id_grnd_T_std, land_grnd_T(tile),     tile%diag)
 
@@ -4300,6 +4276,10 @@ subroutine land_diag_init(clonb, clatb, clon, clat, time, id_band, id_ug)
        cell_methods='area: mean')
   ! override cell methods to use poper method of interpolation from cubic
   ! sphere to lat-lon in post-processing
+
+  ! type of parent tile
+  id_ttype = register_tiled_diag_field(module_name, 'ttype', axes, time, &
+       'Type of parent tile', 'unitless',missing_value=-1.0)
 
 
   id_VWS = register_tiled_diag_field ( module_name, 'VWS', axes, time, &
@@ -4774,42 +4754,6 @@ subroutine land_diag_init(clonb, clatb, clon, clat, time, id_band, id_ug)
        'ground surface temperature', 'degK', missing_value=-1.0,op='stdev')
   id_total_C_std = register_tiled_diag_field ( module_name, 'Ctot_std', axes, time, &
        'total land carbon', 'kg C/m2', missing_value=-1.0,op='stdev')
-
-  !Tile output
-!   id_transp_tile = register_tiled_diag_field(module_name, 'transp_tile', (/id_ug, id_ptid/),&
-!              time, 'Transpiration', 'kg/(m2 s)',missing_value=-1.0e+20,sm=.False.)
-!   id_frac_tile = register_tiled_diag_field(module_name, 'frac_tile', (/id_ug, id_ptid/),&
-!              time, 'Fraction of land area', 'unitless',missing_value=-1.0e+20,sm=.False.,op='sum')
-!   id_ttype_tile = register_tiled_diag_field(module_name, 'ttype_tile', (/id_ug, id_ptid/),&
-!              time, 'Type of parent tile', 'unitless',missing_value=-1.0,sm=.False.,op='mean')
-!   id_precip_tile = register_tiled_diag_field ( module_name, 'precip_tile', (/id_ug, id_ptid/),&
-!              time, 'precipitation rate', 'kg/(m2 s)', missing_value=-1.0e+20,sm=.False.)
-!   id_precip_l_tile = register_tiled_diag_field ( module_name, 'precip_l_tile', (/id_ug, id_ptid/),&
-!              time, 'precipitation rate (liquid)', 'kg/(m2 s)', missing_value=-1.0e+20,sm=.False.)
-!   id_precip_s_tile = register_tiled_diag_field ( module_name, 'precip_s_tile', (/id_ug, id_ptid/),&
-!              time, 'precipitation rate (frozen)', 'kg/(m2 s)', missing_value=-1.0e+20,sm=.False.)
-!   id_evap_tile = register_tiled_diag_field ( module_name, 'evap_tile', (/id_ug, id_ptid/),&
-!              time, 'vapor flux up from land', 'kg/(m2 s)', missing_value=-1.0e+20,sm=.False. )
-!   id_runf_tile = register_tiled_diag_field ( module_name, 'runf_tile', (/id_ug, id_ptid/),&
-!              time, 'total runoff', 'kg/(m2 s)', missing_value=-1.0e+20,sm=.False.)
-!   id_snow_tile = register_tiled_diag_field ( module_name, 'snow_tile', (/id_ug, id_ptid/), time, &
-!              'column-integrated snow water', 'kg/m2', missing_value=-1.0e+20,sm=.False.)
-!   id_sens_tile    = register_tiled_diag_field ( module_name, 'sens_tile', (/id_ug, id_ptid/), time, &
-!              'sens heat flux from land', 'W/m2', missing_value=-1.0e+20,sm=.False.)
-!   id_water_tile = register_tiled_diag_field(module_name, 'water_tile', (/id_ug, id_ptid/),&
-!              time, 'column-integrated soil water', 'kg/m2',missing_value=-1.0e+20,sm=.False.)
-!   id_grnd_T_tile = register_tiled_diag_field ( module_name, 'Tgrnd_tile', (/id_ug, id_ptid/), time, &
-!        'ground surface temperature', 'degK', missing_value=-1.0,sm=.False.)
-!   id_total_C_tile = register_tiled_diag_field ( module_name, 'Ctot_tile', (/id_ug, id_ptid/), time, &
-!        'total land carbon', 'kg C/m2', missing_value=-1.0,sm=.False.)
-!   id_swdn_dif_1_tile = register_tiled_diag_field ( module_name, 'swdn_dif_1_tile', (/id_ug,id_ptid/), &
-!        time,'downward diffuse short-wave radiation flux to the land surface', 'W/m2', missing_value=-999.0,sm=.False.)
-!   id_swdn_dif_2_tile = register_tiled_diag_field ( module_name, 'swdn_dif_2_tile', (/id_ug,id_ptid/), &
-!        time,'downward diffuse short-wave radiation flux to the land surface', 'W/m2', missing_value=-999.0,sm=.False.)
-!   id_swup_dif_1_tile = register_tiled_diag_field ( module_name, 'swup_dif_1_tile', (/id_ug,id_ptid/), &
-!        time, 'diffuse short-wave radiation flux reflected by the land surface', 'W/m2', missing_value=-999.0,sm=.False.)
-!   id_swup_dif_2_tile = register_tiled_diag_field ( module_name, 'swup_dif_2_tile', (/id_ug,id_ptid/), &
-!        time, 'diffuse short-wave radiation flux reflected by the land surface', 'W/m2', missing_value=-999.0,sm=.False.)
 
   ! LUMIP land fractions
   id_fracLut_psl = register_diag_field ( cmor_name, 'fracLut_psl', axes, time, &
