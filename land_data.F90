@@ -171,8 +171,6 @@ type :: land_state_type
    real, allocatable  :: coord_glat(:), coord_glatb(:) ! latitudes, degrees North
 
    !integer :: nfaces ! number of mosaic faces
-   integer :: max_npt = 0 ! maximum number of parent tiles across the global domain
-   real, allocatable :: pids(:) ! list of potential parent ids
    !integer :: face  ! the current mosaic face
 
    integer, allocatable :: pelist(:) ! list of processors that run land model

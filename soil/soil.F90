@@ -308,11 +308,6 @@ integer :: &
     id_total_N_mineralization_rate,id_total_N_immobilization_rate,&
     id_total_nitrification_rate
 
-! diag IDs of full tile variables
-integer :: id_lwc1_tile,id_lwc2_tile,id_lwc3_tile,id_lwcrz_tile
-integer :: id_swc1_tile,id_swc2_tile,id_swc3_tile
-integer :: id_wt_2b_tile
-
 ! diag IDs of std of variables
 integer :: id_lwc_std,id_swc_std
 
@@ -387,10 +382,9 @@ end subroutine read_soil_namelist
 
 ! ============================================================================
 ! initialize soil model
-subroutine soil_init (id_ug,id_band,id_zfull,id_ptid)
+subroutine soil_init (id_ug,id_band,id_zfull)
   integer,intent(in)  :: id_ug    !<Unstructured axis id.
   integer,intent(in)  :: id_band  !<ID of spectral band axis
-  integer,intent(in)  :: id_ptid  !<ID of tile axis
   integer,intent(out) :: id_zfull !<ID of vertical soil axis
 
   ! ---- local vars
@@ -450,11 +444,7 @@ subroutine soil_init (id_ug,id_band,id_zfull,id_ptid)
       call error_mesg ('soil_init','River tracer for DOC not found: leached DOC goes directly to the atmosphere as CO2 to maintain carbon conservation.', NOTE)
 
   ! -------- initialize soil model diagnostic fields
-  if (use_predefined_tiles) then
-   call soil_diag_init(id_ug,id_band,id_zfull,id_ptid)
-  else
-   call soil_diag_init(id_ug,id_band,id_zfull)
-  endif
+  call soil_diag_init(id_ug,id_band,id_zfull)
 
   ! -------- read spatially distributed fields for groundwater parameters, if requested
   if (.not.use_single_geo) then
@@ -744,7 +734,7 @@ subroutine soil_init (id_ug,id_band,id_zfull,id_ptid)
      call set_current_point(ll,k)
      if (init_wtdep .gt. 0. .or. use_predefined_tiles)then
         if (.not. use_coldstart_wtt_data) then
-           if (horiz_init_wt .and. gw_option == GW_TILED .and. use_predefined_tiles .eq. .False.) then
+           if (horiz_init_wt .and. gw_option == GW_TILED .and. .not.use_predefined_tiles) then
               call horiz_wt_depth_to_init(tile%soil, prev_elmt(ce), local_wt_depth)
               ! Note: if restart_exists, then this function returns dummy local_wt_depth == 0.
               ! prev_elmt(ce) passed because indices will be needed.
@@ -762,7 +752,7 @@ subroutine soil_init (id_ug,id_band,id_zfull,id_ptid)
            else
               drypoint = .true.
            end if
-           if (gw_option == GW_TILED .and. use_predefined_tiles .eq. .False.) then
+           if (gw_option == GW_TILED .and. .not.use_predefined_tiles) then
               call horiz_wt_depth_to_init(tile%soil, prev_elmt(ce), local_wt_depth, dry=drypoint)
               psi = zfull(1:num_l) - local_wt_depth
            else if (drypoint) then
@@ -1123,11 +1113,10 @@ function register_litter_soilc_diag_fields(module_name, field_name, axes, init_t
 end function register_litter_soilc_diag_fields
 
 ! ============================================================================
-subroutine soil_diag_init(id_ug,id_band,id_zfull,id_ptid)
+subroutine soil_diag_init(id_ug,id_band,id_zfull)
   integer,intent(in)  :: id_ug    !<Unstructured axis id.
   integer,intent(in)  :: id_band  !<ID of spectral band axis
   integer,intent(out) :: id_zfull !<ID of vertical soil axis
-  integer,optional,intent(in) :: id_ptid !<ID of tile axis
   ! ---- local vars
   integer :: axes(2)
   integer :: id_zhalf
@@ -1808,35 +1797,6 @@ subroutine soil_diag_init(id_ug,id_band,id_zfull,id_ptid)
        lnd%time, 'Nitrogen Mass in Coarse Woody Debris', 'kg m-2', &
        missing_value=-100.0, standard_name='wood_debris_mass_content_of_nitrogen', &
        fill_missing=.TRUE.)
-
-  !Full tile output
-  if (present(id_ptid)) then
-   call set_default_diag_filter('soil')
-   id_lwcrz_tile    = register_tiled_diag_field ( module_name, 'lwcrz_tile',  &
-       (/id_ug,id_ptid/), lnd%time, 'volumetric water content of liquid water (2 meters)', &
-       'm3/m3', missing_value=-100.0,sm=.False.)
-   id_lwc1_tile    = register_tiled_diag_field ( module_name, 'lwc1_tile',  &
-       (/id_ug,id_ptid/), lnd%time, 'volumetric water content of liquid water (layer 1)', &
-       'm3/m3', missing_value=-100.0,sm=.False.)
-   id_lwc2_tile    = register_tiled_diag_field ( module_name, 'lwc2_tile',  &
-       (/id_ug,id_ptid/), lnd%time, 'volumetric water content of liquid water (layer 2)', &
-       'm3/m3', missing_value=-100.0,sm=.False.)
-   id_lwc3_tile    = register_tiled_diag_field ( module_name, 'lwc3_tile',  &
-       (/id_ug,id_ptid/), lnd%time, 'volumetric water content of liquid water (layer 3)', &
-       'm3/m3', missing_value=-100.0,sm=.False.)
-   id_swc1_tile    = register_tiled_diag_field ( module_name, 'swc1_tile',  &
-       (/id_ug,id_ptid/), lnd%time, 'volumetric water content of frozen water (layer 1)', &
-       'm3/m3', missing_value=-100.0,sm=.False.)
-   id_swc2_tile    = register_tiled_diag_field ( module_name, 'swc2_tile',  &
-       (/id_ug,id_ptid/), lnd%time, 'volumetric water content of frozen water (layer 2)', &
-       'm3/m3', missing_value=-100.0,sm=.False.)
-   id_swc3_tile    = register_tiled_diag_field ( module_name, 'swc3_tile',  &
-       (/id_ug,id_ptid/), lnd%time, 'volumetric water content of frozen water (layer 3)', &
-       'm3/m3', missing_value=-100.0,sm=.False.)
-   id_wt_2b_tile = register_tiled_diag_field ( module_name, 'wt_2b_tile',  &
-       (/id_ug,id_ptid/), lnd%time, 'Water Table Depth from Surface to Liquid Saturation', 'm', &
-       missing_value=-100.0 ,sm=.False.)
-  endif
 
   !Std output
   call set_default_diag_filter('soil')
@@ -3187,11 +3147,11 @@ end subroutine soil_step_1
 
   if (lrunf_from_div .or. GW_TILED .eq. .True.) then !MUST BE TRUE WITH TILED HILLSLOPES???
      if (gw_option /= GW_TILED) then
-         soil_hlrunf = hlrunf_sn + hlrunf_ie +  clw*sum(div*(soil%T-tfreeze)) &
+        soil_hlrunf = hlrunf_sn + hlrunf_ie +  clw*sum(div*(soil%T-tfreeze)) &
                                                       + hlrunf_nu + hlrunf_sc
         soil_lrunf  =  lrunf_sn +  lrunf_ie +  sum(div) +  lrunf_nu +  lrunf_sc
      else
-         soil_hlrunf = hlrunf_sn + hlrunf_ie +  sum(hdiv_it) &
+        soil_hlrunf = hlrunf_sn + hlrunf_ie +  sum(hdiv_it) &
              + hlrunf_nu + hlrunf_sc
         !soil_lrunf  =  lrunf_sn +  lrunf_ie +  sum(div_gtos) +  lrunf_nu +  lrunf_sc
         soil_lrunf  =  lrunf_sn +  lrunf_ie +  sum(div_it) +  lrunf_nu +  lrunf_sc
@@ -3409,17 +3369,6 @@ end subroutine soil_step_1
 
   if (.not. LM2) call send_tile_data(id_psi_bot, soil%psi(num_l), diag)
   call send_tile_data(id_frozen_freq, soil%frozen_freq, diag)
-
-  ! tile variables
-  call send_tile_data(id_lwc1_tile,soil%wl(1)/(1000.0*dz(1)), diag)
-  call send_tile_data(id_lwc2_tile,soil%wl(2)/(1000.0*dz(2)), diag)
-  call send_tile_data(id_lwc3_tile,soil%wl(3)/(1000.0*dz(3)), diag)
-  call send_tile_data(id_swc1_tile,soil%ws(1)/(1000.0*dz(1)), diag)
-  call send_tile_data(id_swc2_tile,soil%ws(2)/(1000.0*dz(2)), diag)
-  call send_tile_data(id_swc3_tile,soil%ws(3)/(1000.0*dz(3)), diag)
-  call send_tile_data(id_wt_2b_tile, depth_to_wt_2b, diag)
-  !root zone soil moisture (2 meters)
-  call send_tile_data(id_lwcrz_tile,sum(soil%wl(1:13))/(1000.0*sum(dz(1:13))),diag)
 
   ! std variables
   if (id_lwc_std > 0) call send_tile_data(id_lwc_std,  soil%wl/dz(1:num_l), diag)
@@ -4370,7 +4319,7 @@ end subroutine richards_clean
            flow(l+1) = flow(l+1) + w_to_move_down
         enddo
      endif
-  end subroutine move_down_revisited  
+  end subroutine move_down_revisited
 
   subroutine move_all_revisited(w_l, dW_l, flow, w_shortage, num_l, l_internal, dz, vwc_sat)
   real, intent(in), dimension(num_l) :: w_l,dz
@@ -4414,10 +4363,10 @@ end subroutine richards_clean
            endif
         endif
      enddo
-     
+
      print*,'WARNING: negative soil water storage, Th=', -w_shortage/(dens_h2o*dz(l_internal)*vwc_sat)
-  
-  end subroutine move_all_revisited 
+
+  end subroutine move_all_revisited
 
 ! ============================================================================
   subroutine move_up(dW_l, flow, w_shortage, num_l, l_internal)
@@ -4662,7 +4611,7 @@ subroutine advection_tri(soil, flow, dW_l, tflow, d_GW, div, delta_time, t_soil_
    ! NWC If there are NaNs then sen del_t to 0. If not this will crash. Probably
    ! want to revisit this at some point.
    do l =1,num_l
-    if (isnan(del_t(l)) .eq. .true.)del_t(l) = 0.0
+    if (isnan(del_t(l))) del_t(l) = 0.0
    enddo
    t_soil_tridiag(1:num_l) = soil%T(1:num_l) + del_t(1:num_l)
 

@@ -255,8 +255,6 @@ integer, dimension(N_LITTER_POOLS, N_C_TYPES) :: &
 integer :: id_lai_cmor, id_cVeg, id_cLeaf, id_cWood, id_cRoot, id_cStem, id_cMisc, id_cProduct, id_cAnt, &
    id_fFire, id_fFireNat, id_fGrazing, id_fHarvest, id_fLuc, id_fAnthDisturb, id_fProductDecomp, id_cw, &
    id_nVeg, id_nLeaf, id_nRoot, id_nStem, id_nOther, id_nProduct
-   ! All tile variables
-   integer :: id_lai_tile,id_btot_tile
    ! Std of variables
    integer :: id_btot_std
 ! ==== end of module variables ===============================================
@@ -337,11 +335,10 @@ end subroutine read_vegn_namelist
 
 ! ============================================================================
 ! initialize vegetation
-subroutine vegn_init( id_ug, id_band, id_cellarea, id_ptid)
+subroutine vegn_init( id_ug, id_band, id_cellarea)
   integer,intent(in) :: id_ug   !<Unstructured axis id.
   integer,intent(in) :: id_band ! ID of spectral band axis
   integer,intent(in) :: id_cellarea ! ID of cell area diag field, for cell measures
-  integer,intent(in) :: id_ptid ! ID of parent tile axis
 
   ! ---- local vars
   type(land_tile_enum_type)     :: ce    ! current tile list element
@@ -760,11 +757,7 @@ subroutine vegn_init( id_ug, id_band, id_cellarea, id_ptid)
   call vegn_fire_init(id_ug, id_cellarea, delta_time, lnd%time)
 
   ! initialize vegetation diagnostic fields
-  if (use_predefined_tiles) then
-   call vegn_diag_init (id_ug, id_band, lnd%time , id_ptid)
-  else
-   call vegn_diag_init (id_ug, id_band, lnd%time )
-  endif
+  call vegn_diag_init (id_ug, id_band, lnd%time )
 
   ! ---- diagnostic section
   ce = first_elmt(land_tile_map, ls=lnd%ls)
@@ -880,11 +873,10 @@ subroutine add_extra_cohorts()
 end subroutine add_extra_cohorts
 
 ! ============================================================================
-subroutine vegn_diag_init ( id_ug, id_band, time, id_ptid)
+subroutine vegn_diag_init ( id_ug, id_band, time)
    integer        , intent(in) :: id_ug   !<Unstructured axis id.
    integer        , intent(in) :: id_band ! ID of spectral band axis
    type(time_type), intent(in) :: time    ! initial time for diagnostic fields
-   integer,optional,intent(in) :: id_ptid !<ID of tile axis
 
   ! ---- local vars
   integer :: i
@@ -1337,18 +1329,9 @@ subroutine vegn_diag_init ( id_ug, id_band, time, id_ptid)
        time, 'Nitrogen Mass in Products of Land Use Change', 'kg m-2', missing_value=-999.0, &
        standard_name='nitrogen_mass_content_of_forestry_and_agricultural_products', fill_missing=.TRUE.)
 
-   !Full tile output
-   if (present(id_ptid)) then
-      call set_default_diag_filter('soil')
-      id_lai_tile  = register_tiled_diag_field ( module_name, 'lai_tile',  &
-            (/id_ug,id_ptid/), time, 'leaf area index', 'm2/m2', missing_value=-1.0,sm=.False.)
-      id_btot_tile = register_tiled_diag_field ( module_name, 'btot_tile',  &
-            (/id_ug,id_ptid/), time, 'total biomass', 'kg C/m2', missing_value=-1.0,sm=.False.)
-   endif
-
-   !Standard deviation
-   id_btot_std = register_tiled_diag_field ( module_name, 'btot_std',  &
-      (/id_ug/), time, 'total biomass', 'kg C/m2', missing_value=-1.0,op='stdev')
+  !Standard deviation
+  id_btot_std = register_tiled_diag_field ( module_name, 'btot_std',  (/id_ug/), time, &
+       'total biomass', 'kg C/m2', missing_value=-1.0,op='stdev')
 
 end subroutine
 
@@ -2953,13 +2936,6 @@ subroutine update_vegn_slow( )
      else
          call send_tile_data(id_fFireNat, 0.0, tile%diag)
      endif
-
-     ! tile output
-     call send_tile_data(id_btot_tile,    sum(tile%vegn%cohorts(1:n)%bl    &
-                                        +tile%vegn%cohorts(1:n)%blv   &
-                                        +tile%vegn%cohorts(1:n)%br    &
-                                        +tile%vegn%cohorts(1:n)%bsw   &
-                                        +tile%vegn%cohorts(1:n)%bwood ), tile%diag)
 
      ! standard deviation output
      call send_tile_data(id_btot_std,    sum(tile%vegn%cohorts(1:n)%bl    &

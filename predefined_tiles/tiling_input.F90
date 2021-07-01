@@ -188,7 +188,7 @@ end subroutine open_image_file
 subroutine land_cover_cold_start_0d_predefined_tiles(tiles,lnd,l,h5id)
 
   type(land_tile_list_type) , intent(inout) :: tiles   ! list of tiles to insert new tiles into
-  type(land_state_type)     , intent(inout) :: lnd     ! land geometry and indexing information
+  type(land_state_type)     , intent(in)    :: lnd     ! land geometry and indexing information
   integer                   , intent(in)    :: l       ! unstructured grid index of current gridcell
   integer(hid_t)            , intent(in)    :: h5id    ! input data set handle
 
@@ -278,16 +278,12 @@ subroutine land_cover_cold_start_0d_predefined_tiles(tiles,lnd,l,h5id)
   call h5fclose_f(dstid,status)
   !call check_h5err(status)
 
-  !Define the maximum number of parent tiles
-  lnd%max_npt = max(lnd%max_npt,tile_parameters%metadata%ntile)
-  !lnd%max_npt = tile_parameters%metadata%ntile!tile_parameters%metadata%max_npt(1)
-
 end subroutine land_cover_cold_start_0d_predefined_tiles
 
 subroutine land_cover_warm_start_0d_predefined_tiles(lnd, h5id, tiles, l, &
   lidx, frac, pid, vegn)
 
-  type(land_state_type)     , intent(inout) :: lnd     ! land geometry and indexing information
+  type(land_state_type)     , intent(in)    :: lnd     ! land geometry and indexing information
   integer(hid_t)            , intent(in)    :: h5id    ! input data set handle
   type(land_tile_list_type) , intent(inout) :: tiles   ! list of tiles to insert new tiles into
   integer                   , intent(in)    :: l       ! unstructured grid index of current gridcell
@@ -297,7 +293,7 @@ subroutine land_cover_warm_start_0d_predefined_tiles(lnd, h5id, tiles, l, &
   integer                   , intent(in)    :: vegn(:) ! vegetation flags of tiles
 
   type(land_tile_type), pointer :: tile
-  integer :: itile,tid,i_index,j_index,status,max_npt,k
+  integer :: itile,tid,i_index,j_index,status,k
   integer(hid_t) :: dstid,cid
   type(tile_parameters_type) :: tile_parameters
   type(c_ptr) :: buf_ptr
@@ -381,12 +377,6 @@ subroutine land_cover_warm_start_0d_predefined_tiles(lnd, h5id, tiles, l, &
   !call check_h5err(status)
   call h5fclose_f(dstid,status)
   !call check_h5err(status)
-
-  !Define the maximum number of parent tiles
-  lnd%max_npt = max(lnd%max_npt,tile_parameters%metadata%ntile)
-  !lnd%max_npt = tile_parameters%metadata%ntile!tile_parameters%metadata%max_npt(1)
-  !lnd%max_npt = tile_parameters%metadata%max_npt(1)
-
 end subroutine land_cover_warm_start_0d_predefined_tiles
 
 subroutine retrieve_metadata(tile_parameters,cid)
@@ -420,7 +410,6 @@ subroutine retrieve_metadata(tile_parameters,cid)
   call get_parameter_data(grpid,'tile',metadata%ntile,metadata%tile)
   call get_parameter_data(grpid,'type',metadata%ntile,metadata%ttype)
   call get_parameter_data(grpid,'tid',metadata%ntile,metadata%tid)
-  call get_parameter_data(grpid,'max_npt',1,metadata%max_npt)
 
   !Retrieve meteorology info
   call get_parameter_data(grpid,'prec',metadata%ntile,12,metadata%dws_prec)
@@ -659,11 +648,11 @@ subroutine retrieve_soil_parameters(tile_parameters,cid)
   call get_parameter_data(grpid,"ksat_200cm",nsoil,soil%ksat200cm)
 
   !Do some basic QC (should be done in the preprocessing...)
-  where(isnan(soil%gw_soil_e_depth) .eq. .True.)soil%gw_soil_e_depth = 3.0
+  where(isnan(soil%gw_soil_e_depth))soil%gw_soil_e_depth = 3.0
   !where(soil%gw_soil_e_depth .lt. 1.0)soil%gw_soil_e_depth = 1.0
-  where(isnan(soil%gw_perm) .eq. .True.)soil%gw_perm = 2e-13 !HACK
-  where(isnan(soil%soil_depth) .eq. .True.)soil%soil_depth = 2.0
-  where(isnan(soil%depth_to_bedrock) .eq. .True.)soil%depth_to_bedrock = 10.0
+  where(isnan(soil%gw_perm))soil%gw_perm = 2e-13 !HACK
+  where(isnan(soil%soil_depth))soil%soil_depth = 2.0
+  where(isnan(soil%depth_to_bedrock))soil%depth_to_bedrock = 10.0
   soil%gw_soil_e_depth = soil%soil_depth !Remove dependence on input soil_e_depth
   !Turn everything below DTB to hard rock...
   !soil%gw_perm = 10**(-15.2)!1e-20
@@ -677,10 +666,10 @@ subroutine retrieve_soil_parameters(tile_parameters,cid)
   !Correct psi_sat_ref
   !soil%dat_psi_sat_ref = 10*soil%dat_psi_sat_ref !Need to move back to original
   !where(soil%dat_psi_sat_ref .gt. -0.01)soil%dat_psi_sat_ref = -0.01 !HACK
-  where(isnan(soil%dat_k_sat_ref) .eq. .True.)soil%dat_k_sat_ref = 0.003 !HACK
-  where(isnan(soil%bl) .eq. .True.)soil%bl = 0.0
-  where(isnan(soil%br) .eq. .True.)soil%br = 0.0
-  where(isnan(soil%bsw) .eq. .True.)soil%bsw = 0.0
+  where(isnan(soil%dat_k_sat_ref))soil%dat_k_sat_ref = 0.003 !HACK
+  where(isnan(soil%bl))soil%bl = 0.0
+  where(isnan(soil%br))soil%br = 0.0
+  where(isnan(soil%bsw))soil%bsw = 0.0
   where(soil%bwood .gt. 10**10)soil%bwood = 0.0
   where(soil%bl .gt. 10**10)soil%bl = 0.0
   where(soil%br .gt. 10**10)soil%br = 0.0
