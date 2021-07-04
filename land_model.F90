@@ -1490,8 +1490,7 @@ subroutine update_land_model_fast ( cplr2land, land2cplr )
 !$OMP                                  id_Trad,id_Tca,id_qca,isphum,id_cd_m,id_cd_t,id_bnv,id_ulow,id_snc,&
 !$OMP                                  id_z_atm_dis,id_t_atm_dis,id_p_atm_dis,id_p_surf_dis,id_q_atm_dis,&
 !$OMP                                  id_z_atm_nodis,id_t_atm_nodis,id_p_atm_nodis,id_p_surf_nodis,id_q_atm_nodis) &
-!$OMP                                  private(i,j,k,ce,tile,ISa_dn_dir,ISa_dn_dif,n_cohorts,snow_depth,snow_area, &
-                                               downscale_surface_meteorology)
+!$OMP                                  private(i,j,k,ce,tile,ISa_dn_dir,ISa_dn_dif,n_cohorts,snow_depth,snow_area, downscale_surface_meteorology)
   do l = lnd%ls, lnd%le
      i = lnd%i_index(l)
      j = lnd%j_index(l)
