@@ -104,6 +104,24 @@ subroutine soil_tag_ptr(t,p)
         endif
 end subroutine
 
+subroutine soil_hidx_k_ptr(t,p)
+    type(land_tile_type),pointer::t
+    integer,pointer::p
+    p=>NULL()
+    if(associated(t))then
+        if(associated(t%soil))p=>t%soil%hidx_k
+    endif
+end subroutine
+
+subroutine soil_hidx_j_ptr(t,p)
+    type(land_tile_type),pointer::t
+    integer,pointer::p
+    p=>NULL()
+    if(associated(t))then
+        if(associated(t%soil))p=>t%soil%hidx_j
+    endif
+end subroutine
+
 subroutine soil_fast_soil_C_ptr(t,i,p)
     type(land_tile_type),pointer::t
     integer,intent(in)::i

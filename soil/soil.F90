@@ -283,6 +283,9 @@ integer, dimension(N_LITTER_POOLS,N_C_TYPES) :: &
 
 integer :: id_tile_elev
 integer :: id_nk, id_nj, id_elevmean, id_pslope2p
+integer :: id_hidx_k, id_hidx_j
+integer :: id_hidx_k2,id_hidx_j2 
+
 integer :: &
     id_lift_hlsp, id_pratio_hlsp, id_lprec_hlsp, id_fprec_hlsp, id_elev_hlsp, id_tfrac_hlsp
 integer :: &
@@ -947,7 +950,7 @@ subroutine soil_init (id_ug,id_band,id_zfull)
   call send_tile_data_r0d_fptr(id_vwc_wilt,     soil_vwc_wilt_ptr)
   call send_tile_data_r0d_fptr(id_vwc_fc,       soil_vwc_fc_ptr)
   call send_tile_data_r0d_fptr(id_vwc_sat,      soil_vwc_sat_ptr)
-  call send_tile_data_r0d_fptr(id_K_sat,        soil_k_sat_ref_ptr)
+  call send_tile_data_r0d_fptr(id_K_sat,        soil_k_sat_ref_ptr)  
   call send_tile_data_r0d_fptr(id_K_gw,         soil_k_sat_gw_ptr)
   call send_tile_data_r0d_fptr(id_Qmax,         soil_Qmax_ptr)
   call send_tile_data_r1d_fptr(id_w_fc,         soil_w_fc_ptr)
@@ -963,6 +966,8 @@ subroutine soil_init (id_ug,id_band,id_zfull)
   call send_tile_data_r1d_fptr(id_f_vol_sat,    soil_f_vol_sat_ptr)
   call send_tile_data_r1d_fptr(id_f_geo_sat,    soil_f_geo_sat_ptr)
   call send_tile_data_i0d_fptr(id_type,         soil_tag_ptr)
+  call send_tile_data_i0d_fptr(id_hidx_k,       soil_hidx_k_ptr)
+  call send_tile_data_i0d_fptr(id_hidx_j,       soil_hidx_j_ptr)    
 
   if (id_mrsofc>0) then
      total_soil_depth = sum(dz(1:num_l))
@@ -1177,6 +1182,12 @@ subroutine soil_diag_init(id_ug,id_band,id_zfull)
        lnd%time, 'dissolved organic nitrogen', 'kg C/m3', missing_value=-100.0 )
 
   ! hillslope output
+
+  id_hidx_k2 = register_tiled_diag_field ( module_name, 'hidx_k2',  &
+       axes(1:1), lnd%time, 'number of types of hillslope', '-', missing_value=-1.0 )  
+  id_hidx_j2 = register_tiled_diag_field ( module_name, 'hidx_j2',  &
+       axes(1:1), lnd%time, 'number of hillslope bands', '-', missing_value=-1.0 )  
+
   id_nk = register_tiled_diag_field ( module_name, 'nk', axes(1:1), &
        lnd%time, 'maximum hidx_k', '-',  missing_value=-1.0 ) 
   id_nj = register_tiled_diag_field ( module_name, 'nj', axes(1:1), &
@@ -1574,6 +1585,10 @@ subroutine soil_diag_init(id_ug,id_band,id_zfull)
       axes(1:1), 'absolute tile elevation', 'm', missing_value=-100.0 )
   id_type = register_tiled_static_field ( module_name, 'soil_type',  &
        axes(1:1), 'soil type', missing_value=-1.0 )
+  id_hidx_k = register_tiled_static_field ( module_name, 'hidx_k',  &
+       axes(1:1), 'number of types of hillslope', missing_value=-1.0 )  
+  id_hidx_j = register_tiled_static_field ( module_name, 'hidx_j',  &
+       axes(1:1), 'number of hillslope bands', missing_value=-1.0 )    
   id_tau_gw = register_tiled_static_field ( module_name, 'tau_gw',  &
        axes(1:1), 'groundwater residence time', 's', missing_value=-100.0 )
   id_slope_l = register_tiled_static_field ( module_name, 'slope_l',  &
@@ -1595,13 +1610,13 @@ subroutine soil_diag_init(id_ug,id_band,id_zfull)
   id_vwc_sat = register_tiled_static_field ( module_name, 'soil_sat',  &
        axes(1:1), 'soil porosity', '-', missing_value=-100.0 )
   id_K_sat = register_tiled_static_field ( module_name, 'soil_Ksat',  &
-       axes(1:1), 'soil sat. hydraulic conductivity', 'kg /(m2 s)', missing_value=-100.0 )
+       axes(1:1), 'soil sat. hydraulic conductivity', 'kg /(m2 s)', missing_value=-100.0 )  
   id_K_gw  = register_tiled_static_field ( module_name, 'soil_K_gw',  &
        axes(1:1), 'deep hydraulic conductivity', 'kg /(m2 s)', missing_value=-100.0 )
   id_w_fc = register_tiled_static_field ( module_name, 'w_fc',  &
        axes, 'soil field capacity', missing_value=-1.0 )
   id_alpha = register_tiled_static_field ( module_name, 'soil_alpha',  &
-       axes, 'soil microscopic length scale', missing_value=-1.0 )
+       axes, 'soil microscopic length scale', missing_value=-1.0 ) 
   id_refl_dry_dir = register_tiled_static_field ( module_name, 'refl_dry_dir',  &
        (/id_ug, id_band/), 'reflectance of dry soil for direct light', &
        missing_value=-1.0 )
@@ -5559,6 +5574,8 @@ subroutine soil_hlsp_diag()
      ce = first_elmt(land_tile_map(l))
      do while (loop_over_tiles(ce,tile,k=k))
        if (.not.associated(tile%soil)) cycle 
+       call send_tile_data(id_hidx_k2,float(tile%soil%hidx_k),tile%diag)
+       call send_tile_data(id_hidx_j2,float(tile%soil%hidx_j),tile%diag)       
        call send_tile_data(id_nk,float(tile%soil%hlsp%nk_g), tile%diag)
        call send_tile_data(id_nj,float(tile%soil%hlsp%nj_g), tile%diag) 
        call send_tile_data(id_elevmean, tile%soil%hlsp%elevmean_g, tile%diag)
