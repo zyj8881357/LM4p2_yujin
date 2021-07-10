@@ -116,7 +116,8 @@ use nitrogen_sources_mod, only : nitrogen_sources_init, nitrogen_sources_end, &
      update_nitrogen_sources, nitrogen_sources
 use hillslope_mod, only: do_hillslope_model, retrieve_hlsp_indices, save_hlsp_restart, hlsp_end, &
                          read_hlsp_namelist, hlsp_init, hlsp_config_check, &
-                         hlsp_init_predefined, hlsp_disagg_precip, do_hlsp_disagg_tpq, tlapse
+                         hlsp_init_predefined, hlsp_disagg_precip, do_hlsp_disagg_precip, &
+                         do_hlsp_disagg_tpq, tlapse
 use hillslope_hydrology_mod, only: hlsp_hydrology_1, hlsp_hydro_init
 use hdf5
 use predefined_tiles_mod, only : read_predefined_tiles_namelist, &
@@ -1482,7 +1483,7 @@ subroutine update_land_model_fast ( cplr2land, land2cplr )
      enddo
   enddo
 
-  call hlsp_disagg_precip(cplr2land)
+  call hlsp_disagg_precip(cplr2land,use_atmos_T_for_precip_T,use_atmos_T_for_evap_T)
 
   ! main tile loop
 !$OMP parallel do default(none) shared(lnd,land_tile_map,cplr2land,land2cplr,phot_co2_overridden, &
@@ -2053,12 +2054,19 @@ subroutine update_land_model_fast_0d ( tile, l,itile, N, land2cplr, &
     precip_T = atmos_T
   else
     precip_T = cana_T
-  endif
+  endif 
   if (use_atmos_T_for_evap_T) then
     evap_T = atmos_T
   else
     evap_T = cana_T
   endif
+
+  if(associated(tile%soil).and.use_predefined_tiles.and.do_hlsp_disagg_tpq)then
+    precip_T = tile%soil%hlsp%precip_T
+    evap_T = tile%soil%hlsp%evap_T
+  endif  
+
+
   if (use_old_conservation_equations) then
     hlv_Tv = hlv       - (cpw-clw)*tfreeze + cpw*vegn_T
     hls_Tv = hlv + hlf - (cpw-csw)*tfreeze + cpw*vegn_T

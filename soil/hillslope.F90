@@ -32,9 +32,9 @@ use land_debug_mod, only : is_watch_point, is_watch_cell, set_current_point
 use land_transitions_mod, only : do_landuse_change
 use vegn_harvesting_mod , only : do_harvesting
 use hillslope_tile_mod , only : register_hlsp_selectors
-use constants_mod, only : tfreeze
+use constants_mod, only : tfreeze, hlf
 use soil_tile_mod, only : gw_option, GW_TILED, initval, soil_tile_type, &
-     gw_scale_length, gw_scale_relief, MAX_HLSP_K, MAX_HLSP_J, dz
+     gw_scale_length, gw_scale_relief, MAX_HLSP_K, MAX_HLSP_J, dz, clw, csw
 use time_manager_mod, only : get_date     
 use predefined_tiles_mod, only : use_predefined_tiles
 
@@ -131,6 +131,7 @@ logical, protected, public :: sat_from_edecay = .true.
 real, protected, public :: sat_from_edecay_parameter = 0.1
 
 logical, protected,public :: do_hlsp_disagg_precip = .FALSE.
+logical, protected,public :: disagg_precip_phase = .TRUE.
 character(32), protected, public :: elev_scale_to_use = "ERMM"
 real,protected,public :: elev_scale = 1050.
 logical, protected,public :: do_hlsp_disagg_tpq = .FALSE.
@@ -149,7 +150,7 @@ namelist /hlsp_nml/ num_vertclusters, max_num_topo_hlsps, hillslope_horz_subdiv,
                     simple_inundation, surf_flow_velocity, dl, equal_length_tiles, &
                     limit_intertile_flow, flow_ratio_limit, exp_inundation, tiled_DOC_flux, &
                     sat_frac_from_hand, turn_gtos_off, sat_from_edecay,sat_from_edecay_parameter, &
-                    do_hlsp_disagg_precip, elev_scale_to_use, elev_scale, &
+                    do_hlsp_disagg_precip, disagg_precip_phase, elev_scale_to_use, elev_scale, &
                     do_hlsp_disagg_tpq, tlapse
 ! hardwired: fixed_num_vertclusters, hillslope_topo_subdiv, stiff_do_explicit
 !---- end of namelist --------------------------------------------------------
@@ -1141,10 +1142,12 @@ end function meanelev
 
 ! ============================================================================
 
-subroutine hlsp_disagg_precip(cplr2land)
+subroutine hlsp_disagg_precip(cplr2land, use_atmos_T_for_precip_T,use_atmos_T_for_evap_T)
 
   type(atmos_land_boundary_type), intent(in)    :: cplr2land
-  
+  logical, intent(in)  :: use_atmos_T_for_precip_T
+  logical, intent(in)  :: use_atmos_T_for_evap_T
+
   real, dimension(lnd%ls:lnd%le) :: norm_tot
   type(land_tile_enum_type)     :: ce
   type(land_tile_type), pointer :: tile
@@ -1152,6 +1155,8 @@ subroutine hlsp_disagg_precip(cplr2land)
   integer :: l, k, lev
   real :: pslope2p 
   integer :: year,month,day,hour,minute,second
+  real :: hcap_persec, melt_perdeg_persec, melt_persec
+  real, dimension(lnd%ls:lnd%le) :: hprec_dis, hprec_nodis, lprec_g, fprec_g, delta_T
 
   if(.not.use_predefined_tiles) then
     call error_mesg(module_name, 'Currently, hlsp_disagg_precip is only supported with predefined tiles', NOTE)
@@ -1198,19 +1203,77 @@ subroutine hlsp_disagg_precip(cplr2land)
      enddo
   enddo
 
+  hprec_dis(lnd%ls:lnd%le) = 0.
+  hprec_nodis(lnd%ls:lnd%le) = 0.  
+  lprec_g(lnd%ls:lnd%le) = 0.
+  fprec_g(lnd%ls:lnd%le) = 0.
+  delta_T(lnd%ls:lnd%le) = 0.   
+
   do l = lnd%ls, lnd%le
      ce = first_elmt(land_tile_map(l))
      do while (loop_over_tiles(ce,tile,k=k))
        if (.not.associated(tile%soil)) cycle 
+
        kgh = max(tile%soil%hlsp%pslope2p_g*tile%soil%hlsp%lift,-0.9999)
        adjust = (1. + kgh)/norm_tot(l)
-
+       tile%soil%hlsp%pratio = adjust  
        if(do_hlsp_disagg_precip)then
          cplr2land%lprec(l,k) = cplr2land%lprec(l,k) * adjust
          cplr2land%fprec(l,k) = cplr2land%fprec(l,k) * adjust
+       endif     
+
+       if(do_hlsp_disagg_tpq)then
+         if(use_atmos_T_for_precip_T)then
+           tile%soil%hlsp%precip_T = cplr2land%t_atm_dis(l,k)
+           hprec_dis(l) = hprec_dis(l) + (clw*cplr2land%lprec(l,k)+csw*cplr2land%fprec(l,k))*(cplr2land%t_atm_dis(l,k)-tfreeze) * tile%frac*lnd%ug_area(l) !J/s
+           hprec_nodis(l) = hprec_nodis(l) + (clw*cplr2land%lprec(l,k)+csw*cplr2land%fprec(l,k))*(cplr2land%t_atm_nodis(l,k)-tfreeze) * tile%frac*lnd%ug_area(l) !J/s
+           lprec_g(l) = lprec_g(l) + cplr2land%lprec(l,k) * tile%frac*lnd%ug_area(l) !kg/s
+           fprec_g(l) = fprec_g(l) + cplr2land%fprec(l,k) * tile%frac*lnd%ug_area(l) !kg/s       
+         else
+           tile%soil%hlsp%precip_T = tile%cana%T          
+         endif 
+         if(use_atmos_T_for_evap_T)then
+           tile%soil%hlsp%evap_T = cplr2land%t_atm_dis(l,k) 
+         else
+           tile%soil%hlsp%evap_T = tile%cana%T 
+         endif     
        endif
 
-       tile%soil%hlsp%pratio = adjust
+     enddo
+  enddo
+  
+  if(do_hlsp_disagg_tpq.and.use_atmos_T_for_precip_T)then 
+    where((clw*lprec_g+csw*fprec_g)/=0.) & 
+      delta_T = (hprec_dis - hprec_nodis)/(clw*lprec_g+csw*fprec_g) ! J/s / J/(K*s) = K
+  endif
+
+  do l = lnd%ls, lnd%le
+     ce = first_elmt(land_tile_map(l))
+     do while (loop_over_tiles(ce,tile,k=k))
+       if (.not.associated(tile%soil)) cycle     
+
+       if(do_hlsp_disagg_tpq)then
+         if(use_atmos_T_for_precip_T)then
+           tile%soil%hlsp%precip_T = tile%soil%hlsp%precip_T - delta_T(l)
+         endif
+         if(disagg_precip_phase)then    
+           hcap_persec = clw*cplr2land%lprec(l,k) + csw*cplr2land%fprec(l,k)
+           melt_perdeg_persec = hcap_persec/hlf
+           if (cplr2land%fprec(l,k)>0 .and. tile%soil%hlsp%precip_T>tfreeze) then
+             melt_persec =  min(cplr2land%fprec(l,k), (tile%soil%hlsp%precip_T-tfreeze)*melt_perdeg_persec)
+           else if (cplr2land%lprec(l,k)>0 .and. tile%soil%hlsp%precip_T<tfreeze) then
+             melt_persec = -min(cplr2land%lprec(l,k), (tfreeze-tile%soil%hlsp%precip_T)*melt_perdeg_persec)
+           else
+             melt_persec = 0.
+           endif
+           cplr2land%lprec(l,k) = cplr2land%lprec(l,k) + melt_persec
+           cplr2land%fprec(l,k) = cplr2land%fprec(l,k) - melt_persec
+           tile%soil%hlsp%precip_T = tfreeze &
+                                   + (hcap_persec*(tile%soil%hlsp%precip_T-tfreeze) - hlf*melt_persec) &
+                                     / ( hcap_persec + (clw-csw)*melt_persec )          
+         endif
+       endif
+
      enddo
   enddo
 
