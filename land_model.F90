@@ -252,7 +252,7 @@ integer  :: i_river_ice, i_river_heat, i_river_DOC
 
 ! ---- diag field IDs --------------------------------------------------------
 integer :: &
-  id_ttype, &
+  id_ttype, id_max_ptid, &
  ! COLUMN        VEGN        SNOW      GLAC/LAKE/SOIL  CANOPY-AIR  RIVER
   id_VWS,                                               id_VWSc,           &
   id_LWS,      id_LWSv,     id_LWSs,     id_LWSg,                          &
@@ -1431,6 +1431,8 @@ subroutine update_land_model_fast ( cplr2land, land2cplr )
 
   ! variables for total water storage diagnostics
   real :: twsr_sg(lnd%is:lnd%ie,lnd%js:lnd%je), tws(lnd%ls:lnd%le)
+  ! variable for max hill slope tile ID diagnostics
+  real :: max_ptid(lnd%ls:lnd%le)
 
   integer :: y,mo,d,h,m,s ! components of date for checksums
 
@@ -1490,8 +1492,10 @@ subroutine update_land_model_fast ( cplr2land, land2cplr )
 !$OMP                                  phot_co2_data,runoff,runoff_c,snc,id_area,id_z0m,id_z0s,       &
 !$OMP                                  id_Trad,id_Tca,id_qca,isphum,id_cd_m,id_cd_t,id_bnv,id_ulow,id_snc,&
 !$OMP                                  id_z_atm_dis,id_t_atm_dis,id_p_atm_dis,id_p_surf_dis,id_q_atm_dis,&
-!$OMP                                  id_z_atm_nodis,id_t_atm_nodis,id_p_atm_nodis,id_p_surf_nodis,id_q_atm_nodis) &
+!$OMP                                  id_z_atm_nodis,id_t_atm_nodis,id_p_atm_nodis,id_p_surf_nodis,id_q_atm_nodis,&
+!$OMP                                  id_tws, tws, id_max_ptid, max_ptid) &
 !$OMP                                  private(i,j,k,ce,tile,ISa_dn_dir,ISa_dn_dif,n_cohorts,snow_depth,snow_area, downscale_surface_meteorology)
+
   do l = lnd%ls, lnd%le
      i = lnd%i_index(l)
      j = lnd%j_index(l)
@@ -1582,7 +1586,9 @@ subroutine update_land_model_fast ( cplr2land, land2cplr )
      call get_river_water(twsr_sg)
      call mpp_pass_SG_to_UG(lnd%ug_domain, twsr_sg, tws)
   endif
-
+  if (id_max_ptid>0) then
+     max_ptid(:) = -1
+  endif
   ce = first_elmt(land_tile_map, ls=lbound(cplr2land%t_flux,1) )
   do while(loop_over_tiles(ce,tile,l,k))
      cana_VMASS = 0. ;                   cana_HEAT = 0.
@@ -1666,9 +1672,13 @@ subroutine update_land_model_fast ( cplr2land, land2cplr )
          call get_tile_water(tile, subs_LMASS, subs_FMASS)
          tws(l) = tws(l) + (subs_LMASS+subs_FMASS)*tile%frac
      endif
+     if (id_max_ptid>0) then
+         max_ptid(l) = max(max_ptid(l),real(tile%pid))
+     endif
   enddo
 
   if (id_tws>0) used = send_data(id_tws, tws, lnd%time)
+  if (id_max_ptid>0) used = send_data(id_max_ptid, max_ptid, lnd%time)
 
   call soil_hlsp_diag()
 
@@ -4372,6 +4382,9 @@ subroutine land_diag_init(clonb, clatb, clon, clat, time, id_band, id_ug)
   ! type of parent tile
   id_ttype = register_tiled_diag_field(module_name, 'ttype', axes, time, &
        'Type of parent tile (1=glacier, 2=lake, 3=soil)', 'unitless',missing_value=-1.0)
+  ! max ID of "parent tiles"
+  id_max_ptid = register_diag_field(module_name, 'max_ptid', axes, time, &
+       'maximum tile parent ID', 'unitless',missing_value=-1.0)
 
 
   id_VWS = register_tiled_diag_field ( module_name, 'VWS', axes, time, &
