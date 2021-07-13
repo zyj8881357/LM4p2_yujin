@@ -131,7 +131,7 @@ logical, protected, public :: sat_from_edecay = .true.
 real, protected, public :: sat_from_edecay_parameter = 0.1
 
 logical, protected,public :: do_hlsp_disagg_precip = .FALSE.
-logical, protected,public :: disagg_precip_phase = .TRUE.
+logical, protected,public :: disagg_precip_phase = .FALSE.
 character(32), protected, public :: elev_scale_to_use = "ERMM"
 real,protected,public :: elev_scale = 1050.
 logical, protected,public :: do_hlsp_disagg_tpq = .FALSE.
@@ -1268,9 +1268,10 @@ subroutine hlsp_disagg_precip(cplr2land, use_atmos_T_for_precip_T,use_atmos_T_fo
            endif
            cplr2land%lprec(l,k) = cplr2land%lprec(l,k) + melt_persec
            cplr2land%fprec(l,k) = cplr2land%fprec(l,k) - melt_persec
-           tile%soil%hlsp%precip_T = tfreeze &
-                                   + (hcap_persec*(tile%soil%hlsp%precip_T-tfreeze) - hlf*melt_persec) &
-                                     / ( hcap_persec + (clw-csw)*melt_persec )          
+           if(( hcap_persec + (clw-csw)*melt_persec ).ne.0.) &
+             tile%soil%hlsp%precip_T = tfreeze &
+                                     + (hcap_persec*(tile%soil%hlsp%precip_T-tfreeze) - hlf*melt_persec) &
+                                       / ( hcap_persec + (clw-csw)*melt_persec )          
          endif
        endif
 
