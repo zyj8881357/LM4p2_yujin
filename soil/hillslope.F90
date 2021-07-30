@@ -1157,6 +1157,7 @@ subroutine hlsp_disagg_precip(cplr2land, use_atmos_T_for_precip_T,use_atmos_T_fo
   integer :: year,month,day,hour,minute,second
   real :: hcap_persec, melt_perdeg_persec, melt_persec
   real, dimension(lnd%ls:lnd%le) :: hprec_dis, hprec_nodis, lprec_g, fprec_g, delta_T
+  real :: heat0, heat1
 
   if(.not.use_predefined_tiles) then
     call error_mesg(module_name, 'Currently, hlsp_disagg_precip is only supported with predefined tiles', NOTE)
@@ -1257,21 +1258,29 @@ subroutine hlsp_disagg_precip(cplr2land, use_atmos_T_for_precip_T,use_atmos_T_fo
            tile%soil%hlsp%precip_T = tile%soil%hlsp%precip_T - delta_T(l)
          endif
          if(disagg_precip_phase)then    
-           hcap_persec = clw*cplr2land%lprec(l,k) + csw*cplr2land%fprec(l,k)
-           melt_perdeg_persec = hcap_persec/hlf
+           hcap_persec = clw*cplr2land%lprec(l,k) + csw*cplr2land%fprec(l,k) !J/(kgK)*kg/(m2s)=J/(Km2s)
+           heat0 = hcap_persec*(tile%soil%hlsp%precip_T-tfreeze)-hlf*cplr2land%fprec(l,k) !J/(Km2s) * K - J/kg*kg/(m2s) = J/(m2s)
+           melt_perdeg_persec = hcap_persec/hlf  !J/(Km2s) / J/kg =kg/(Km2s)
            if (cplr2land%fprec(l,k)>0 .and. tile%soil%hlsp%precip_T>tfreeze) then
-             melt_persec =  min(cplr2land%fprec(l,k), (tile%soil%hlsp%precip_T-tfreeze)*melt_perdeg_persec)
+           !  melt_persec =  min(cplr2land%fprec(l,k), (tile%soil%hlsp%precip_T-tfreeze)*melt_perdeg_persec)
+             melt_persec = cplr2land%fprec(l,k) !kg/(m2s)
            else if (cplr2land%lprec(l,k)>0 .and. tile%soil%hlsp%precip_T<tfreeze) then
-             melt_persec = -min(cplr2land%lprec(l,k), (tfreeze-tile%soil%hlsp%precip_T)*melt_perdeg_persec)
+           !  melt_persec = -min(cplr2land%lprec(l,k), (tfreeze-tile%soil%hlsp%precip_T)*melt_perdeg_persec)
+             melt_persec = -cplr2land%lprec(l,k) !kg/(m2s)
            else
              melt_persec = 0.
            endif
            cplr2land%lprec(l,k) = cplr2land%lprec(l,k) + melt_persec
            cplr2land%fprec(l,k) = cplr2land%fprec(l,k) - melt_persec
-           if(( hcap_persec + (clw-csw)*melt_persec ).ne.0.) &
-             tile%soil%hlsp%precip_T = tfreeze &
-                                     + (hcap_persec*(tile%soil%hlsp%precip_T-tfreeze) - hlf*melt_persec) &
-                                       / ( hcap_persec + (clw-csw)*melt_persec )          
+           !if(( hcap_persec + (clw-csw)*melt_persec ).ne.0.) &
+           !  tile%soil%hlsp%precip_T = tfreeze &
+           !                          + (hcap_persec*(tile%soil%hlsp%precip_T-tfreeze) - hlf*melt_persec) &
+           !                            / ( hcap_persec + (clw-csw)*melt_persec )  
+
+           hcap_persec = clw*cplr2land%lprec(l,k) + csw*cplr2land%fprec(l,k) !J/(Km2s)
+           heat1 = hcap_persec*(tile%soil%hlsp%precip_T-tfreeze)-hlf*cplr2land%fprec(l,k) !J/(Km2s)*K - J/kg*kg/(m2s) = J/(m2s) = W/m2
+           tile%soil%hlsp%hprec_e = heat1 - heat0 !W/m2
+           tile%soil%hlsp%tprec_e = tile%soil%hlsp%hprec_e/hcap_persec  !W/m2 / W/(Km2) = K
          endif
        endif
 
