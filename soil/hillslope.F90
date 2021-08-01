@@ -1280,7 +1280,8 @@ subroutine hlsp_disagg_precip(cplr2land, use_atmos_T_for_precip_T,use_atmos_T_fo
            hcap_persec = clw*cplr2land%lprec(l,k) + csw*cplr2land%fprec(l,k) !J/(Km2s)
            heat1 = hcap_persec*(tile%soil%hlsp%precip_T-tfreeze)-hlf*cplr2land%fprec(l,k) !J/(Km2s)*K - J/kg*kg/(m2s) = J/(m2s) = W/m2
            tile%soil%hlsp%hprec_e = heat1 - heat0 !W/m2
-           tile%soil%hlsp%tprec_e = tile%soil%hlsp%hprec_e/hcap_persec  !W/m2 / W/(Km2) = K
+           tile%soil%hlsp%tprec_e = 0.
+           if(hcap_persec>0.) tile%soil%hlsp%tprec_e = tile%soil%hlsp%hprec_e/hcap_persec  !W/m2 / W/(Km2) = K
          endif
        endif
 
