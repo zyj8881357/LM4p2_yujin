@@ -1160,7 +1160,7 @@ subroutine hlsp_disagg_precip(cplr2land, use_atmos_T_for_precip_T,use_atmos_T_fo
   real :: heat0, heat1
 
   if(.not.use_predefined_tiles) then
-    call error_mesg(module_name, 'Currently, hlsp_disagg_precip is only supported with predefined tiles', NOTE)
+    !call error_mesg(module_name, 'Currently, hlsp_disagg_precip is only supported with predefined tiles', NOTE)
     return 
   endif 
 
