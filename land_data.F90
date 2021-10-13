@@ -110,7 +110,8 @@ type :: land_data_type
    real, pointer, dimension(:,:)   :: & !(grid index, tile)
         dws_t_atm      => NULL(),  & ! downscaling weights for temperature
         dws_prec       => NULL(),  & ! downscaling weights for precipitation
-        h_ref          => NULL()
+        h_ref          => NULL(),  &
+        heat_e_pr      => NULL()
 
    real, pointer, dimension(:,:,:)   :: &  ! (grid index, tile, tracer)
         tr    => NULL()              ! tracers, including canopy air specific humidity

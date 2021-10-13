@@ -225,8 +225,8 @@ type :: soil_hlsp_type
 
    real :: precip_T = initval !used only when do_hlsp_disagg_tpq is true
    real :: evap_T = initval !used only when do_hlsp_disagg_tpq is true 
-   real :: hprec_e = initval !used only when do_hlsp_disagg_tpq and disagg_precip_phase is true 
-   real :: tprec_e = initval !used only when do_hlsp_disagg_tpq and disagg_precip_phase is true 
+   real :: hprec_e = 0. !used only when do_hlsp_disagg_tpq and disagg_precip_phase is true 
+   real :: tprec_e = 0. !used only when do_hlsp_disagg_tpq and disagg_precip_phase is true 
 
    real :: lift = initval   
    real :: pratio = initval   

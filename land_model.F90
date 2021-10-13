@@ -117,7 +117,7 @@ use nitrogen_sources_mod, only : nitrogen_sources_init, nitrogen_sources_end, &
 use hillslope_mod, only: do_hillslope_model, retrieve_hlsp_indices, save_hlsp_restart, hlsp_end, &
                          read_hlsp_namelist, hlsp_init, hlsp_config_check, &
                          hlsp_init_predefined, hlsp_disagg_precip, do_hlsp_disagg_precip, &
-                         do_hlsp_disagg_tpq, tlapse
+                         do_hlsp_disagg_tpq, tlapse, hprec_e_to_atm
 use hillslope_hydrology_mod, only: hlsp_hydrology_1, hlsp_hydro_init
 use hdf5
 use predefined_tiles_mod, only : read_predefined_tiles_namelist, &
@@ -147,7 +147,7 @@ public :: Lnd_stock_pe          ! return stocks of conservative quantities
 public set_default_diag_filter, register_tiled_diag_field, send_tile_data, dump_tile_diag_fields
 public send_global_land_diag
 
-public do_hlsp_disagg_tpq, tlapse
+public do_hlsp_disagg_tpq, tlapse, hprec_e_to_atm
 ! ==== end of public interfaces ==============================================
 
 ! ==== module constants ======================================================
@@ -3991,8 +3991,14 @@ subroutine update_land_bc_fast (tile, N, l,k, land2cplr, is_init)
 
   if(use_predefined_tiles.and.associated(tile%soil))then
     land2cplr%h_ref (l,k) = tile%soil%pars%tile_elevation - tile%soil%hlsp%elevmean_g
+    if(hprec_e_to_atm)then
+      land2cplr%heat_e_pr (l,k) = tile%soil%hlsp%hprec_e  !W/m2
+    else
+      land2cplr%heat_e_pr (l,k) = 0.
+    endif
   else
     land2cplr%h_ref (l,k) = 0.
+    land2cplr%heat_e_pr (l,k) = 0.
   endif
 
   if(is_watch_point()) then
@@ -5167,7 +5173,9 @@ subroutine realloc_land2cplr ( bnd )
   bnd%dws_prec = init_value
 
   allocate( bnd%h_ref(lnd%ls:lnd%le,n_tiles) )
+  allocate( bnd%heat_e_pr(lnd%ls:lnd%le,n_tiles) )
   bnd%h_ref = init_value
+  bnd%heat_e_pr = init_value  
 
 end subroutine realloc_land2cplr
 
@@ -5200,6 +5208,7 @@ subroutine dealloc_land2cplr ( bnd, dealloc_discharges )
   __DEALLOC__( bnd%dws_t_atm )
   __DEALLOC__( bnd%dws_prec )
   __DEALLOC__( bnd%h_ref )  
+  __DEALLOC__( bnd%heat_e_pr )    
 
   if (dealloc_discharges) then
      __DEALLOC__( bnd%discharge           )
