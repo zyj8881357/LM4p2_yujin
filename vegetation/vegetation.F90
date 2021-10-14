@@ -1819,6 +1819,7 @@ subroutine vegn_step_1 ( vegn, soil, diag, &
         precip_above_s = precip_under_s
         current_layer = cc(i)%layer
      endif
+
      ! accumulate precipitation under current layer: it is equal to precipitation
      ! above minus the intercepted rainfall
      precip_under_l = precip_under_l - precip_above_l*vegn_ifrac(i)*cc(i)%layerfrac

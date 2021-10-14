@@ -65,6 +65,7 @@ public :: soil_ave_temp  ! calculate average soil temeperature
 public :: soil_ave_theta0! calculate average soil moisture, pcm based on available water, zeta input
 public :: soil_ave_theta1! calculate average soil moisture, ens based on all water
 public :: soil_ave_theta2! like soil_ave_theta1, but includes ice. (SSR)
+public :: soil_ave_theta3
 public :: soil_ave_wetness ! calculate average soil wetness
 public :: soil_theta     ! returns array of soil moisture, for all layers
 public :: soil_psi_stress ! return soil-water-stress index
@@ -368,6 +369,13 @@ type :: soil_tile_type
    real, allocatable :: div_hlsp_NH4(:)  ! dimension (num_l) [kg N/m^2/s] net flux of ammonium out of tile
 
    real :: r_pores ! surface pore radius, m
+   ! For irrigation module
+   real :: irr_demand_ac = 0. !kg/m2
+   real :: irr_rate      = 0. !kg/(m2 s) 
+   real :: hirr_rate     = 0. !W/m2
+   real :: irr_area2frac_input= 0. !m2, per tile frac
+   real :: irr_area2frac_real = 0. !m2, per tile frac
+
 end type soil_tile_type
 
 ! ==== module data ===========================================================
@@ -1721,6 +1729,25 @@ function soil_ave_theta2(soil, depth) result (A) ; real :: A
   A = A/N
 end function soil_ave_theta2
 
+! ============================================================================
+ function soil_ave_theta3(soil, depth, layer) result (A) ; real :: A
+  type(soil_tile_type), intent(in) :: soil
+  real, intent(in)                 :: depth ! m, averaging depth
+  integer, intent(out) :: layer
+  real    :: w ! averaging weight
+  real    :: N ! normalizing factor for averaging
+  integer :: k
+
+  A = 0 ; N = 0
+  do k = 1, num_l
+     w = dz(k) * exp(-zfull(k)/depth) !m
+     A = A +max(soil%wl(k)/(dens_h2o*dz(k)),0.0) * w ! kg/m2 / (kg/m3 * m) * m = m
+     N = N + w !m
+     if (zhalf(k+1).gt.depth) exit
+  enddo
+  A = A/N ! m / m = 1
+  layer = k
+end function soil_ave_theta3
 ! ============================================================================
 ! returns soil surface "wetness" -- fraction of the pores filled with water
 subroutine soil_ave_wetness(soil, depth, SW, SI)
