@@ -334,6 +334,7 @@ integer :: id_mrlsl, id_mrsfl, id_mrsll, id_mrsol, id_mrso, id_mrsos, id_mrlso, 
 
 ! diag of irrigation-ralted variables
 integer :: id_irr_demand, id_irr_area_input, id_irr_area_real, id_root_theta
+integer :: id_irr_rate, id_irr_hrate, id_abst_s, id_habst_s, id_abst_d, id_habst_d
 integer :: id_soil_area, id_soil_frac
 
 ! variables for CMOR/CMIP diagnostic calculations
@@ -1601,8 +1602,23 @@ subroutine soil_diag_init(id_ug,id_band,id_zfull)
        lnd%time, 'upwards flow of soil water at surface; zero if flow into surface', 'mm/s', missing_value=-100.0 )
   id_macro_infilt = register_tiled_diag_field (module_name, 'macro_inf', axes(1:1), &
        lnd%time, 'infiltration (decrease to IE runoff) at soil surface due to vertical macroporosity', 'mm/s', missing_value=-100.0 )
+
   id_irr_demand = register_tiled_diag_field ( module_name, 'irr_demand', axes(1:1), &
        lnd%time, 'irrigation demand rate on soil area, only meaningful when the all demand has been maximized', 'kg/(m2 s)',  missing_value=-100.0 )  
+  id_irr_rate = register_tiled_diag_field ( module_name, 'irr_rate', axes(1:1), &
+       lnd%time, 'actual irrigation rate on soil area', 'kg/(m2 s)',  missing_value=-100.0 )  
+  id_irr_hrate = register_tiled_diag_field ( module_name, 'irr_hrate', axes(1:1), &
+       lnd%time, 'heat associated with actual irrigation rate on soil area', 'W/m2',  missing_value=-100.0 )    
+  id_abst_s = register_tiled_diag_field ( module_name, 'abst_s', axes(1:1), &
+       lnd%time, 'shallow groundwater withdrawal rate', 'kg/(m2 s)',  missing_value=-100.0 )  
+  id_habst_s = register_tiled_diag_field ( module_name, 'habst_s', axes(1:1), &
+       lnd%time, 'heat associated with shallow groundwater withdrawal', 'W/m2',  missing_value=-100.0 )
+  id_abst_d = register_tiled_diag_field ( module_name, 'abst_d', axes(1:1), &
+       lnd%time, 'deep groundwater withdrawal rate', 'kg/(m2 s)',  missing_value=-100.0 )  
+  id_habst_d = register_tiled_diag_field ( module_name, 'habst_d', axes(1:1), &
+       lnd%time, 'heat associated with deep groundwater withdrawal', 'W/m2',  missing_value=-100.0 )
+
+
   id_irr_area_input = register_tiled_diag_field ( module_name, 'irr_area_input', axes(1:1), &
        lnd%time, 'irrigated area from input data', 'm2',  missing_value=-100.0 ) 
   id_irr_area_real = register_tiled_diag_field ( module_name, 'irr_area_real', axes(1:1), &
@@ -1896,6 +1912,11 @@ subroutine save_soil_restart (tile_dim_length, timestamp)
   ! irrigation fields
   call add_tile_data(restart,'irr_rate',  soil_irr_rate_ptr,  'irrigation rate', 'kg/(m2 s)')
   call add_tile_data(restart,'hirr_rate', soil_hirr_rate_ptr, 'heat carried by irrigation', 'W/m2')
+  !call add_tile_data(restart,'abst_s',  soil_abst_s_ptr,  'shallow groundwater withdrawal rate', 'kg/(m2 s)')
+  !call add_tile_data(restart,'habst_s', soil_habst_s_ptr, 'heat with shallow groundwater withdrawal', 'W/m2')
+  !call add_tile_data(restart,'abst_d',  soil_abst_d_ptr,  'deep groundwater withdrawal rate', 'kg/(m2 s)')
+  !call add_tile_data(restart,'habst_d', soil_habst_d_ptr, 'heat with deep groundwater withdrawal', 'W/m2')
+
 
   select case(soil_carbon_option)
   case (SOILC_CENTURY, SOILC_CENTURY_BY_LAYER)
@@ -5608,10 +5629,19 @@ subroutine soil_hlsp_diag()
   type(land_tile_enum_type)     :: ce      ! tile list enumerator
   type(land_tile_type), pointer :: tile    ! pointer to tile
 
+
   do l = lnd%ls, lnd%le
      ce = first_elmt(land_tile_map(l))
      do while (loop_over_tiles(ce,tile,k=k))
        if (.not.associated(tile%soil)) cycle 
+       !some irrigation variables are ouput here
+       call send_tile_data(id_irr_rate, soil%irr_rate, tile%diag) !kg/(m2 s)  
+       call send_tile_data(id_irr_hrate, soil%irr_hrate, tile%diag) !W/m2
+       call send_tile_data(id_abst_s, soil%abst_s, tile%diag)   
+       call send_tile_data(id_habst_s, soil%habst_s, tile%diag) 
+       call send_tile_data(id_abst_d, soil%abst_d, tile%diag)   
+       call send_tile_data(id_habst_d, soil%habst_d, tile%diag) 
+
        call send_tile_data(id_hidx_k2,float(tile%soil%hidx_k),tile%diag)
        call send_tile_data(id_hidx_j2,float(tile%soil%hidx_j),tile%diag)       
        call send_tile_data(id_nk,float(tile%soil%hlsp%nk_g), tile%diag)
@@ -5969,7 +5999,7 @@ subroutine irrigation_deficit()
        call send_tile_data(id_irr_demand, soil%irr_demand_ac/(num_fast_calls*delta_time), tile%diag) !kg/(m2 s)
        call send_tile_data(id_irr_area_input, soil%irr_area2frac_input * atots(l), tile%diag)       
        call send_tile_data(id_irr_area_real, soil%irr_area2frac_real * atots(l), tile%diag)
-       call send_tile_data(id_root_theta, root_theta, tile%diag)
+       call send_tile_data(id_root_theta, root_theta, tile%diag)  
      enddo
  enddo   
 

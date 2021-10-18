@@ -68,7 +68,7 @@ module river_mod
   use constants_mod,       only : PI, RADIAN, tfreeze, DENS_H2O, hlf
   use stock_constants_mod, only : ISTOCK_WATER, ISTOCK_HEAT
   use land_tile_mod,       only : land_tile_map, land_tile_type, land_tile_enum_type, &
-     first_elmt, loop_over_tiles
+     first_elmt, loop_over_tiles, nitems, elmt_at_index
   use land_data_mod,       only : land_data_type, log_version, lnd
   use lake_tile_mod,       only : num_l
   use field_manager_mod, only: fm_field_name_len, fm_string_len, &
@@ -80,6 +80,7 @@ module river_mod
   use table_printer_mod
   use soil_tile_mod,      only : soil_tile_type, num_soil=>num_l, dz_soil=>dz
   use lake_mod,           only : use_reservoir
+  use land_numerics_mod,  only : rank_descending  
 
   implicit none
   private
@@ -805,6 +806,13 @@ end subroutine print_river_tracer_data
     type(land_tile_type), pointer :: tile  ! pointer to current tile
     type(soil_tile_type), pointer :: soil    
     logical :: used
+    integer :: ntiles, nlow
+    real,    allocatable :: priority(:) ! priority of the gw withdrawal for each tile  
+    integer, allocatable :: idx(:)      ! array of tile indices in the descending priority order
+    real :: abst_thres = 1.e-15 !m3      
+    real,    allocatable :: hlsp_irr_demand_gw(:)
+    real :: irr_demand_gw
+
     ! variables for data override
     real, dimension(isc:iec,jsc:jec) :: src_conc, src_flux
     logical :: src_flux_overridden, src_conc_overridden   
@@ -1056,6 +1064,8 @@ end subroutine print_river_tracer_data
     demand_unmet_ug(:) = 0. !m3
     gw_s_abst_ug(:) = 0. ; gw_d_abst_ug(:) = 0. !m3
     gw_s_habst_ug(:) = 0. ; gw_d_habst_ug(:) = 0. !J  
+
+  if(.not.use_predefined_tiles)then
     do l=lnd%ls, lnd%le
       ce = first_elmt(land_tile_map(l))
       do while(loop_over_tiles(ce,tile,k=k))   
@@ -1066,6 +1076,10 @@ end subroutine print_river_tracer_data
         if(tot_demand_full(l)>0.) frac = tile_demand_full/tot_demand_full(l)
         demand_left_tile = frac*irr_demand_ug(l) * DENS_H2O/(tile%frac*lnd%ug_area(l)) !m3 * kg/m3 / m2 = kg/m2
         call groundwater_abstraction(soil, demand_left_tile, shallow_abst, shallow_habst, deep_abst, deep_habst)
+        soil%abst_s = shallow_abst/River%dt_slow
+        soil%habst_s = shallow_habst/River%dt_slow
+        soil%abst_d = deep_abst/River%dt_slow
+        soil%habst_d = deep_habst/River%dt_slow    
         tot_abst = frac*lake_abst_ug(l) * DENS_H2O/(tile%frac*lnd%ug_area(l)) & !m3 * kg/m3 / m2 = kg/m2
                   +frac*river_abst_ug(l) * DENS_H2O/(tile%frac*lnd%ug_area(l)) & !kg/m2
                   +shallow_abst &  !kg/m2
@@ -1084,8 +1098,106 @@ end subroutine print_river_tracer_data
         demand_met_ug(l) = demand_met_ug(l) + soil%irr_rate*River%dt_slow * (tile%frac*lnd%ug_area(l))/DENS_H2O !kg/(m2 s) * s * m2 / kg/m3 = m3               
         demand_unmet_ug(l) = demand_unmet_ug(l) &
                          +(demand_left_tile-shallow_abst-deep_abst) * (tile%frac*lnd%ug_area(l))/DENS_H2O !kg/m2 * m2 / kg/m3 = m3    
+
       enddo
-    enddo     
+    enddo
+  else
+    do l=lnd%ls, lnd%le
+
+    ! calculate withdrawal priorities
+      nk_g = 0
+      ntiles = nitems(land_tile_map(l))
+      allocate(priority(1:ntiles), idx(1:ntiles))
+      priority(:) = -HUGE(1.0)
+      k = 0; 
+      ce = first_elmt(land_tile_map(l))
+      do while (loop_over_tiles(ce,tile))
+        k = k+1
+        if(.not.associated(tile%soil))  cycle ! skip non-soil tiles
+        priority(k) = -tile%soil%pars%tile_elevation
+
+        if(.not.allocated(hlsp_irr_demand_gw))then
+          if(soil%hlsp%nk_g==0) &
+            call mpp_error (FATAL,'nk=0, non-hlsp is not supproted for irrigation with predefined tiling')
+          allocate(hlsp_irr_demand_gw(1:soil%hlsp%nk_g))
+          hlsp_irr_demand_gw(1:soil%hlsp%nk_g) = 0.
+          nk_g = soil%hlsp%nk_g
+        endif
+        tile_demand_full = tile%frac*lnd%ug_area(l) * soil%irr_demand_ac !m2 * kg/m2 = kg
+        frac = 0.
+        if(tot_demand_full(l)>0.) frac = tile_demand_full/tot_demand_full(l)
+        irr_demand_gw = soil%irr_demand_ac * tile%frac*lnd%ug_area(l) / DENS_H2O !kg/m2 * m2 / kg/m3 = m3
+                       -frac*lake_abst_ug(l) & !m3 
+                       -frac*river_abst_ug(l) !m3
+        irr_demand_gw = max(0., irr_demand_gw)  !m3
+        hlsp_irr_demand_gw(soil%hidx_k) = hlsp_irr_demand_gw(soil%hidx_k) + irr_demand_gw !m3
+      enddo
+      call rank_descending(priority, idx)
+
+    DO hidxk = 1, nk_g
+      do k = 1, ntiles
+        tile=>elmt_at_index(land_tile_map(l), idx(k)) 
+        if (.not.associated(tile%soil)) cycle
+        if (soil%hidx_k /= hidxk) cycle
+        soil => tile%soil
+        demand_left_tile = hlsp_irr_demand_gw(hidx_k) * DENS_H2O/(tile%frac*lnd%ug_area(l)) !m3 * kg/m3 / m2 = kg/m2
+        call groundwater_abstraction(soil, demand_left_tile, shallow_abst, shallow_habst, deep_abst, deep_habst)
+        soil%abst_s = shallow_abst/River%dt_slow
+        soil%habst_s = shallow_habst/River%dt_slow
+        deep_abst = 0.
+        deep_habst = 0.
+        demand_left_tile = demand_left_tile - shallow_abst
+        hlsp_irr_demand_gw(hidx_k) = demand_left_tile * (tile%frac*lnd%ug_area(l))/DENS_H2O !kg/m2*m2 / kg/m3 = m3
+        gw_s_abst_ug(l) = gw_s_abst_ug(l) + shallow_abst * (tile%frac*lnd%ug_area(l))/DENS_H2O !kg/m2 * m2 / kg/m3 = m3
+        gw_s_habst_ug(l) = gw_s_habst_ug(l) + shallow_habst * (tile%frac*lnd%ug_area(l)) !J/m2 * m2 = J          
+      enddo
+
+      if(hlsp_irr_demand_gw(hidx_k)>abst_thres .and. do_deep_gw_abst)then
+        ce = first_elmt(land_tile_map(l))
+        do while(loop_over_tiles(ce,tile,k=k))   
+          if (.not.associated(tile%soil)) cycle
+          if (soil%hidx_k /= hidxk) cycle
+          if (tile%soil%hidx_j /= 1) cycle
+          soil => tile%soil
+          deep_abst = hlsp_irr_demand_gw(hidx_k) * DENS_H2O/(tile%frac*lnd%ug_area(l)) !m3 * kg/m3 / m2 = kg/m2
+          deep_habst = clw*(soil%T(num_soil)-tfreeze)*deep_abst !J/m2  
+          soil%abst_d = deep_abst/River%dt_slow
+          soil%habst_d = deep_habst/River%dt_slow        
+          gw_d_abst_ug(l) = gw_d_abst_ug(l) + deep_abst * (tile%frac*lnd%ug_area(l))/DENS_H2O !kg/m2 * m2 / kg/m3 = m3   
+          gw_d_habst_ug(l) = gw_d_habst_ug(l) + deep_habst * (tile%frac*lnd%ug_area(l)) !J/m2 * m2 = J                     
+        enddo
+       ! irr_demand_ug(l) = 0.
+        hlsp_irr_demand_gw(hidx_k) = 0.
+      endif
+    ENDDO
+
+      ce = first_elmt(land_tile_map(l))
+      do while(loop_over_tiles(ce,tile,k=k))   
+        if (.not.associated(tile%soil)) cycle
+        soil => tile%soil
+        tile_demand_full = tile%frac*lnd%ug_area(l) * soil%irr_demand_ac !m2 * kg/m2 = kg
+        frac = 0.
+        if(tot_demand_full(l)>0.) frac = tile_demand_full/tot_demand_full(l)
+        tot_abst = frac*lake_abst_ug(l) * DENS_H2O/(tile%frac*lnd%ug_area(l)) & !m3 * kg/m3 / m2 = kg/m2
+                  +frac*river_abst_ug(l) * DENS_H2O/(tile%frac*lnd%ug_area(l)) & !kg/m2
+                  +frac*gw_s_abst_ug(l) * DENS_H2O/(tile%frac*lnd%ug_area(l)) & 
+                  +frac*gw_d_abst_ug(l) * DENS_H2O/(tile%frac*lnd%ug_area(l)) !kg/m2
+        soil%irr_rate = tot_abst/River%dt_slow !kg/(m2 s)
+        tot_habst = frac*lake_habst_ug(l)/(tile%frac*lnd%ug_area(l)) & !J/m2
+                   +frac*(river_abstflow_c_ug(l,2)*DENS_H2O*River%dt_slow)/(tile%frac*lnd%ug_area(l)) & ! (J m3/kg / s) * kg/m3 * s / m2 = J/m2
+                   +frac*gw_s_habst_ug(l)/(tile%frac*lnd%ug_area(l)) & !J/m2
+                   +frac*gw_d_habst_ug(l)/(tile%frac*lnd%ug_area(l)) !J/m2
+        soil%hirr_rate = tot_habst/River%dt_slow !W/m2
+
+        demand_full_ug(l) =  demand_full_ug(l) + soil%irr_demand_ac * (tile%frac*lnd%ug_area(l))/DENS_H2O !kg/m2 * m2 / kg/m3 = m3
+        demand_met_ug(l) = demand_met_ug(l) + soil%irr_rate*River%dt_slow * (tile%frac*lnd%ug_area(l))/DENS_H2O !kg/(m2 s) * s * m2 / kg/m3 = m3               
+      enddo
+!      demand_unmet_ug(l) = max(0, demand_full_ug(l) - demand_met_ug(l))
+      demand_unmet_ug(l) = sum(hlsp_irr_demand_gw(1:soil%hlsp%nk_g))
+      deallocate(priority, idx, hlsp_irr_demand_gw)
+    enddo    
+  endif
+
     demand_full(:,:) = 0. ; demand_met(:,:) = 0. ; demand_unmet(:,:) = 0. !m3    
     gw_s_abst(:,:) = 0. ; gw_d_abst(:,:) = 0. !m3
     gw_s_habst(:,:) = 0. ; gw_d_habst(:,:) = 0. !J  

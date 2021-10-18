@@ -375,6 +375,10 @@ type :: soil_tile_type
    real :: hirr_rate     = 0. !W/m2
    real :: irr_area2frac_input= 0. !m2, per tile frac
    real :: irr_area2frac_real = 0. !m2, per tile frac
+   real :: abst_s = 0. !kg/(m2 s)
+   real :: habst_s = 0. !W/m2
+   real :: abst_d = 0. !kg/(m2 s)
+   real :: habst_d = 0. !W/m2
 
 end type soil_tile_type
 
