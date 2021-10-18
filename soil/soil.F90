@@ -118,6 +118,7 @@ public :: myc_miner_N_uptake
 public :: redistribute_peat_carbon
 
 public :: irrigation_deficit
+public :: soil_hlsp_diag
 
 ! helper functions that may be better moved elsewhere:
 public :: register_litter_soilc_diag_fields
@@ -334,7 +335,7 @@ integer :: id_mrlsl, id_mrsfl, id_mrsll, id_mrsol, id_mrso, id_mrsos, id_mrlso, 
 
 ! diag of irrigation-ralted variables
 integer :: id_irr_demand, id_irr_area_input, id_irr_area_real, id_root_theta
-integer :: id_irr_rate, id_irr_hrate, id_abst_s, id_habst_s, id_abst_d, id_habst_d
+integer :: id_irr_rate, id_hirr_rate, id_abst_s, id_habst_s, id_abst_d, id_habst_d
 integer :: id_soil_area, id_soil_frac
 
 ! variables for CMOR/CMIP diagnostic calculations
@@ -1607,7 +1608,7 @@ subroutine soil_diag_init(id_ug,id_band,id_zfull)
        lnd%time, 'irrigation demand rate on soil area, only meaningful when the all demand has been maximized', 'kg/(m2 s)',  missing_value=-100.0 )  
   id_irr_rate = register_tiled_diag_field ( module_name, 'irr_rate', axes(1:1), &
        lnd%time, 'actual irrigation rate on soil area', 'kg/(m2 s)',  missing_value=-100.0 )  
-  id_irr_hrate = register_tiled_diag_field ( module_name, 'irr_hrate', axes(1:1), &
+  id_hirr_rate = register_tiled_diag_field ( module_name, 'hirr_rate', axes(1:1), &
        lnd%time, 'heat associated with actual irrigation rate on soil area', 'W/m2',  missing_value=-100.0 )    
   id_abst_s = register_tiled_diag_field ( module_name, 'abst_s', axes(1:1), &
        lnd%time, 'shallow groundwater withdrawal rate', 'kg/(m2 s)',  missing_value=-100.0 )  
@@ -5635,12 +5636,12 @@ subroutine soil_hlsp_diag()
      do while (loop_over_tiles(ce,tile,k=k))
        if (.not.associated(tile%soil)) cycle 
        !some irrigation variables are ouput here
-       call send_tile_data(id_irr_rate, soil%irr_rate, tile%diag) !kg/(m2 s)  
-       call send_tile_data(id_irr_hrate, soil%irr_hrate, tile%diag) !W/m2
-       call send_tile_data(id_abst_s, soil%abst_s, tile%diag)   
-       call send_tile_data(id_habst_s, soil%habst_s, tile%diag) 
-       call send_tile_data(id_abst_d, soil%abst_d, tile%diag)   
-       call send_tile_data(id_habst_d, soil%habst_d, tile%diag) 
+       call send_tile_data(id_irr_rate, tile%soil%irr_rate, tile%diag) !kg/(m2 s)  
+       call send_tile_data(id_hirr_rate, tile%soil%hirr_rate, tile%diag) !W/m2
+       call send_tile_data(id_abst_s, tile%soil%abst_s, tile%diag)   
+       call send_tile_data(id_habst_s, tile%soil%habst_s, tile%diag) 
+       call send_tile_data(id_abst_d, tile%soil%abst_d, tile%diag)   
+       call send_tile_data(id_habst_d, tile%soil%habst_d, tile%diag) 
 
        call send_tile_data(id_hidx_k2,float(tile%soil%hidx_k),tile%diag)
        call send_tile_data(id_hidx_j2,float(tile%soil%hidx_j),tile%diag)       
@@ -5957,7 +5958,7 @@ subroutine irrigation_deficit()
                ! depth for 95% of root according to Jackson distribution
                depth_ave = -log(1.-percentile)*vegn%cohorts(i)%root_zeta !m
                theta_test = soil_ave_theta3(soil, depth_ave, layer) !1
-               soil_target = soil%pars%vwc_wilt + irr_fac*(soil%pars%vwc_fc-soil%pars%vwc_wilt) !1
+               soil_target = soil%w_wilt(1) + irr_fac*(soil%w_fc(1)-soil%w_wilt(1)) !1
                if(theta_test < soil_target.and. vegn%cohorts(i)%lai > 0 .and. soil%ws(1) <= 0.0) then
                  soil_def = max(0., soil_target-theta_test) ! 1
                  time_fac = (num_fast_calls*delta_time) / (irr_tau * seconds_per_year/days_per_year)

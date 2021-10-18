@@ -1582,7 +1582,7 @@ contains
               pos = pos + 1
               send_buffer(pos) = River%outflow_c(i,j,l)
            end do
-           call set_current_point(River%i_tocell(i,j), River%j_tocell(i,j), 1, 0)
+           call set_current_point_sg(River%i_tocell(i,j), River%j_tocell(i,j),1)
            if(is_watch_cell())then
               write(*,*)'i_prev,j_prev:', i,j
               write(*,*)'i,j:',River%i_tocell(i,j), River%j_tocell(i,j)
@@ -1621,7 +1621,7 @@ contains
 
      do j = jsc, jec
         do i = isc, iec
-           call set_current_point(i,j,1,0) ! for debug output
+           call set_current_point_sg(i,j,1) ! for debug output
            do k = 1, nlev(i,j)
               if(is_watch_cell().and.wrk(i,j,k)>0.)then
                 write(*,*)'k:',k
