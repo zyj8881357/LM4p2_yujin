@@ -1081,7 +1081,7 @@ end subroutine print_river_tracer_data
         soil%abst_s = shallow_abst/River%dt_slow
         soil%habst_s = shallow_habst/River%dt_slow
         soil%abst_d = deep_abst/River%dt_slow
-        soil%habst_d = deep_habst/River%dt_slow    
+        soil%habst_d = deep_habst/River%dt_slow   
         tot_abst = frac*lake_abst_ug(l) * DENS_H2O/(tile%frac*lnd%ug_area(l)) & !m3 * kg/m3 / m2 = kg/m2
                   +frac*river_abst_ug(l) * DENS_H2O/(tile%frac*lnd%ug_area(l)) & !kg/m2
                   +shallow_abst &  !kg/m2
@@ -1091,7 +1091,7 @@ end subroutine print_river_tracer_data
                    +frac*(river_abstflow_c_ug(l,2)*DENS_H2O*River%dt_slow)/(tile%frac*lnd%ug_area(l)) & ! (J m3/kg / s) * kg/m3 * s / m2 = J/m2
                    +shallow_habst & !J/m2
                    +deep_habst !J/m2
-        soil%hirr_rate = tot_habst/River%dt_slow !W/m2
+        soil%hirr_rate = tot_habst/River%dt_slow !W/m2     
         gw_s_abst_ug(l) = gw_s_abst_ug(l) + shallow_abst * (tile%frac*lnd%ug_area(l))/DENS_H2O !kg/m2 * m2 / kg/m3 = m3
         gw_d_abst_ug(l) = gw_d_abst_ug(l) + deep_abst * (tile%frac*lnd%ug_area(l))/DENS_H2O !kg/m2 * m2 / kg/m3 = m3  
         gw_s_habst_ug(l) = gw_s_habst_ug(l) + shallow_habst * (tile%frac*lnd%ug_area(l)) !J/m2 * m2 = J  
@@ -1099,8 +1099,14 @@ end subroutine print_river_tracer_data
         demand_full_ug(l) =  demand_full_ug(l) + soil%irr_demand_ac * (tile%frac*lnd%ug_area(l))/DENS_H2O !kg/m2 * m2 / kg/m3 = m3
         demand_met_ug(l) = demand_met_ug(l) + soil%irr_rate*River%dt_slow * (tile%frac*lnd%ug_area(l))/DENS_H2O !kg/(m2 s) * s * m2 / kg/m3 = m3               
         demand_unmet_ug(l) = demand_unmet_ug(l) &
-                         +(demand_left_tile-shallow_abst-deep_abst) * (tile%frac*lnd%ug_area(l))/DENS_H2O !kg/m2 * m2 / kg/m3 = m3    
+                         +(demand_left_tile-shallow_abst-deep_abst) * (tile%frac*lnd%ug_area(l))/DENS_H2O !kg/m2 * m2 / kg/m3 = m3   
 
+        soil%hlsp%irrrate_soil = tot_abst/River%dt_slow !kg/(m2 s)                          
+        soil%hlsp%hirrrate_soil = tot_habst/River%dt_slow !W/m2
+        soil%hlsp%absts_soil = shallow_abst/River%dt_slow
+        soil%hlsp%habsts_soil = shallow_habst/River%dt_slow
+        soil%hlsp%abstd_soil = deep_abst/River%dt_slow
+        soil%hlsp%habstd_soil = deep_habst/River%dt_slow         
       enddo
     enddo
   else
@@ -1146,6 +1152,8 @@ end subroutine print_river_tracer_data
         call groundwater_abstraction(soil, demand_left_tile, shallow_abst, shallow_habst, deep_abst, deep_habst)
         soil%abst_s = shallow_abst/River%dt_slow
         soil%habst_s = shallow_habst/River%dt_slow
+        soil%hlsp%absts_soil = shallow_abst/River%dt_slow
+        soil%hlsp%habsts_soil = shallow_habst/River%dt_slow        
         deep_abst = 0.
         deep_habst = 0.
         demand_left_tile = demand_left_tile - shallow_abst
@@ -1164,7 +1172,9 @@ end subroutine print_river_tracer_data
           deep_abst = hlsp_irr_demand_gw(hidxk) * DENS_H2O/(tile%frac*lnd%ug_area(l)) !m3 * kg/m3 / m2 = kg/m2
           deep_habst = clw*(soil%T(num_soil)-tfreeze)*deep_abst !J/m2  
           soil%abst_d = deep_abst/River%dt_slow
-          soil%habst_d = deep_habst/River%dt_slow        
+          soil%habst_d = deep_habst/River%dt_slow  
+          soil%hlsp%abstd_soil = deep_abst/River%dt_slow
+          soil%hlsp%habstd_soil = deep_habst/River%dt_slow                    
           gw_d_abst_ug(l) = gw_d_abst_ug(l) + deep_abst * (tile%frac*lnd%ug_area(l))/DENS_H2O !kg/m2 * m2 / kg/m3 = m3   
           gw_d_habst_ug(l) = gw_d_habst_ug(l) + deep_habst * (tile%frac*lnd%ug_area(l)) !J/m2 * m2 = J                     
         enddo
@@ -1190,6 +1200,9 @@ end subroutine print_river_tracer_data
                    +frac*gw_s_habst_ug(l)/(tile%frac*lnd%ug_area(l)) & !J/m2
                    +frac*gw_d_habst_ug(l)/(tile%frac*lnd%ug_area(l)) !J/m2
         soil%hirr_rate = tot_habst/River%dt_slow !W/m2
+
+        soil%hlsp%irrrate_soil = tot_abst/River%dt_slow !kg/(m2 s)                          
+        soil%hlsp%hirrrate_soil = tot_habst/River%dt_slow !W/m2        
 
         demand_full_ug(l) =  demand_full_ug(l) + soil%irr_demand_ac * (tile%frac*lnd%ug_area(l))/DENS_H2O !kg/m2 * m2 / kg/m3 = m3
         demand_met_ug(l) = demand_met_ug(l) + soil%irr_rate*River%dt_slow * (tile%frac*lnd%ug_area(l))/DENS_H2O !kg/(m2 s) * s * m2 / kg/m3 = m3               

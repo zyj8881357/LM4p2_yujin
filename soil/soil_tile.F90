@@ -286,6 +286,13 @@ type :: soil_hlsp_type
    real :: npp_vegn = initval
    real :: resp_vegn = initval
    real :: cVeg_vegn = initval
+
+   real :: irrrate_soil = initval
+   real :: hirrrate_soil = initval
+   real :: absts_soil = initval
+   real :: habsts_soil = initval
+   real :: abstd_soil = initval
+   real :: habstd_soil = initval
   
 end type soil_hlsp_type
 

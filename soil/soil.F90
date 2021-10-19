@@ -309,6 +309,8 @@ integer ::  id_transp_land_hlsp, id_precip_land_hlsp, id_precip_l_land_hlsp, id_
     id_lai_land_hlsp, id_sai_land_hlsp, id_treeFrac_land_hlsp, id_melt_land_hlsp, &
     id_meltv_land_hlsp, id_melts_land_hlsp, id_snow_frac_land_hlsp, id_snow_depth_land_hlsp
 integer :: id_gpp_vegn_hlsp, id_npp_vegn_hlsp, id_resp_vegn_hlsp, id_cVeg_vegn_hlsp
+integer :: id_irrrate_soil_hlsp, id_hirrrate_soil_hlsp, id_absts_soil_hlsp, id_habsts_soil_hlsp, &
+           id_abstd_soil_hlsp, id_habstd_soil_hlsp
 integer :: id_hprec_e_hlsp, id_tprec_e_hlsp
 
 ! FIXME: add N leaching terms to diagnostics?
@@ -1329,6 +1331,19 @@ subroutine soil_diag_init(id_ug,id_band,id_zfull)
        lnd%time, 'respiration', 'kg C/(m2 year)', missing_value=initval )
   id_cVeg_vegn_hlsp = register_tiled_diag_field ( module_name, 'cVeg_vegn_hlsp', (/id_ug,id_kj/), &
        lnd%time, 'Carbon Mass in Vegetation', 'kg m-2', missing_value=initval )
+
+  id_irrrate_soil_hlsp = register_tiled_diag_field ( module_name, 'irrrate_soil_hlsp', (/id_ug,id_kj/), &
+       lnd%time, 'actual irrigation rate on soil area', 'kg/(m2 s)', missing_value=initval )  
+  id_hirrrate_soil_hlsp = register_tiled_diag_field ( module_name, 'hirrrate_soil_hlsp', (/id_ug,id_kj/), &
+       lnd%time, 'heat associated with actual irrigation rate on soil area', 'W/m2', missing_value=initval ) 
+  id_absts_soil_hlsp = register_tiled_diag_field ( module_name, 'absts_soil_hlsp', (/id_ug,id_kj/), &
+       lnd%time, 'shallow groundwater withdrawal rate', 'kg/(m2 s)', missing_value=initval )  
+  id_habsts_soil_hlsp = register_tiled_diag_field ( module_name, 'habsts_soil_hlsp', (/id_ug,id_kj/), &
+       lnd%time, 'heat associated with shallow groundwater withdrawal', 'W/m2', missing_value=initval )  
+  id_abstd_soil_hlsp = register_tiled_diag_field ( module_name, 'abstd_soil_hlsp', (/id_ug,id_kj/), &
+       lnd%time, 'deep groundwater withdrawal rate', 'kg/(m2 s)', missing_value=initval )  
+  id_habstd_soil_hlsp = register_tiled_diag_field ( module_name, 'habstd_soil_hlsp', (/id_ug,id_kj/), &
+       lnd%time, 'heat associated with deep groundwater withdrawal', 'W/m2', missing_value=initval )    
 
   id_hprec_e_hlsp = register_tiled_diag_field ( module_name, 'hprec_e_hlsp', (/id_ug,id_kj/), &
        lnd%time, 'energy error due to phase change of precip', 'W/m2', missing_value=initval )
@@ -5709,6 +5724,13 @@ subroutine soil_hlsp_diag()
   call    send_hlsp_data_r0d_fptr(    id_hprec_e_hlsp   ,   soil_hlsp_hprec_e_ptr )  
   call    send_hlsp_data_r0d_fptr(    id_tprec_e_hlsp   ,   soil_hlsp_tprec_e_ptr )   
 
+  call    send_hlsp_data_r0d_fptr(    id_irrrate_soil_hlsp    ,   soil_hlsp_irrrate_soil_ptr  )  
+  call    send_hlsp_data_r0d_fptr(    id_hirrrate_soil_hlsp    ,   soil_hlsp_hirrrate_soil_ptr  )    
+  call    send_hlsp_data_r0d_fptr(    id_absts_soil_hlsp    ,   soil_hlsp_absts_soil_ptr  )    
+  call    send_hlsp_data_r0d_fptr(    id_habsts_soil_hlsp    ,   soil_hlsp_habsts_soil_ptr  )
+  call    send_hlsp_data_r0d_fptr(    id_abstd_soil_hlsp    ,   soil_hlsp_abstd_soil_ptr  )    
+  call    send_hlsp_data_r0d_fptr(    id_habstd_soil_hlsp    ,   soil_hlsp_habstd_soil_ptr  )
+
   call send_hlsp_data_r0d_fptr(id_elev_hlsp, soil_pars_tile_elevation_ptr)  
 
   do l = lnd%ls, lnd%le
@@ -5890,6 +5912,13 @@ DEFINE_SOIL_HLSP_ACCESSOR_0D(real,  gpp_vegn    )
 DEFINE_SOIL_HLSP_ACCESSOR_0D(real,  npp_vegn    )
 DEFINE_SOIL_HLSP_ACCESSOR_0D(real,  resp_vegn   )
 DEFINE_SOIL_HLSP_ACCESSOR_0D(real,  cVeg_vegn   )
+
+DEFINE_SOIL_HLSP_ACCESSOR_0D(real,  irrrate_soil    )
+DEFINE_SOIL_HLSP_ACCESSOR_0D(real,  hirrrate_soil    )
+DEFINE_SOIL_HLSP_ACCESSOR_0D(real,  absts_soil    )
+DEFINE_SOIL_HLSP_ACCESSOR_0D(real,  habsts_soil    )
+DEFINE_SOIL_HLSP_ACCESSOR_0D(real,  abstd_soil    )
+DEFINE_SOIL_HLSP_ACCESSOR_0D(real,  habstd_soil    )
 
 DEFINE_SOIL_HLSP_ACCESSOR_0D(real,  hprec_e   )
 DEFINE_SOIL_HLSP_ACCESSOR_0D(real,  tprec_e   )
