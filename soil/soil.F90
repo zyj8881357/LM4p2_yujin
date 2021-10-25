@@ -302,6 +302,7 @@ integer ::  id_transp_land_hlsp, id_precip_land_hlsp, id_precip_l_land_hlsp, id_
     id_meltv_land_hlsp, id_melts_land_hlsp, id_snow_frac_land_hlsp, id_snow_depth_land_hlsp
 integer :: id_gpp_vegn_hlsp, id_npp_vegn_hlsp, id_resp_vegn_hlsp, id_cVeg_vegn_hlsp
 integer :: id_hprec_e_hlsp, id_tprec_e_hlsp
+integer :: id_hprec_e
 
 ! FIXME: add N leaching terms to diagnostics?
 
@@ -1317,6 +1318,9 @@ subroutine soil_diag_init(id_ug,id_band,id_zfull)
        lnd%time, 'energy error due to phase change of precip', 'W/m2', missing_value=initval )
   id_tprec_e_hlsp = register_tiled_diag_field ( module_name, 'tprec_e_hlsp', (/id_ug,id_kj/), &
        lnd%time, 'temperature change for energy error', 'W/m2', missing_value=initval )
+
+  id_hprec_e = register_tiled_diag_field ( module_name, 'hprec_e', axes(1:1), &
+       lnd%time, 'energy error due to phase change of precip', 'W/m2', missing_value=initval )
 
   ! by-carbon-species diag fields
   id_soil_C(:) = register_soilc_diag_fields(module_name, '<ctype>_soil_C', &
@@ -5587,6 +5591,7 @@ subroutine soil_hlsp_diag()
        call send_tile_data(id_elevmean, tile%soil%hlsp%elevmean_g, tile%diag)
        call send_tile_data(id_pslope2p, tile%soil%hlsp%pslope2p_g, tile%diag) 
        call send_tile_data(id_tfrac_hlsp, pack(tile%soil%hlsp%tfrac_g,.true.), tile%diag)  
+       call send_tile_data(id_hprec_e, tile%soil%hlsp%hprec_e, tile%diag)
      enddo
   enddo  
 
