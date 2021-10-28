@@ -9,6 +9,6 @@ The branch named 'irrigation_reservoir' is for the development of irrigation and
 I also tagged the starting point as 'irri_rsv_start'.
 
 There are also some developments in atmospheric model and coupler code. I did not push them here as they are not in the land component. 
-If you are interested about it or have any questions about the code, please contact me by Email yujinz@princeton.edu.
+If you are interested about it or have any questions about the code, please contact me via Email yujinz@princeton.edu.
 
 Thank you!
